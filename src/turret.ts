@@ -1,0 +1,271 @@
+/** Turret types for Gate88 */
+
+import { Vec2, wrapAngle } from './math.js';
+import { Camera } from './camera.js';
+import { Entity, EntityType, Team } from './entities.js';
+import { BuildingBase } from './building.js';
+import { Colors, colorToCSS } from './colors.js';
+import { ENTITY_RADIUS, WEAPON_STATS, DT } from './constants.js';
+
+// ---------------------------------------------------------------------------
+// Base turret
+// ---------------------------------------------------------------------------
+
+export abstract class TurretBase extends BuildingBase {
+  targetEntity: Entity | null = null;
+  fireTimer: number = 0;
+  fireRate: number; // ticks between shots
+  range: number;
+  turretAngle: number = 0;
+
+  constructor(
+    type: EntityType,
+    team: Team,
+    position: Vec2,
+    health: number,
+    fireRate: number,
+    range: number,
+  ) {
+    super(type, team, position, health, ENTITY_RADIUS.building);
+    this.fireRate = fireRate;
+    this.range = range;
+  }
+
+  update(dt: number): void {
+    super.update(dt);
+    if (!this.alive || this.buildProgress < 1) return;
+
+    // Rotate towards target
+    if (this.targetEntity && this.targetEntity.alive) {
+      const desired = this.position.angleTo(this.targetEntity.position);
+      const diff = wrapAngle(desired - this.turretAngle);
+      const rotSpeed = 3.0;
+      if (Math.abs(diff) < rotSpeed * dt) {
+        this.turretAngle = desired;
+      } else {
+        this.turretAngle = wrapAngle(
+          this.turretAngle + Math.sign(diff) * rotSpeed * dt,
+        );
+      }
+    }
+
+    // Tick fire timer
+    if (this.fireTimer > 0) {
+      this.fireTimer -= dt;
+    }
+  }
+
+  /** Check if the turret can fire at its current target. */
+  canFire(): boolean {
+    if (this.fireTimer > 0 || !this.targetEntity || !this.targetEntity.alive) {
+      return false;
+    }
+    const dist = this.position.distanceTo(this.targetEntity.position);
+    return dist <= this.range;
+  }
+
+  /** Consume a shot, resetting the fire timer. */
+  consumeShot(): void {
+    this.fireTimer = this.fireRate * DT;
+  }
+
+  /**
+   * Find and set the nearest valid target from a list of entities.
+   * For most turrets this means nearest enemy; RegenTurret overrides this.
+   */
+  acquireTarget(entities: Entity[]): void {
+    let best: Entity | null = null;
+    let bestDist = this.range;
+    for (const e of entities) {
+      if (!e.alive || e.team === this.team) continue;
+      const d = this.position.distanceTo(e.position);
+      if (d < bestDist) {
+        bestDist = d;
+        best = e;
+      }
+    }
+    this.targetEntity = best;
+  }
+
+  /** Common turret drawing: base ring + barrel line. */
+  protected drawTurretBase(
+    ctx: CanvasRenderingContext2D,
+    screen: Vec2,
+    r: number,
+    detailColor: string,
+  ): void {
+    this.drawBuildingBase(ctx, screen, r, detailColor);
+
+    // Barrel line
+    ctx.strokeStyle = detailColor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(screen.x, screen.y);
+    ctx.lineTo(
+      screen.x + Math.cos(this.turretAngle) * r * 1.1,
+      screen.y + Math.sin(this.turretAngle) * r * 1.1,
+    );
+    ctx.stroke();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MissileTurret
+// ---------------------------------------------------------------------------
+
+export class MissileTurret extends TurretBase {
+  constructor(position: Vec2, team: Team) {
+    super(
+      EntityType.MissileTurret,
+      team,
+      position,
+      80,
+      WEAPON_STATS.missile.fireRate,
+      400,
+    );
+  }
+
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive) return;
+    const screen = camera.worldToScreen(this.position);
+    const r = this.radius * camera.zoom;
+    const detail = colorToCSS(Colors.missileturret_detail);
+    this.drawTurretBase(ctx, screen, r, detail);
+
+    // Small missile shape at barrel tip
+    const tipX = screen.x + Math.cos(this.turretAngle) * r * 0.9;
+    const tipY = screen.y + Math.sin(this.turretAngle) * r * 0.9;
+    ctx.fillStyle = detail;
+    ctx.beginPath();
+    ctx.arc(tipX, tipY, r * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ExciterTurret
+// ---------------------------------------------------------------------------
+
+export class ExciterTurret extends TurretBase {
+  constructor(position: Vec2, team: Team) {
+    super(
+      EntityType.ExciterTurret,
+      team,
+      position,
+      80,
+      WEAPON_STATS.exciterbullet.fireRate,
+      350,
+    );
+  }
+
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive) return;
+    const screen = camera.worldToScreen(this.position);
+    const r = this.radius * camera.zoom;
+    const detail = colorToCSS(Colors.exciterturret_detail);
+    this.drawTurretBase(ctx, screen, r, detail);
+
+    // Double-barrel lines
+    const perpX = -Math.sin(this.turretAngle) * r * 0.2;
+    const perpY = Math.cos(this.turretAngle) * r * 0.2;
+    const endX = Math.cos(this.turretAngle) * r * 1.0;
+    const endY = Math.sin(this.turretAngle) * r * 1.0;
+    ctx.strokeStyle = detail;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(screen.x + perpX, screen.y + perpY);
+    ctx.lineTo(screen.x + perpX + endX, screen.y + perpY + endY);
+    ctx.moveTo(screen.x - perpX, screen.y - perpY);
+    ctx.lineTo(screen.x - perpX + endX, screen.y - perpY + endY);
+    ctx.stroke();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MassDriverTurret
+// ---------------------------------------------------------------------------
+
+export class MassDriverTurret extends TurretBase {
+  constructor(position: Vec2, team: Team) {
+    super(
+      EntityType.MassDriverTurret,
+      team,
+      position,
+      100,
+      WEAPON_STATS.massdriverbullet.fireRate,
+      500,
+    );
+  }
+
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive) return;
+    const screen = camera.worldToScreen(this.position);
+    const r = this.radius * camera.zoom;
+    const detail = colorToCSS(Colors.massdriverturret_detail);
+    this.drawTurretBase(ctx, screen, r, detail);
+
+    // Thick barrel
+    ctx.strokeStyle = detail;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(screen.x, screen.y);
+    ctx.lineTo(
+      screen.x + Math.cos(this.turretAngle) * r * 1.2,
+      screen.y + Math.sin(this.turretAngle) * r * 1.2,
+    );
+    ctx.stroke();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// RegenTurret – heals nearby friendlies instead of attacking
+// ---------------------------------------------------------------------------
+
+export class RegenTurret extends TurretBase {
+  constructor(position: Vec2, team: Team) {
+    super(
+      EntityType.RegenTurret,
+      team,
+      position,
+      80,
+      WEAPON_STATS.regenbullet.fireRate,
+      300,
+    );
+  }
+
+  /** Override: targets the nearest damaged friendly entity. */
+  acquireTarget(entities: Entity[]): void {
+    let best: Entity | null = null;
+    let bestDist = this.range;
+    for (const e of entities) {
+      if (!e.alive || e.team !== this.team) continue;
+      if (e.health >= e.maxHealth) continue;
+      if (e === (this as Entity)) continue;
+      const d = this.position.distanceTo(e.position);
+      if (d < bestDist) {
+        bestDist = d;
+        best = e;
+      }
+    }
+    this.targetEntity = best;
+  }
+
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive) return;
+    const screen = camera.worldToScreen(this.position);
+    const r = this.radius * camera.zoom;
+    const detail = colorToCSS(Colors.regenturret_detail);
+    this.drawTurretBase(ctx, screen, r, detail);
+
+    // Plus / cross symbol
+    ctx.strokeStyle = colorToCSS(Colors.particles_healing);
+    ctx.lineWidth = 2;
+    const s = r * 0.35;
+    ctx.beginPath();
+    ctx.moveTo(screen.x - s, screen.y);
+    ctx.lineTo(screen.x + s, screen.y);
+    ctx.moveTo(screen.x, screen.y - s);
+    ctx.lineTo(screen.x, screen.y + s);
+    ctx.stroke();
+  }
+}
