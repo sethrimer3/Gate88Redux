@@ -303,7 +303,7 @@ export class MainMenu {
         if (options[i].description) {
           ctx.font = '11px "Courier New", monospace';
           ctx.fillStyle = colorToCSS(TextColors.shadow, 0.7);
-          ctx.fillText(options[i].description!, cx, y + 22);
+          ctx.fillText(options[i].description ?? '', cx, y + 22);
         }
       } else {
         ctx.font = '18px "Courier New", monospace';

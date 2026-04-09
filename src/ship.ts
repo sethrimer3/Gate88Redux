@@ -25,6 +25,9 @@ export class PlayerShip extends Entity {
   primaryFireTimer: number = 0;
   specialFireTimer: number = 0;
 
+  /** Accumulated time used for visual effects like the low-battery flash. */
+  drawTime: number = 0;
+
   private braking: boolean = false;
   private strafingLeft: boolean = false;
   private strafingRight: boolean = false;
@@ -63,6 +66,9 @@ export class PlayerShip extends Entity {
 
     // Regenerate battery
     this.battery = Math.min(this.maxBattery, this.battery + BATTERY_REGEN_RATE * dt);
+
+    // Accumulate draw time for visual effects
+    this.drawTime += dt;
 
     // Tick fire timers
     if (this.primaryFireTimer > 0) this.primaryFireTimer -= dt;
@@ -225,7 +231,7 @@ export class PlayerShip extends Entity {
         ringColor = colorToCSS(Colors.alert2, 0.85);
       } else {
         // Flash at critical level
-        const flash = batteryFrac < 0.15 ? 0.5 + 0.5 * Math.sin(Date.now() * 0.01) : 1;
+        const flash = batteryFrac < 0.15 ? 0.5 + 0.5 * Math.sin(this.drawTime * 10) : 1;
         ringColor = colorToCSS(Colors.alert1, 0.9 * flash);
       }
       ctx.strokeStyle = ringColor;

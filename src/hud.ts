@@ -27,6 +27,7 @@ const MESSAGE_LINE_HEIGHT = 18;
 
 export class HUD {
   private messages: HudMessage[] = [];
+  private animTime: number = 0;
 
   /** Queue a new message to display. */
   showMessage(text: string, color: Color = Colors.general_building, duration: number = DEFAULT_DURATION): void {
@@ -37,6 +38,7 @@ export class HUD {
   }
 
   update(dt: number): void {
+    this.animTime += dt;
     for (const msg of this.messages) {
       msg.timeLeft -= dt;
     }
@@ -114,7 +116,7 @@ export class HUD {
       barColor = colorToCSS(Colors.alert2, 0.9);
       labelColor = colorToCSS(Colors.alert2, 0.8);
     } else {
-      const flash = frac < 0.15 ? 0.5 + 0.5 * Math.sin(Date.now() * 0.01) : 1;
+      const flash = frac < 0.15 ? 0.5 + 0.5 * Math.sin(this.animTime * 10) : 1;
       barColor = colorToCSS(Colors.alert1, 0.9 * flash);
       labelColor = colorToCSS(Colors.alert1, 0.9 * flash);
     }
