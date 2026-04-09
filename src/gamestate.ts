@@ -9,7 +9,7 @@ import { ProjectileBase, RegenBullet } from './projectile.js';
 import { FighterShip } from './fighter.js';
 import { ParticleSystem } from './particles.js';
 import { Camera } from './camera.js';
-import { RESOURCE_GAIN_RATE, POWERGENERATOR_COVERAGE_RADIUS, COMMANDPOST_BUILD_RADIUS } from './constants.js';
+import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN, POWERGENERATOR_COVERAGE_RADIUS, COMMANDPOST_BUILD_RADIUS } from './constants.js';
 
 export interface ResearchProgress {
   item: string | null;
@@ -251,6 +251,12 @@ export class GameState {
   // -----------------------------------------------------------------------
 
   private accumulateResources(dt: number): void {
+    // Baseline resource gain — player automatically gains resources over time
+    if (this.player.alive) {
+      this.resources += BASELINE_RESOURCE_GAIN * dt;
+    }
+
+    // Bonus from factories
     for (const b of this.buildings) {
       if (
         b.alive &&

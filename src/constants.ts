@@ -176,8 +176,11 @@ export const SHIP_STATS = {
   },
 } as const;
 
-// Resource gain rate (per tick per factory)
+// Resource gain rate (per second per factory, as bonus)
 export const RESOURCE_GAIN_RATE = 0.5;
+
+// Baseline resource gain per second (player auto-gains resources over time)
+export const BASELINE_RESOURCE_GAIN = 2.0;
 
 // Build zone radii
 export const COMMANDPOST_BUILD_RADIUS = 400;

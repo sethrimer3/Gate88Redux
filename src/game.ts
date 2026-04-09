@@ -176,6 +176,20 @@ export class Game {
     // Camera follows player
     this.camera.update(this.state.player.position, DT);
 
+    // Emit exhaust particles when player is thrusting
+    if (Input.isDown('ArrowUp') && this.state.player.alive) {
+      this.state.particles.emitExhaust(
+        this.state.player.position,
+        this.state.player.angle,
+        Team.Player,
+      );
+    }
+
+    // Skip song with N key
+    if (Input.wasPressed('n') || Input.wasPressed('N')) {
+      Audio.skipSong();
+    }
+
     // Player firing
     this.updatePlayerFiring();
 
@@ -199,9 +213,11 @@ export class Game {
 
   private updatePlayerFiring(): void {
     if (!this.state.player.alive) return;
+    // Don't fire when action menu is open or in placement mode
+    if (this.actionMenu.open || this.actionMenu.placementMode) return;
 
-    // Primary fire with spacebar or mouse click
-    if ((Input.isDown(' ') || Input.mouseDown) && this.state.player.canFirePrimary()) {
+    // Primary fire with D key or mouse click (original: D or Joystick Button 1)
+    if ((Input.isDown('d') || Input.isDown('D') || Input.mouseDown) && this.state.player.canFirePrimary()) {
       this.state.player.consumePrimaryFire(PLAYER_FIRE_COOLDOWN);
       const proj = new Bullet(
         Team.Player,
@@ -213,8 +229,8 @@ export class Game {
       Audio.playSound('fire');
     }
 
-    // Secondary fire with shift or right-click
-    if ((Input.isDown('Shift') || Input.mouse2Down) && this.state.player.canFireSpecial()) {
+    // Secondary fire with S key or right-click (original: S or Joystick Button 2)
+    if ((Input.isDown('s') || Input.isDown('S') || Input.mouse2Down) && this.state.player.canFireSpecial()) {
       this.state.player.consumeSpecialFire(WEAPON_STATS.missile.fireRate * DT);
       // Find nearest enemy for homing
       const enemies = this.state.getEnemiesOf(Team.Player);
