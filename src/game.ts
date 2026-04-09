@@ -84,6 +84,7 @@ export class Game {
     this.lastTimestamp = performance.now();
     this.mainMenu.openTitle();
     Audio.playMenuMusic();
+    Audio.loadSounds();
     requestAnimationFrame((t) => this.loop(t));
   }
 
@@ -155,6 +156,7 @@ export class Game {
       case 'quit_to_menu':
         this.phase = 'menu';
         this.mainMenu.openTitle();
+        Audio.stopDriveLoop();
         Audio.stopMusic();
         Audio.playMenuMusic();
         break;
@@ -214,6 +216,18 @@ export class Game {
     // Skip song with N key
     if (Input.wasPressed('n') || Input.wasPressed('N')) {
       Audio.skipSong();
+    }
+
+    // Open radar sound when radar key is first pressed
+    if (Input.wasPressed('w') || Input.wasPressed('W')) {
+      Audio.playSound('openradar');
+    }
+
+    // Player drive loop — run while thrusting
+    if (Input.isDown('ArrowUp') && this.state.player.alive && !this.actionMenu.open) {
+      Audio.startDriveLoop();
+    } else {
+      Audio.stopDriveLoop();
     }
 
     // Player firing
@@ -497,6 +511,7 @@ export class Game {
     // Start game
     this.phase = 'playing';
     this.mainMenu.close();
+    Audio.stopDriveLoop();
     Audio.stopMusic();
     Audio.startPlaylist();
   }
