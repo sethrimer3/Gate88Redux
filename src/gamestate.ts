@@ -187,7 +187,6 @@ export class GameState {
     const dist = proj.position.distanceTo(target.position);
     const combinedRadius = proj.radius + target.radius;
     if (dist < combinedRadius) {
-      const wasAlive = target.alive;
       target.takeDamage(proj.damage, proj);
       this.recentlyDamaged.add(target.id);
       if (!target.alive) {
@@ -214,9 +213,9 @@ export class GameState {
         } else {
           Audio.playSoundAt('explode0', playerDist);
         }
-      } else if (wasAlive) {
+      } else {
+        // Non-fatal hit — play hit sound and emit spark
         this.particles.emitSpark(target.position);
-        // Hit sound
         const playerDist = this.player.position.distanceTo(target.position);
         Audio.playSoundAt('bhit0', playerDist);
       }
