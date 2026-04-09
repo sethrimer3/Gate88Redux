@@ -94,7 +94,7 @@ export class CommandPost extends BuildingBase {
   readonly buildRadius: number = COMMANDPOST_BUILD_RADIUS;
 
   constructor(position: Vec2, team: Team) {
-    super(EntityType.CommandPost, team, position, 200, ENTITY_RADIUS.commandpost);
+    super(EntityType.CommandPost, team, position, 2000, ENTITY_RADIUS.commandpost);
     this.powered = true; // always powered
   }
 

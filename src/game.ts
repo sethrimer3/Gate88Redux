@@ -171,6 +171,11 @@ export class Game {
       return;
     }
 
+    // Action menu is processed FIRST so it can consume arrow keys before the
+    // player ship's handleInput sees them.
+    const menuResult = this.actionMenu.update(this.state);
+    this.handleActionResult(menuResult);
+
     // Update core game state (entities, collision, power, resources, research, particles)
     this.state.update(DT);
 
@@ -178,7 +183,7 @@ export class Game {
     this.camera.update(this.state.player.position, DT);
 
     // Emit exhaust particles when player is thrusting
-    if (Input.isDown('ArrowUp') && this.state.player.alive) {
+    if (Input.isDown('ArrowUp') && this.state.player.alive && !this.actionMenu.open) {
       this.state.particles.emitExhaust(
         this.state.player.position,
         this.state.player.angle,
@@ -216,10 +221,6 @@ export class Game {
 
     // Player ship fighter spawning from shipyards
     this.updatePlayerShipyards();
-
-    // Action menu
-    const menuResult = this.actionMenu.update(this.state);
-    this.handleActionResult(menuResult);
 
     // HUD
     this.hud.update(DT);
@@ -536,6 +537,9 @@ export class Game {
     // HUD
     this.hud.draw(ctx, w, h);
     this.hud.drawResources(ctx, this.state.resources, w, h);
+    if (this.state.player.alive) {
+      this.hud.drawPlayerEnergy(ctx, this.state.player.battery, this.state.player.maxBattery, w, h);
+    }
 
     // Practice mode score display
     if (this.state.gameMode === 'practice' && !this.practiceMode.gameOver) {

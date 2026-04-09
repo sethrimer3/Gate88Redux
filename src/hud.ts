@@ -85,4 +85,54 @@ export class HUD {
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
     ctx.fillText(`$${Math.floor(resources)}`, screenW - 10, screenH - 10);
   }
+
+  /** Draw the player energy/battery indicator at the bottom-left. */
+  drawPlayerEnergy(
+    ctx: CanvasRenderingContext2D,
+    battery: number,
+    maxBattery: number,
+    screenW: number,
+    screenH: number,
+  ): void {
+    const frac = Math.max(0, Math.min(1, battery / maxBattery));
+    const barW = 80;
+    const barH = 7;
+    const x = 10;
+    const y = screenH - 24;
+
+    // Label
+    ctx.font = '10px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+
+    let barColor: string;
+    let labelColor: string;
+    if (frac > 0.6) {
+      barColor = colorToCSS(Colors.radar_friendly_status, 0.85);
+      labelColor = colorToCSS(Colors.general_building, 0.6);
+    } else if (frac > 0.3) {
+      barColor = colorToCSS(Colors.alert2, 0.9);
+      labelColor = colorToCSS(Colors.alert2, 0.8);
+    } else {
+      const flash = frac < 0.15 ? 0.5 + 0.5 * Math.sin(Date.now() * 0.01) : 1;
+      barColor = colorToCSS(Colors.alert1, 0.9 * flash);
+      labelColor = colorToCSS(Colors.alert1, 0.9 * flash);
+    }
+
+    ctx.fillStyle = labelColor;
+    ctx.fillText('ENERGY', x, y - barH - 2);
+
+    // Background track
+    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.2);
+    ctx.fillRect(x, y - barH, barW, barH);
+
+    // Filled portion
+    ctx.fillStyle = barColor;
+    ctx.fillRect(x, y - barH, barW * frac, barH);
+
+    // Border
+    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.35);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y - barH, barW, barH);
+  }
 }

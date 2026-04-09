@@ -238,45 +238,33 @@ export class ActionMenu {
       }
     }
 
-    // Placement mode confirm
-    if (this.placementMode) {
-      if (Input.wasPressed('Enter') || Input.wasPressed(' ')) {
-        const result: MenuResult = {
-          action: 'build',
-          buildingType: this.placementType!,
-        };
-        this.placementMode = false;
-        this.placementType = null;
-        return result;
-      }
-      if (Input.wasPressed('Escape')) {
-        this.placementMode = false;
-        this.placementType = null;
-      }
-      return { action: 'none' };
-    }
-
     if (!this.open) return { action: 'none' };
 
     const currentItems = this.currentMenuItems(state);
     if (currentItems.length === 0) return { action: 'none' };
 
-    // Navigate by arrow keys
-    if (Input.wasPressed('ArrowUp')) {
-      const idx = currentItems.findIndex((i) => i.direction === 'up');
-      if (idx >= 0) { this.selectedIndex = idx; Audio.playSound('menucursor'); }
-    }
-    if (Input.wasPressed('ArrowDown')) {
-      const idx = currentItems.findIndex((i) => i.direction === 'down');
-      if (idx >= 0) { this.selectedIndex = idx; Audio.playSound('menucursor'); }
-    }
-    if (Input.wasPressed('ArrowLeft')) {
-      const idx = currentItems.findIndex((i) => i.direction === 'left');
-      if (idx >= 0) { this.selectedIndex = idx; Audio.playSound('menucursor'); }
-    }
-    if (Input.wasPressed('ArrowRight')) {
-      const idx = currentItems.findIndex((i) => i.direction === 'right');
-      if (idx >= 0) { this.selectedIndex = idx; Audio.playSound('menucursor'); }
+    // Consume all arrow keys so they never reach the player ship
+    Input.consumeKey('ArrowUp');
+    Input.consumeKey('ArrowDown');
+    Input.consumeKey('ArrowLeft');
+    Input.consumeKey('ArrowRight');
+
+    // Arrow keys immediately select AND activate the item in that direction
+    const dirMap: Array<['up' | 'down' | 'left' | 'right', string]> = [
+      ['up', 'ArrowUp'],
+      ['down', 'ArrowDown'],
+      ['left', 'ArrowLeft'],
+      ['right', 'ArrowRight'],
+    ];
+    for (const [dir, key] of dirMap) {
+      if (Input.wasPressed(key)) {
+        const idx = currentItems.findIndex((i) => i.direction === dir);
+        if (idx >= 0) {
+          this.selectedIndex = idx;
+          Audio.playSound('menucursor');
+          return this.selectItem(currentItems[idx], state);
+        }
+      }
     }
 
     // Shortcuts
@@ -290,7 +278,7 @@ export class ActionMenu {
       }
     }
 
-    // Confirm selection
+    // Confirm selection with Enter / Space
     if (Input.wasPressed('Enter') || Input.wasPressed(' ')) {
       const sel = currentItems[this.selectedIndex];
       if (sel) {
@@ -325,12 +313,10 @@ export class ActionMenu {
     }
 
     if (item.buildingType) {
-      // Enter placement mode
-      this.placementMode = true;
-      this.placementType = item.buildingType;
+      // Place building immediately at the player's current position (camera center)
       this.open = false;
       this.menuStack = [];
-      return { action: 'startPlacement', buildingType: item.buildingType };
+      return { action: 'build', buildingType: item.buildingType };
     }
 
     if (item.orderGroup !== undefined && item.orderCommand) {
