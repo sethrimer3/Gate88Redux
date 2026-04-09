@@ -100,14 +100,20 @@ export class MainMenu {
 
     const options = this.currentOptions();
 
+    // Pressing Up directly executes the first option; Down executes the last.
     if (Input.wasPressed('ArrowUp')) {
-      this.selectedIndex =
-        (this.selectedIndex - 1 + options.length) % options.length;
-      Audio.playSound('menucursor');
+      this.selectedIndex = 0;
+      const action = options[0].action;
+      Audio.playSound('menuselection');
+      Input.consumeKey('ArrowUp');
+      return action;
     }
     if (Input.wasPressed('ArrowDown')) {
-      this.selectedIndex = (this.selectedIndex + 1) % options.length;
-      Audio.playSound('menucursor');
+      this.selectedIndex = options.length - 1;
+      const action = options[options.length - 1].action;
+      Audio.playSound('menuselection');
+      Input.consumeKey('ArrowDown');
+      return action;
     }
 
     if (Input.wasPressed('Enter') || Input.wasPressed(' ')) {
@@ -275,7 +281,7 @@ export class MainMenu {
     ctx.font = '11px "Courier New", monospace';
     ctx.fillStyle = colorToCSS(TextColors.shadow, 0.5);
     ctx.fillText(
-      'Arrow Keys to navigate, Enter to select',
+      'Up / Down to select',
       cx,
       startY + options.length * lineH + 20,
     );

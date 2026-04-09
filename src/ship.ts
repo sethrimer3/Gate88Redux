@@ -1,19 +1,17 @@
 /** Player ship implementation for Gate88 */
 
-import { Vec2, clamp, wrapAngle } from './math.js';
+import { Vec2, wrapAngle } from './math.js';
 import { Camera } from './camera.js';
 import { Input } from './input.js';
 import { Entity, EntityType, Team } from './entities.js';
 import { Colors, colorToCSS } from './colors.js';
 import { ENTITY_RADIUS, SHIP_STATS } from './constants.js';
 
-const BARREL_ROLL_DURATION = 0.5;
-const BARREL_ROLL_SPIN_RATE = Math.PI * 6;
-const BARREL_ROLL_HITBOX_SCALE = 0.4;
 const BATTERY_MAX = 100;
 const BATTERY_REGEN_RATE = 8;
 const BATTERY_FIRE_COST = 5;
 const BRAKE_FRICTION = 6.0;
+const STRAFE_THRUST_SCALE = 0.8;
 
 export class PlayerShip extends Entity {
   turnRate: number;
@@ -27,9 +25,9 @@ export class PlayerShip extends Entity {
   primaryFireTimer: number = 0;
   specialFireTimer: number = 0;
 
-  private barrelRolling: boolean = false;
-  private barrelRollTimer: number = 0;
   private braking: boolean = false;
+  private strafingLeft: boolean = false;
+  private strafingRight: boolean = false;
 
   constructor(position: Vec2, team: Team = Team.Player) {
     super(
@@ -49,7 +47,6 @@ export class PlayerShip extends Entity {
     if (!this.alive) return;
 
     this.handleInput(dt);
-    this.updateBarrelRoll(dt);
 
     // Apply friction / braking
     const fric = this.braking ? BRAKE_FRICTION : this.friction;
@@ -75,12 +72,28 @@ export class PlayerShip extends Entity {
   private handleInput(dt: number): void {
     this.braking = false;
 
-    // Rotation
-    if (Input.isDown('ArrowLeft')) {
-      this.angle -= this.turnRate * dt;
+    // Activate strafe on double-tap-then-hold left/right
+    if (Input.isDoubleTapDown('ArrowLeft') && Input.isDown('ArrowLeft')) {
+      this.strafingLeft = true;
+      this.strafingRight = false;
     }
-    if (Input.isDown('ArrowRight')) {
-      this.angle += this.turnRate * dt;
+    if (Input.isDoubleTapDown('ArrowRight') && Input.isDown('ArrowRight')) {
+      this.strafingRight = true;
+      this.strafingLeft = false;
+    }
+
+    // Deactivate strafe when the key is released
+    if (!Input.isDown('ArrowLeft')) this.strafingLeft = false;
+    if (!Input.isDown('ArrowRight')) this.strafingRight = false;
+
+    // Rotation – only when not strafing
+    if (!this.strafingLeft && !this.strafingRight) {
+      if (Input.isDown('ArrowLeft')) {
+        this.angle -= this.turnRate * dt;
+      }
+      if (Input.isDown('ArrowRight')) {
+        this.angle += this.turnRate * dt;
+      }
     }
     this.angle = wrapAngle(this.angle);
 
@@ -92,7 +105,7 @@ export class PlayerShip extends Entity {
       this.velocity = this.velocity.add(thrust);
     }
 
-    // Reverse thrust (ArrowDown single press)
+    // Reverse thrust (ArrowDown)
     if (Input.isDown('ArrowDown')) {
       const thrust = new Vec2(Math.cos(this.angle), Math.sin(this.angle)).scale(
         -this.thrustPower * 0.5 * dt,
@@ -100,12 +113,20 @@ export class PlayerShip extends Entity {
       this.velocity = this.velocity.add(thrust);
     }
 
-    // Barrel roll (double-tap left/right)
-    if (
-      !this.barrelRolling &&
-      (Input.isDoubleTapped('ArrowLeft') || Input.isDoubleTapped('ArrowRight'))
-    ) {
-      this.startBarrelRoll();
+    // Strafe thrust (perpendicular to facing direction)
+    if (this.strafingLeft) {
+      const sideAngle = this.angle - Math.PI / 2;
+      const thrust = new Vec2(Math.cos(sideAngle), Math.sin(sideAngle)).scale(
+        this.thrustPower * STRAFE_THRUST_SCALE * dt,
+      );
+      this.velocity = this.velocity.add(thrust);
+    }
+    if (this.strafingRight) {
+      const sideAngle = this.angle + Math.PI / 2;
+      const thrust = new Vec2(Math.cos(sideAngle), Math.sin(sideAngle)).scale(
+        this.thrustPower * STRAFE_THRUST_SCALE * dt,
+      );
+      this.velocity = this.velocity.add(thrust);
     }
 
     // Brake (double-tap down)
@@ -114,27 +135,10 @@ export class PlayerShip extends Entity {
     }
   }
 
-  // --- Barrel roll ---
-
-  private startBarrelRoll(): void {
-    this.barrelRolling = true;
-    this.barrelRollTimer = BARREL_ROLL_DURATION;
-  }
-
-  private updateBarrelRoll(dt: number): void {
-    if (!this.barrelRolling) return;
-    this.barrelRollTimer -= dt;
-    this.angularVel = BARREL_ROLL_SPIN_RATE;
-    this.angle = wrapAngle(this.angle + this.angularVel * dt);
-    if (this.barrelRollTimer <= 0) {
-      this.barrelRolling = false;
-      this.angularVel = 0;
-    }
-  }
-
-  get effectiveRadius(): number {
-    return this.barrelRolling ? this.radius * BARREL_ROLL_HITBOX_SCALE : this.radius;
-  }
+  /** Whether the ship is currently strafing left. */
+  get isStrafingLeft(): boolean { return this.strafingLeft; }
+  /** Whether the ship is currently strafing right. */
+  get isStrafingRight(): boolean { return this.strafingRight; }
 
   // --- Weapons ---
 
@@ -166,6 +170,23 @@ export class PlayerShip extends Entity {
     ctx.save();
     ctx.translate(screen.x, screen.y);
     ctx.rotate(this.angle);
+
+    // Side thruster flames when strafing
+    if (this.strafingLeft || this.strafingRight) {
+      const side = this.strafingLeft ? 1 : -1; // +1 = flame on right side of ship (strafing left)
+      ctx.strokeStyle = colorToCSS(Colors.particles_friendly_exhaust, 0.85);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.2, side * r * 0.7);
+      ctx.lineTo(-r * 0.2, side * (r * 0.7 + r * 0.6));
+      ctx.stroke();
+      ctx.strokeStyle = colorToCSS(Colors.particles_friendly_exhaust, 0.4);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(r * 0.3, side * r * 0.55);
+      ctx.lineTo(r * 0.3, side * (r * 0.55 + r * 0.45));
+      ctx.stroke();
+    }
 
     // Ship body: triangle / arrow shape
     const shipColor =
