@@ -1,0 +1,540 @@
+/** Main game coordinator for Gate88 */
+
+import { Vec2 } from './math.js';
+import { Input } from './input.js';
+import { Audio } from './audio.js';
+import { Camera } from './camera.js';
+import { GameState } from './gamestate.js';
+import { Starfield } from './starfield.js';
+import { drawEdgeIndicators, drawRadarOverlay } from './radar.js';
+import { ActionMenu, MenuResult } from './actionmenu.js';
+import { HUD } from './hud.js';
+import { MainMenu, MenuAction } from './menu.js';
+import { Colors, colorToCSS } from './colors.js';
+import { Team, EntityType, ShipGroup } from './entities.js';
+import { DT, WORLD_WIDTH, WORLD_HEIGHT, BUILDING_COST, BUILD_TIME, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS } from './constants.js';
+import { CommandPost, PowerGenerator, Shipyard, ResearchLab, Factory } from './building.js';
+import { MissileTurret, ExciterTurret, MassDriverTurret, RegenTurret, TurretBase } from './turret.js';
+import { FighterShip, BomberShip } from './fighter.js';
+import { Bullet, Missile } from './projectile.js';
+import { PracticeMode } from './practicemode.js';
+import { TutorialMode } from './tutorial.js';
+
+type GamePhase = 'menu' | 'playing' | 'paused';
+
+const PLAYER_FIRE_COOLDOWN = WEAPON_STATS.fire.fireRate * DT;
+
+export class Game {
+  private canvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
+
+  private camera: Camera;
+  private state: GameState;
+  private starfield: Starfield;
+  private actionMenu: ActionMenu;
+  private hud: HUD;
+  private mainMenu: MainMenu;
+
+  private practiceMode: PracticeMode;
+  private tutorialMode: TutorialMode;
+
+  private phase: GamePhase = 'menu';
+  private lastTimestamp: number = 0;
+  private accumulator: number = 0;
+  private running: boolean = false;
+
+  constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Failed to get 2D context');
+    this.ctx = ctx;
+
+    this.camera = new Camera();
+    this.state = new GameState();
+    this.starfield = new Starfield();
+    this.actionMenu = new ActionMenu();
+    this.hud = new HUD();
+    this.mainMenu = new MainMenu();
+    this.practiceMode = new PracticeMode();
+    this.tutorialMode = new TutorialMode();
+
+    this.resizeCanvas();
+    window.addEventListener('resize', () => this.resizeCanvas());
+  }
+
+  private resizeCanvas(): void {
+    const dpr = window.devicePixelRatio || 1;
+    this.canvas.width = window.innerWidth * dpr;
+    this.canvas.height = window.innerHeight * dpr;
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.camera.setScreenSize(window.innerWidth, window.innerHeight);
+  }
+
+  private get screenW(): number {
+    return window.innerWidth;
+  }
+
+  private get screenH(): number {
+    return window.innerHeight;
+  }
+
+  /** Start the game loop. */
+  start(): void {
+    this.running = true;
+    this.lastTimestamp = performance.now();
+    this.mainMenu.openTitle();
+    Audio.playMenuMusic();
+    requestAnimationFrame((t) => this.loop(t));
+  }
+
+  private loop(timestamp: number): void {
+    if (!this.running) return;
+
+    const rawDt = (timestamp - this.lastTimestamp) / 1000;
+    // Clamp to avoid spiral of death on tab-away
+    const frameDt = Math.min(rawDt, 0.25);
+    this.lastTimestamp = timestamp;
+
+    this.accumulator += frameDt;
+
+    // Fixed-timestep update at 60 Hz
+    while (this.accumulator >= DT) {
+      this.fixedUpdate();
+      this.accumulator -= DT;
+    }
+
+    this.render();
+
+    // Reset per-frame input state after processing
+    Input.update();
+
+    requestAnimationFrame((t) => this.loop(t));
+  }
+
+  // -----------------------------------------------------------------------
+  // Fixed-timestep update (60 Hz)
+  // -----------------------------------------------------------------------
+
+  private fixedUpdate(): void {
+    switch (this.phase) {
+      case 'menu':
+        this.updateMenu();
+        break;
+      case 'playing':
+        this.updatePlaying();
+        break;
+      case 'paused':
+        this.updatePaused();
+        break;
+    }
+  }
+
+  private updateMenu(): void {
+    const action = this.mainMenu.update(DT, this.screenW, this.screenH);
+    this.handleMenuAction(action);
+  }
+
+  private updatePaused(): void {
+    const action = this.mainMenu.update(DT, this.screenW, this.screenH);
+    this.handleMenuAction(action);
+  }
+
+  private handleMenuAction(action: MenuAction): void {
+    switch (action) {
+      case 'tutorial':
+        this.startGame('tutorial');
+        break;
+      case 'practice':
+        this.startGame('practice');
+        break;
+      case 'resume':
+        this.phase = 'playing';
+        this.mainMenu.close();
+        break;
+      case 'quit_to_menu':
+        this.phase = 'menu';
+        this.mainMenu.openTitle();
+        Audio.stopMusic();
+        Audio.playMenuMusic();
+        break;
+      default:
+        break;
+    }
+  }
+
+  private updatePlaying(): void {
+    // ESC -> pause
+    if (Input.wasPressed('Escape') && !this.actionMenu.open && !this.actionMenu.placementMode) {
+      this.phase = 'paused';
+      this.mainMenu.openPause();
+      return;
+    }
+
+    // Update core game state (entities, collision, power, resources, research, particles)
+    this.state.update(DT);
+
+    // Camera follows player
+    this.camera.update(this.state.player.position, DT);
+
+    // Emit exhaust particles when player is thrusting
+    if (Input.isDown('ArrowUp') && this.state.player.alive) {
+      this.state.particles.emitExhaust(
+        this.state.player.position,
+        this.state.player.angle,
+        Team.Player,
+      );
+    }
+
+    // Skip song with N key
+    if (Input.wasPressed('n') || Input.wasPressed('N')) {
+      Audio.skipSong();
+    }
+
+    // Player firing
+    this.updatePlayerFiring();
+
+    // Player ship fighter spawning from shipyards
+    this.updatePlayerShipyards();
+
+    // Action menu
+    const menuResult = this.actionMenu.update(this.state);
+    this.handleActionResult(menuResult);
+
+    // HUD
+    this.hud.update(DT);
+
+    // Mode-specific logic
+    if (this.state.gameMode === 'practice') {
+      this.practiceMode.update(this.state, this.hud, DT);
+    } else if (this.state.gameMode === 'tutorial') {
+      this.tutorialMode.update(this.state, this.hud, DT);
+    }
+  }
+
+  private updatePlayerFiring(): void {
+    if (!this.state.player.alive) return;
+    // Don't fire when action menu is open or in placement mode
+    if (this.actionMenu.open || this.actionMenu.placementMode) return;
+
+    // Primary fire with D key or mouse click (original: D or Joystick Button 1)
+    if ((Input.isDown('d') || Input.isDown('D') || Input.mouseDown) && this.state.player.canFirePrimary()) {
+      this.state.player.consumePrimaryFire(PLAYER_FIRE_COOLDOWN);
+      const proj = new Bullet(
+        Team.Player,
+        this.state.player.position.clone(),
+        this.state.player.angle,
+        this.state.player,
+      );
+      this.state.addEntity(proj);
+      Audio.playSound('fire');
+    }
+
+    // Secondary fire with S key or right-click (original: S or Joystick Button 2)
+    if ((Input.isDown('s') || Input.isDown('S') || Input.mouse2Down) && this.state.player.canFireSpecial()) {
+      this.state.player.consumeSpecialFire(WEAPON_STATS.missile.fireRate * DT);
+      // Find nearest enemy for homing
+      const enemies = this.state.getEnemiesOf(Team.Player);
+      let target = null;
+      let bestDist: number = WEAPON_STATS.missile.range;
+      for (const e of enemies) {
+        const d = this.state.player.position.distanceTo(e.position);
+        if (d < bestDist) {
+          bestDist = d;
+          target = e;
+        }
+      }
+      const proj = new Missile(
+        Team.Player,
+        this.state.player.position.clone(),
+        this.state.player.angle,
+        this.state.player,
+        target,
+      );
+      this.state.addEntity(proj);
+      Audio.playSound('missile');
+    }
+  }
+
+  private updatePlayerShipyards(): void {
+    for (const b of this.state.buildings) {
+      if (!b.alive || b.team !== Team.Player) continue;
+      if (!(b instanceof Shipyard)) continue;
+
+      if (b.shouldSpawnShip()) {
+        const isBomber = b.type === EntityType.BomberYard;
+        const group = ShipGroup.Red; // default to red group
+        const fighter = isBomber
+          ? new BomberShip(b.position.clone(), Team.Player, group, b)
+          : new FighterShip(b.position.clone(), Team.Player, group, b);
+        b.activeShips++;
+        this.state.addEntity(fighter);
+      }
+    }
+  }
+
+  private handleActionResult(result: MenuResult): void {
+    switch (result.action) {
+      case 'build':
+        this.placeBuilding(result.buildingType);
+        break;
+      case 'startPlacement':
+        // Placement mode started — visual handled by ActionMenu
+        break;
+      case 'order':
+        this.issueShipOrder(result.group, result.order);
+        break;
+      case 'research':
+        this.startResearch(result.item);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private placeBuilding(type: string): void {
+    // Place at center of screen (camera target, i.e. player position area)
+    const worldPos = this.camera.screenToWorld(
+      new Vec2(this.screenW * 0.5, this.screenH * 0.5),
+    );
+
+    const costMap: Record<string, number> = {
+      commandpost: 300,
+      powergenerator: BUILDING_COST.powergenerator,
+      fighteryard: BUILDING_COST.fighteryard,
+      bomberyard: BUILDING_COST.bomberyard,
+      researchlab: BUILDING_COST.researchlab,
+      factory: BUILDING_COST.factory,
+      missileturret: BUILDING_COST.missileturret,
+      exciterturret: BUILDING_COST.exciterturret,
+      massdriverturret: BUILDING_COST.massdriverturret,
+      regenturret: BUILDING_COST.regenturret,
+    };
+
+    const cost = costMap[type] ?? 0;
+    if (this.state.resources < cost) {
+      this.hud.showMessage('Not enough resources!', Colors.alert1, 3);
+      return;
+    }
+
+    const buildTimeMap: Record<string, number> = {
+      powergenerator: BUILD_TIME.powergenerator,
+      fighteryard: BUILD_TIME.fighteryard,
+      bomberyard: BUILD_TIME.bomberyard,
+      researchlab: BUILD_TIME.researchlab,
+      factory: BUILD_TIME.factory,
+      missileturret: BUILD_TIME.missileturret,
+      exciterturret: BUILD_TIME.exciterturret,
+      massdriverturret: BUILD_TIME.massdriverturret,
+      regenturret: BUILD_TIME.regenturret,
+    };
+
+    let building;
+    switch (type) {
+      case 'commandpost':
+        building = new CommandPost(worldPos, Team.Player);
+        break;
+      case 'powergenerator':
+        building = new PowerGenerator(worldPos, Team.Player);
+        break;
+      case 'fighteryard':
+        building = new Shipyard(EntityType.FighterYard, worldPos, Team.Player);
+        break;
+      case 'bomberyard':
+        building = new Shipyard(EntityType.BomberYard, worldPos, Team.Player);
+        break;
+      case 'researchlab':
+        building = new ResearchLab(worldPos, Team.Player);
+        break;
+      case 'factory':
+        building = new Factory(worldPos, Team.Player);
+        break;
+      case 'missileturret':
+        building = new MissileTurret(worldPos, Team.Player);
+        break;
+      case 'exciterturret':
+        building = new ExciterTurret(worldPos, Team.Player);
+        break;
+      case 'massdriverturret':
+        building = new MassDriverTurret(worldPos, Team.Player);
+        break;
+      case 'regenturret':
+        building = new RegenTurret(worldPos, Team.Player);
+        break;
+      default:
+        return;
+    }
+
+    // Set build progress (0 = under construction)
+    const buildTicks = buildTimeMap[type];
+    if (buildTicks !== undefined) {
+      building.buildProgress = 0;
+    }
+
+    this.state.resources -= cost;
+    this.state.addEntity(building);
+    Audio.playSound('build');
+    this.hud.showMessage(`Building ${type}...`, Colors.general_building, 2);
+  }
+
+  private issueShipOrder(group: ShipGroup, order: string): void {
+    const fighters = this.state.getFightersByGroup(Team.Player, group);
+
+    switch (order) {
+      case 'attack': {
+        // Set target to nearest enemy building or enemy CP
+        const enemyCP = this.state.getEnemyCommandPost();
+        const target = enemyCP?.position ?? null;
+        for (const f of fighters) {
+          f.order = 'attack';
+          f.targetPos = target?.clone() ?? null;
+          if (f.docked) f.launch();
+        }
+        this.hud.showMessage(`${ShipGroup[group]} group: Attack!`, Colors.general_building, 2);
+        break;
+      }
+      case 'dock':
+        for (const f of fighters) {
+          f.order = 'dock';
+        }
+        this.hud.showMessage(`${ShipGroup[group]} group: Dock`, Colors.general_building, 2);
+        break;
+      case 'settarget': {
+        // Set target to current camera center position
+        const targetPos = this.camera.screenToWorld(
+          new Vec2(this.screenW * 0.5, this.screenH * 0.5),
+        );
+        for (const f of fighters) {
+          f.targetPos = targetPos.clone();
+          f.order = 'attack';
+          if (f.docked) f.launch();
+        }
+        this.hud.showMessage(`${ShipGroup[group]} group: Target set`, Colors.general_building, 2);
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  private startResearch(item: string): void {
+    if (this.state.researchProgress.item) {
+      this.hud.showMessage('Research already in progress!', Colors.alert2, 3);
+      return;
+    }
+
+    const costKey = item as keyof typeof RESEARCH_COST;
+    const timeKey = item as keyof typeof RESEARCH_TIME;
+    const cost = RESEARCH_COST[costKey];
+    const time = RESEARCH_TIME[timeKey];
+
+    if (cost === undefined || time === undefined) return;
+
+    if (this.state.resources < cost) {
+      this.hud.showMessage('Not enough resources for research!', Colors.alert1, 3);
+      return;
+    }
+
+    this.state.resources -= cost;
+    this.state.researchProgress = {
+      item,
+      progress: 0,
+      timeNeeded: time / TICK_RATE,
+    };
+    this.hud.showMessage(`Researching: ${item}`, Colors.researchlab_detail, 3);
+  }
+
+  private startGame(mode: 'tutorial' | 'practice'): void {
+    // Create fresh state
+    const playerStart = new Vec2(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
+    this.state = new GameState(playerStart);
+    this.state.gameMode = mode;
+
+    // Reset subsystems
+    this.camera = new Camera();
+    this.camera.setScreenSize(this.screenW, this.screenH);
+    this.camera.position = playerStart.clone();
+    this.actionMenu = new ActionMenu();
+    this.hud = new HUD();
+
+    // Create player command post near player
+    const cpPos = new Vec2(playerStart.x, playerStart.y + 80);
+    const cp = new CommandPost(cpPos, Team.Player);
+    this.state.addEntity(cp);
+
+    // Set initial resources
+    if (mode === 'tutorial') {
+      this.state.resources = 50000;
+      this.tutorialMode = new TutorialMode();
+      this.tutorialMode.init(this.state, this.hud);
+    } else {
+      this.state.resources = 500;
+      this.practiceMode = new PracticeMode();
+      this.practiceMode.init(this.state, this.hud);
+    }
+
+    // Start game
+    this.phase = 'playing';
+    this.mainMenu.close();
+    Audio.stopMusic();
+    Audio.startPlaylist();
+  }
+
+  // -----------------------------------------------------------------------
+  // Rendering
+  // -----------------------------------------------------------------------
+
+  private render(): void {
+    const ctx = this.ctx;
+    const w = this.screenW;
+    const h = this.screenH;
+
+    // Clear
+    ctx.fillStyle = colorToCSS(Colors.friendly_background);
+    ctx.fillRect(0, 0, w, h);
+
+    if (this.phase === 'menu') {
+      this.mainMenu.draw(ctx, w, h);
+      return;
+    }
+
+    // Draw game world
+    this.starfield.draw(ctx, this.camera, w, h);
+    this.state.drawEntities(ctx, this.camera);
+
+    // Edge indicators (always)
+    drawEdgeIndicators(ctx, this.camera, this.state, w, h);
+
+    // Full radar overlay (hold W)
+    if (Input.isDown('w') || Input.isDown('W')) {
+      drawRadarOverlay(ctx, this.state, w, h);
+    }
+
+    // Action menu
+    this.actionMenu.draw(ctx, this.state, this.camera, w, h);
+
+    // HUD
+    this.hud.draw(ctx, w, h);
+    this.hud.drawResources(ctx, this.state.resources, w, h);
+
+    // Practice mode score display
+    if (this.state.gameMode === 'practice' && !this.practiceMode.gameOver) {
+      this.drawPracticeHUD(ctx, w, h);
+    }
+
+    // Pause overlay
+    if (this.phase === 'paused') {
+      this.mainMenu.draw(ctx, w, h);
+    }
+  }
+
+  private drawPracticeHUD(ctx: CanvasRenderingContext2D, _w: number, _h: number): void {
+    ctx.font = '12px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = colorToCSS(Colors.general_building, 0.7);
+    ctx.fillText(
+      `Bases destroyed: ${this.practiceMode.score.basesDestroyed} | Time: ${Math.floor(this.practiceMode.score.timeSurvived)}s`,
+      10, 10,
+    );
+  }
+}
