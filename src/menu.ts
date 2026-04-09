@@ -20,6 +20,7 @@ export type MenuAction =
 interface MenuOption {
   label: string;
   action: MenuAction;
+  description?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -27,8 +28,8 @@ interface MenuOption {
 // ---------------------------------------------------------------------------
 
 const TITLE_OPTIONS: MenuOption[] = [
-  { label: 'Tutorial', action: 'tutorial' },
-  { label: 'Practice', action: 'practice' },
+  { label: 'Tutorial', action: 'tutorial', description: 'Learn the game — no enemies, infinite resources' },
+  { label: 'Practice', action: 'practice', description: 'Survive waves of enemy bases' },
 ];
 
 const PAUSE_OPTIONS: MenuOption[] = [
@@ -48,7 +49,7 @@ interface BackgroundStar {
   brightness: number;
 }
 
-const BG_STAR_COUNT = 120;
+const BG_STAR_COUNT = 160;
 
 function createBackgroundStars(screenW: number, screenH: number): BackgroundStar[] {
   const stars: BackgroundStar[] = [];
@@ -56,9 +57,9 @@ function createBackgroundStars(screenW: number, screenH: number): BackgroundStar
     stars.push({
       x: Math.random() * screenW,
       y: Math.random() * screenH,
-      speed: 10 + Math.random() * 40,
+      speed: 8 + Math.random() * 35,
       size: 0.5 + Math.random() * 1.5,
-      brightness: 0.2 + Math.random() * 0.8,
+      brightness: 0.15 + Math.random() * 0.85,
     });
   }
   return stars;
@@ -100,20 +101,14 @@ export class MainMenu {
 
     const options = this.currentOptions();
 
-    // Pressing Up directly executes the first option; Down executes the last.
+    // Up / Down navigate; Enter (or Space) confirms
     if (Input.wasPressed('ArrowUp')) {
-      this.selectedIndex = 0;
-      const action = options[0].action;
-      Audio.playSound('menuselection');
-      Input.consumeKey('ArrowUp');
-      return action;
+      this.selectedIndex = (this.selectedIndex - 1 + options.length) % options.length;
+      Audio.playSound('menucursor');
     }
     if (Input.wasPressed('ArrowDown')) {
-      this.selectedIndex = options.length - 1;
-      const action = options[options.length - 1].action;
-      Audio.playSound('menuselection');
-      Input.consumeKey('ArrowDown');
-      return action;
+      this.selectedIndex = (this.selectedIndex + 1) % options.length;
+      Audio.playSound('menucursor');
     }
 
     if (Input.wasPressed('Enter') || Input.wasPressed(' ')) {
@@ -171,24 +166,17 @@ export class MainMenu {
     screenW: number,
     screenH: number,
   ): void {
-    // Dark background
-    ctx.fillStyle = colorToCSS(Colors.menu_background, 0.95);
+    // Very dark background
+    ctx.fillStyle = colorToCSS(Colors.friendly_background, 1.0);
     ctx.fillRect(0, 0, screenW, screenH);
 
-    // Animated stars
+    // Animated scrolling stars
     for (const star of this.bgStars) {
-      ctx.fillStyle = colorToCSS(Colors.friendly_starfield, star.brightness * 0.5);
+      ctx.fillStyle = colorToCSS(Colors.friendly_starfield, star.brightness * 0.6);
       ctx.beginPath();
       ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
       ctx.fill();
     }
-
-    // Subtle gradient overlay for depth
-    const grad = ctx.createLinearGradient(0, 0, screenW, screenH);
-    grad.addColorStop(0, colorToCSS(Colors.menu_background, 0.3));
-    grad.addColorStop(1, colorToCSS(Colors.menu_background_detail, 0.15));
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, screenW, screenH);
   }
 
   private drawTitleScreen(
@@ -199,14 +187,22 @@ export class MainMenu {
     this.drawBackground(ctx, screenW, screenH);
 
     const cx = screenW * 0.5;
+    const titleY = screenH * 0.28;
 
-    // Title "GATE 88"
-    const titleY = screenH * 0.3;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
+    // Decorative horizontal rule above title
+    const ruleW = 320;
+    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.5);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx - ruleW * 0.5, titleY - 36);
+    ctx.lineTo(cx + ruleW * 0.5, titleY - 36);
+    ctx.stroke();
+
     // Shadow
-    ctx.font = 'bold 48px "Courier New", monospace';
+    ctx.font = 'bold 52px "Courier New", monospace';
     ctx.fillStyle = colorToCSS(TextColors.titledark);
     ctx.fillText('GATE 88', cx + 2, titleY + 2);
 
@@ -214,14 +210,28 @@ export class MainMenu {
     ctx.fillStyle = colorToCSS(TextColors.title);
     ctx.fillText('GATE 88', cx, titleY);
 
-    // Pulsing subtitle
-    const subtitleAlpha = 0.4 + 0.3 * Math.sin(this.animTime * 2);
-    ctx.font = '14px "Courier New", monospace';
+    // Decorative horizontal rule below title
+    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.5);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx - ruleW * 0.5, titleY + 36);
+    ctx.lineTo(cx + ruleW * 0.5, titleY + 36);
+    ctx.stroke();
+
+    // Pulsing tagline
+    const subtitleAlpha = 0.35 + 0.25 * Math.sin(this.animTime * 1.8);
+    ctx.font = '13px "Courier New", monospace';
     ctx.fillStyle = colorToCSS(TextColors.shadow, subtitleAlpha);
-    ctx.fillText('A game of space strategy', cx, titleY + 40);
+    ctx.fillText('A game of space strategy', cx, titleY + 56);
 
     // Menu options
-    this.drawOptions(ctx, cx, screenH * 0.55, TITLE_OPTIONS);
+    this.drawOptions(ctx, cx, screenH * 0.52, TITLE_OPTIONS);
+
+    // Bottom: version / hint bar
+    ctx.font = '10px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.35);
+    ctx.fillText('TypeScript Port  |  Press ENTER to play', cx, screenH - 18);
   }
 
   private drawPauseMenu(
@@ -230,17 +240,26 @@ export class MainMenu {
     screenH: number,
   ): void {
     // Semi-transparent overlay
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
     ctx.fillRect(0, 0, screenW, screenH);
 
     const cx = screenW * 0.5;
+    const headerY = screenH * 0.35;
 
-    // "PAUSED" header
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+
+    // "PAUSED" header with underline
     ctx.font = 'bold 32px "Courier New", monospace';
     ctx.fillStyle = colorToCSS(TextColors.title);
-    ctx.fillText('PAUSED', cx, screenH * 0.35);
+    ctx.fillText('PAUSED', cx, headerY);
+    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.5);
+    ctx.lineWidth = 1;
+    const tw = ctx.measureText('PAUSED').width;
+    ctx.beginPath();
+    ctx.moveTo(cx - tw * 0.5, headerY + 22);
+    ctx.lineTo(cx + tw * 0.5, headerY + 22);
+    ctx.stroke();
 
     // Options
     this.drawOptions(ctx, cx, screenH * 0.5, PAUSE_OPTIONS);
@@ -252,11 +271,10 @@ export class MainMenu {
     startY: number,
     options: MenuOption[],
   ): void {
-    ctx.font = '18px "Courier New", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    const lineH = 36;
+    const lineH = 40;
 
     for (let i = 0; i < options.length; i++) {
       const y = startY + i * lineH;
@@ -264,26 +282,46 @@ export class MainMenu {
 
       if (selected) {
         // Highlight bar
-        const barW = 200;
-        ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.15);
-        ctx.fillRect(cx - barW * 0.5, y - lineH * 0.4, barW, lineH * 0.8);
+        const barW = 280;
+        ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.12);
+        ctx.fillRect(cx - barW * 0.5, y - lineH * 0.45, barW, lineH * 0.9);
 
-        // Cursor indicator
+        // Left/right chevron decorations
+        ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.9);
+        ctx.font = '18px "Courier New", monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('>', cx - 120, y);
+        ctx.textAlign = 'right';
+        ctx.fillText('<', cx + 120, y);
+
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 18px "Courier New", monospace';
         ctx.fillStyle = colorToCSS(Colors.radar_friendly_status);
-        ctx.fillText('> ' + options[i].label + ' <', cx, y);
+        ctx.fillText(options[i].label, cx, y);
+
+        // Description line
+        if (options[i].description) {
+          ctx.font = '11px "Courier New", monospace';
+          ctx.fillStyle = colorToCSS(TextColors.shadow, 0.7);
+          ctx.fillText(options[i].description ?? '', cx, y + 22);
+        }
       } else {
-        ctx.fillStyle = colorToCSS(TextColors.normal, 0.7);
+        ctx.font = '18px "Courier New", monospace';
+        ctx.fillStyle = colorToCSS(TextColors.normal, 0.55);
+        ctx.textAlign = 'center';
         ctx.fillText(options[i].label, cx, y);
       }
     }
 
     // Navigation hint
     ctx.font = '11px "Courier New", monospace';
-    ctx.fillStyle = colorToCSS(TextColors.shadow, 0.5);
+    ctx.fillStyle = colorToCSS(TextColors.shadow, 0.4);
+    ctx.textAlign = 'center';
     ctx.fillText(
-      'Up / Down to select',
+      '\u2191 \u2193  Navigate    Enter  Select',
       cx,
-      startY + options.length * lineH + 20,
+      startY + options.length * lineH + 24,
     );
   }
 }
+
