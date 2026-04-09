@@ -10,6 +10,17 @@ import { ENTITY_RADIUS, WEAPON_STATS } from './constants.js';
 // Base projectile
 // ---------------------------------------------------------------------------
 
+export interface ProjectileOptions {
+  type: EntityType;
+  team: Team;
+  position: Vec2;
+  angle: number;
+  damage: number;
+  speed: number;
+  lifetime: number;
+  source?: Entity | null;
+}
+
 export abstract class ProjectileBase extends Entity {
   damage: number;
   speed: number;
@@ -17,28 +28,19 @@ export abstract class ProjectileBase extends Entity {
   maxLifetime: number;
   source: Entity | null;
 
-  constructor(
-    type: EntityType,
-    team: Team,
-    position: Vec2,
-    angle: number,
-    damage: number,
-    speed: number,
-    lifetime: number,
-    source: Entity | null = null,
-  ) {
-    super(type, team, position, 1, ENTITY_RADIUS.bullet);
-    this.angle = angle;
-    this.damage = damage;
-    this.speed = speed;
-    this.lifetime = lifetime;
-    this.maxLifetime = lifetime;
-    this.source = source;
+  constructor(opts: ProjectileOptions) {
+    super(opts.type, opts.team, opts.position, 1, ENTITY_RADIUS.bullet);
+    this.angle = opts.angle;
+    this.damage = opts.damage;
+    this.speed = opts.speed;
+    this.lifetime = opts.lifetime;
+    this.maxLifetime = opts.lifetime;
+    this.source = opts.source ?? null;
 
     // Initial velocity in the direction of the angle
     this.velocity = new Vec2(
-      Math.cos(angle) * speed,
-      Math.sin(angle) * speed,
+      Math.cos(opts.angle) * opts.speed,
+      Math.sin(opts.angle) * opts.speed,
     );
   }
 
@@ -63,16 +65,16 @@ export class Bullet extends ProjectileBase {
     angle: number,
     source: Entity | null = null,
   ) {
-    super(
-      EntityType.Bullet,
+    super({
+      type: EntityType.Bullet,
       team,
       position,
       angle,
-      WEAPON_STATS.fire.damage,
-      WEAPON_STATS.fire.speed,
-      WEAPON_STATS.fire.range / WEAPON_STATS.fire.speed,
+      damage: WEAPON_STATS.fire.damage,
+      speed: WEAPON_STATS.fire.speed,
+      lifetime: WEAPON_STATS.fire.range / WEAPON_STATS.fire.speed,
       source,
-    );
+    });
   }
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
@@ -114,16 +116,16 @@ export class Missile extends ProjectileBase {
     source: Entity | null = null,
     target: Entity | null = null,
   ) {
-    super(
-      EntityType.Missile,
+    super({
+      type: EntityType.Missile,
       team,
       position,
       angle,
-      WEAPON_STATS.missile.damage,
-      WEAPON_STATS.missile.speed,
-      WEAPON_STATS.missile.range / WEAPON_STATS.missile.speed,
+      damage: WEAPON_STATS.missile.damage,
+      speed: WEAPON_STATS.missile.speed,
+      lifetime: WEAPON_STATS.missile.range / WEAPON_STATS.missile.speed,
       source,
-    );
+    });
     this.radius = ENTITY_RADIUS.missile;
     this.targetEntity = target;
   }
@@ -196,16 +198,16 @@ export class Laser extends ProjectileBase {
     source: Entity | null = null,
   ) {
     const angle = startPos.angleTo(targetPos);
-    super(
-      EntityType.Laser,
+    super({
+      type: EntityType.Laser,
       team,
-      startPos,
+      position: startPos,
       angle,
-      WEAPON_STATS.laser.damage,
-      0,
-      0.1, // very short lifetime for visual
+      damage: WEAPON_STATS.laser.damage,
+      speed: 0,
+      lifetime: 0.1,
       source,
-    );
+    });
     this.targetPos = targetPos.clone();
     this.velocity.set(0, 0);
   }
@@ -253,16 +255,16 @@ export class ExciterBullet extends ProjectileBase {
     angle: number,
     source: Entity | null = null,
   ) {
-    super(
-      EntityType.ExciterBullet,
+    super({
+      type: EntityType.ExciterBullet,
       team,
       position,
       angle,
-      WEAPON_STATS.exciterbullet.damage,
-      WEAPON_STATS.exciterbullet.speed,
-      WEAPON_STATS.exciterbullet.range / WEAPON_STATS.exciterbullet.speed,
+      damage: WEAPON_STATS.exciterbullet.damage,
+      speed: WEAPON_STATS.exciterbullet.speed,
+      lifetime: WEAPON_STATS.exciterbullet.range / WEAPON_STATS.exciterbullet.speed,
       source,
-    );
+    });
   }
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
@@ -289,7 +291,16 @@ export class ExciterBeam extends ProjectileBase {
     source: Entity | null = null,
   ) {
     const angle = startPos.angleTo(targetPos);
-    super(EntityType.ExciterBeam, team, startPos, angle, WEAPON_STATS.exciterbeam.damage, 0, 0.08, source);
+    super({
+      type: EntityType.ExciterBeam,
+      team,
+      position: startPos,
+      angle,
+      damage: WEAPON_STATS.exciterbeam.damage,
+      speed: 0,
+      lifetime: 0.08,
+      source,
+    });
     this.targetPos = targetPos.clone();
     this.velocity.set(0, 0);
   }
@@ -324,16 +335,16 @@ export class MassDriverBullet extends ProjectileBase {
     angle: number,
     source: Entity | null = null,
   ) {
-    super(
-      EntityType.MassDriverBullet,
+    super({
+      type: EntityType.MassDriverBullet,
       team,
       position,
       angle,
-      WEAPON_STATS.massdriverbullet.damage,
-      WEAPON_STATS.massdriverbullet.speed,
-      WEAPON_STATS.massdriverbullet.range / WEAPON_STATS.massdriverbullet.speed,
+      damage: WEAPON_STATS.massdriverbullet.damage,
+      speed: WEAPON_STATS.massdriverbullet.speed,
+      lifetime: WEAPON_STATS.massdriverbullet.range / WEAPON_STATS.massdriverbullet.speed,
       source,
-    );
+    });
   }
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
@@ -364,16 +375,16 @@ export class RegenBullet extends ProjectileBase {
     angle: number,
     source: Entity | null = null,
   ) {
-    super(
-      EntityType.RegenBullet,
+    super({
+      type: EntityType.RegenBullet,
       team,
       position,
       angle,
-      WEAPON_STATS.regenbullet.damage, // negative = heals
-      WEAPON_STATS.regenbullet.speed,
-      WEAPON_STATS.regenbullet.range / WEAPON_STATS.regenbullet.speed,
+      damage: WEAPON_STATS.regenbullet.damage,
+      speed: WEAPON_STATS.regenbullet.speed,
+      lifetime: WEAPON_STATS.regenbullet.range / WEAPON_STATS.regenbullet.speed,
       source,
-    );
+    });
   }
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
@@ -399,16 +410,16 @@ export class FireBomb extends ProjectileBase {
     angle: number,
     source: Entity | null = null,
   ) {
-    super(
-      EntityType.FireBomb,
+    super({
+      type: EntityType.FireBomb,
       team,
       position,
       angle,
-      WEAPON_STATS.firebomb.damage,
-      WEAPON_STATS.firebomb.speed,
-      WEAPON_STATS.firebomb.range / WEAPON_STATS.firebomb.speed,
+      damage: WEAPON_STATS.firebomb.damage,
+      speed: WEAPON_STATS.firebomb.speed,
+      lifetime: WEAPON_STATS.firebomb.range / WEAPON_STATS.firebomb.speed,
       source,
-    );
+    });
     this.radius = ENTITY_RADIUS.missile;
   }
 

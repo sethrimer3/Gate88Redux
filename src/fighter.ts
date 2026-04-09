@@ -3,6 +3,7 @@
 import { Vec2, wrapAngle, randomRange } from './math.js';
 import { Camera } from './camera.js';
 import { Entity, EntityType, Team, ShipGroup } from './entities.js';
+import { TICK_RATE } from './constants.js';
 import { Shipyard } from './building.js';
 import { Colors, colorToCSS, Color } from './colors.js';
 import { ENTITY_RADIUS, SHIP_STATS } from './constants.js';
@@ -157,7 +158,7 @@ export class FighterShip extends Entity {
   }
 
   consumeShot(cooldownTicks: number): void {
-    this.fireTimer = cooldownTicks / 60; // convert ticks to seconds
+    this.fireTimer = cooldownTicks / TICK_RATE;
   }
 
   /** Undock from shipyard and take off. */
