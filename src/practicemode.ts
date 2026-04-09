@@ -10,6 +10,7 @@ import { FighterShip } from './fighter.js';
 import { Bullet, Missile } from './projectile.js';
 import { HUD } from './hud.js';
 import { Colors } from './colors.js';
+import { Audio } from './audio.js';
 import { WORLD_WIDTH, WORLD_HEIGHT, DT, WEAPON_STATS } from './constants.js';
 
 const BASE_SPAWN_INTERVAL = 90; // seconds between new enemy bases
@@ -135,6 +136,7 @@ export class PracticeMode {
     state.addEntity(yard);
 
     this.basesSpawned++;
+    Audio.playSound('enemyhere');
   }
 
   private findSpawnPosition(state: GameState): Vec2 {
@@ -181,15 +183,32 @@ export class PracticeMode {
 
       b.consumeShot();
 
+      // Distance to player for audio culling
+      const playerDist = state.player.position.distanceTo(b.position);
+
       // Create appropriate projectile based on turret type
       if (b.type === EntityType.MissileTurret) {
         const proj = new Missile(
           b.team, b.position.clone(), b.turretAngle, b, target,
         );
         state.addEntity(proj);
+        Audio.playSoundAt('missile', playerDist);
+      } else if (b.type === EntityType.ExciterTurret) {
+        const proj = new Bullet(b.team, b.position.clone(), b.turretAngle, b);
+        state.addEntity(proj);
+        Audio.playSoundAt('exciterbullet', playerDist);
+      } else if (b.type === EntityType.MassDriverTurret) {
+        const proj = new Bullet(b.team, b.position.clone(), b.turretAngle, b);
+        state.addEntity(proj);
+        Audio.playSoundAt('massdriverbullet', playerDist);
+      } else if (b.type === EntityType.RegenTurret) {
+        const proj = new Bullet(b.team, b.position.clone(), b.turretAngle, b);
+        state.addEntity(proj);
+        Audio.playSoundAt('regenbullet', playerDist);
       } else {
         const proj = new Bullet(b.team, b.position.clone(), b.turretAngle, b);
         state.addEntity(proj);
+        Audio.playSoundAt('fire', playerDist);
       }
     }
   }

@@ -15,13 +15,13 @@ const SOUND_NAMES = [
 export type SoundName = typeof SOUND_NAMES[number];
 
 const MUSIC_TRACKS = [
-  'disco past the floating clouds',
-  'jam session',
-  'late night driving music',
-  'old spark fizzes',
-  'overdub theory',
-  'rux9',
-  'somewhere east',
+  'queasy - disco past the floating clouds',
+  'queasy - jam session',
+  'queasy - late night driving music',
+  'queasy - old spark fizzes',
+  'queasy - overdub theory',
+  'queasy - rux9',
+  'queasy - somewhere east',
 ] as const;
 
 export type MusicTrack = typeof MUSIC_TRACKS[number];
@@ -159,6 +159,50 @@ class AudioManager {
 
   getMusicVolume(): number {
     return this.musicVolume;
+  }
+
+  // -----------------------------------------------------------------------
+  // Drive / engine loop
+  // -----------------------------------------------------------------------
+
+  private driveSource: AudioBufferSourceNode | null = null;
+
+  /** Start (or keep running) the looped drive engine sound. */
+  startDriveLoop(): void {
+    if (this.driveSource) return;
+    const ctx = this.ensureContext();
+    const buffer = this.soundBuffers.get('drive');
+    if (!buffer || !this.sfxGain) return;
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.loop = true;
+    source.connect(this.sfxGain);
+    source.start(0);
+    this.driveSource = source;
+  }
+
+  /** Stop the looped drive engine sound. */
+  stopDriveLoop(): void {
+    if (this.driveSource) {
+      this.driveSource.stop();
+      this.driveSource = null;
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Spatial / distance-culled helper
+  // -----------------------------------------------------------------------
+
+  /**
+   * Play a sound only if it occurs within hearing range of the player.
+   * @param name - Sound to play.
+   * @param dist - Distance from the player to the event (world units).
+   * @param maxDist - Maximum audible distance (default 800).
+   */
+  playSoundAt(name: SoundName, dist: number, maxDist: number = 800): void {
+    if (dist <= maxDist) {
+      this.playSound(name);
+    }
   }
 }
 

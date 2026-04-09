@@ -9,6 +9,7 @@ import { ProjectileBase, RegenBullet } from './projectile.js';
 import { FighterShip } from './fighter.js';
 import { ParticleSystem } from './particles.js';
 import { Camera } from './camera.js';
+import { Audio } from './audio.js';
 import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN, POWERGENERATOR_COVERAGE_RADIUS, COMMANDPOST_BUILD_RADIUS } from './constants.js';
 
 export interface ResearchProgress {
@@ -186,12 +187,38 @@ export class GameState {
     const dist = proj.position.distanceTo(target.position);
     const combinedRadius = proj.radius + target.radius;
     if (dist < combinedRadius) {
+      const wasAlive = target.alive;
       target.takeDamage(proj.damage, proj);
       this.recentlyDamaged.add(target.id);
       if (!target.alive) {
         this.particles.emitExplosion(target.position, target.radius);
-      } else {
+        // Explosion sound — size depends on entity type
+        const playerDist = this.player.position.distanceTo(target.position);
+        if (
+          target.type === EntityType.CommandPost ||
+          target.type === EntityType.PowerGenerator ||
+          target.type === EntityType.FighterYard ||
+          target.type === EntityType.BomberYard ||
+          target.type === EntityType.ResearchLab ||
+          target.type === EntityType.Factory
+        ) {
+          Audio.playSoundAt('explode2', playerDist);
+        } else if (
+          target.type === EntityType.MissileTurret ||
+          target.type === EntityType.ExciterTurret ||
+          target.type === EntityType.MassDriverTurret ||
+          target.type === EntityType.RegenTurret ||
+          target.type === EntityType.PlayerShip
+        ) {
+          Audio.playSoundAt('explode1', playerDist);
+        } else {
+          Audio.playSoundAt('explode0', playerDist);
+        }
+      } else if (wasAlive) {
         this.particles.emitSpark(target.position);
+        // Hit sound
+        const playerDist = this.player.position.distanceTo(target.position);
+        Audio.playSoundAt('bhit0', playerDist);
       }
       proj.destroy();
       return true;
@@ -292,6 +319,7 @@ export class GameState {
     if (this.researchProgress.progress >= this.researchProgress.timeNeeded) {
       this.researchedItems.add(this.researchProgress.item);
       this.researchProgress = { item: null, progress: 0, timeNeeded: 0 };
+      Audio.playSound('researchcomplete');
     }
   }
 
