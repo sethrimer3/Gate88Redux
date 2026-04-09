@@ -16,6 +16,9 @@ import {
   TICK_RATE,
 } from './constants.js';
 
+/** Rebuild cost for the command post (not in BUILDING_COST since it starts pre-built). */
+const COMMANDPOST_REBUILD_COST = 300;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -105,10 +108,10 @@ function buildGeneralBuildingsMenu(state: GameState): MenuItem[] {
   const cpAlive = state.getPlayerCommandPost() !== null;
   if (!cpAlive) {
     items.push({
-      label: `Command Post ($${BUILDING_COST.powergenerator})`,
+      label: `Command Post ($${COMMANDPOST_REBUILD_COST})`,
       direction: 'up',
       buildingType: 'commandpost',
-      cost: BUILDING_COST.powergenerator,
+      cost: COMMANDPOST_REBUILD_COST,
     });
   }
   items.push(
