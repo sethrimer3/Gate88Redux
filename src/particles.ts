@@ -101,6 +101,51 @@ export class ParticleSystem {
     }
   }
 
+  /**
+   * Emit thruster particles from the side of a ship when strafing.
+   * @param pos      World position of the ship centre
+   * @param angle    Facing angle of the ship (radians)
+   * @param sideSign -1 = strafing left (right-side thruster fires, exhaust exits rightward)
+   *                 +1 = strafing right (left-side thruster fires, exhaust exits leftward)
+   * @param team     Used to select exhaust colour
+   */
+  emitSideExhaust(pos: Vec2, angle: number, sideSign: number, team: Team): void {
+    const count = 2;
+    let color: Color;
+    switch (team) {
+      case Team.Player:
+        color = Colors.particles_friendly_exhaust;
+        break;
+      case Team.Enemy:
+        color = Colors.particles_enemy_exhaust;
+        break;
+      default:
+        color = Colors.particles_neutral_exhaust;
+    }
+    // Thruster is on the opposite side from the strafe direction.
+    // offsetAngle puts the spawn point on the thruster side.
+    // exhaustAngle is opposite to the strafe, matching Newton's 3rd law.
+    const thrusterSide = -sideSign; // opposite side from motion
+    const offsetAngle = angle + (thrusterSide * Math.PI / 2);
+    const exhaustAngle = angle + (thrusterSide * Math.PI / 2);
+    for (let i = 0; i < count; i++) {
+      const p = this.acquire();
+      p.active = true;
+      const offsetDist = randomRange(3, 8);
+      p.x = pos.x + Math.cos(offsetAngle) * offsetDist;
+      p.y = pos.y + Math.sin(offsetAngle) * offsetDist;
+      const spread = randomRange(-0.3, 0.3);
+      const spd = randomRange(25, 60);
+      p.vx = Math.cos(exhaustAngle + spread) * spd;
+      p.vy = Math.sin(exhaustAngle + spread) * spd;
+      p.color = color;
+      p.alpha = 0.9;
+      p.life = randomRange(0.15, 0.35);
+      p.maxLife = p.life;
+      p.size = randomRange(0.8, 2.0);
+    }
+  }
+
   emitExplosion(pos: Vec2, size: number): void {
     const count = Math.floor(12 + size * 2);
     const colors: Color[] = [

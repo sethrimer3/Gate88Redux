@@ -12,6 +12,8 @@ class InputManager {
   /** Timestamps of the last key-up per key, used for double-tap detection. */
   private lastReleaseTimes = new Map<string, number>();
   private doubleTapped = new Set<string>();
+  /** Fired when a key is pressed for the second time within the double-tap window (double-tap-then-hold). */
+  private doubleTapDown = new Set<string>();
 
   mousePos = new Vec2(0, 0);
   mouseDown = false;
@@ -37,6 +39,12 @@ class InputManager {
     const key = e.key;
     if (!this.keysDown.has(key)) {
       this.keysPressed.add(key);
+      // Detect second press within the double-tap window (for double-tap-then-hold)
+      const now = performance.now();
+      const prevRelease = this.lastReleaseTimes.get(key);
+      if (prevRelease !== undefined && now - prevRelease < DOUBLE_TAP_WINDOW_MS) {
+        this.doubleTapDown.add(key);
+      }
     }
     this.keysDown.add(key);
   };
@@ -98,11 +106,26 @@ class InputManager {
     return this.doubleTapped.has(key);
   }
 
+  /** True on the frame the key is pressed for the second time quickly (double-tap-then-hold). */
+  isDoubleTapDown(key: string): boolean {
+    return this.doubleTapDown.has(key);
+  }
+
+  /**
+   * Remove a key from the held/pressed sets so it doesn't bleed through to
+   * other subsystems (e.g. after a menu consumes an arrow-key press).
+   */
+  consumeKey(key: string): void {
+    this.keysDown.delete(key);
+    this.keysPressed.delete(key);
+  }
+
   /** Call once per frame after processing input to reset per-frame states. */
   update(): void {
     this.keysPressed.clear();
     this.keysReleased.clear();
     this.doubleTapped.clear();
+    this.doubleTapDown.clear();
     this.mousePressed = false;
     this.mouseReleased = false;
     this.mouse2Pressed = false;

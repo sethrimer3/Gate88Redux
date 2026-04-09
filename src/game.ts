@@ -97,16 +97,17 @@ export class Game {
 
     this.accumulator += frameDt;
 
-    // Fixed-timestep update at 60 Hz
+    // Fixed-timestep update at 60 Hz.
+    // Input.update() is called after each fixed tick so that per-frame events
+    // (wasPressed, doubleTapped, etc.) are never dropped at high frame rates
+    // and are never processed more than once.
     while (this.accumulator >= DT) {
       this.fixedUpdate();
+      Input.update();
       this.accumulator -= DT;
     }
 
     this.render();
-
-    // Reset per-frame input state after processing
-    Input.update();
 
     requestAnimationFrame((t) => this.loop(t));
   }
@@ -183,6 +184,26 @@ export class Game {
         this.state.player.angle,
         Team.Player,
       );
+    }
+
+    // Emit side exhaust particles when strafing
+    if (this.state.player.alive) {
+      if (this.state.player.isStrafingLeft) {
+        this.state.particles.emitSideExhaust(
+          this.state.player.position,
+          this.state.player.angle,
+          -1,
+          Team.Player,
+        );
+      }
+      if (this.state.player.isStrafingRight) {
+        this.state.particles.emitSideExhaust(
+          this.state.player.position,
+          this.state.player.angle,
+          1,
+          Team.Player,
+        );
+      }
     }
 
     // Skip song with N key
