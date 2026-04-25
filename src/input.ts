@@ -37,6 +37,9 @@ class InputManager {
 
   private onKeyDown = (e: KeyboardEvent): void => {
     const key = e.key;
+    // Tab and certain keys would otherwise move browser focus / scroll the page.
+    // We use Tab as the full-screen radar hold key, so suppress its default.
+    if (key === 'Tab') e.preventDefault();
     if (!this.keysDown.has(key)) {
       this.keysPressed.add(key);
       // Detect second press within the double-tap window (for double-tap-then-hold)

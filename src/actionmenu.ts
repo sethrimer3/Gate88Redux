@@ -224,8 +224,9 @@ export class ActionMenu {
 
   /** Process input and return any resulting action. */
   update(state: GameState): MenuResult {
-    // Toggle open on 'a' key
-    if (Input.isDown('a') || Input.isDown('A')) {
+    // Toggle open on 'e' key (was 'a' before WASD movement; PR2 replaces this
+    // menu with hold-to-open mouse menus on Z/X/C).
+    if (Input.isDown('e') || Input.isDown('E')) {
       if (!this.open && !this.placementMode) {
         this.open = true;
         this.menuStack = [buildMenuTree(state)];

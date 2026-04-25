@@ -49,19 +49,19 @@ export class TutorialMode {
 function createTutorialSteps(): TutorialStep[] {
   return [
     {
-      message: 'Use Arrow Keys to move your ship — Up to thrust, Left/Right to turn',
+      message: 'Use WASD to move your ship — aim with the mouse, left-click to fire',
       trigger: (_s, elapsed) => elapsed >= 2,
       shown: false,
       duration: 8,
     },
     {
-      message: 'Double-tap Left or Right to barrel roll! Double-tap Down to brake.',
+      message: 'Right-click to fire your special ability (homing missile by default)',
       trigger: (_s, elapsed) => elapsed >= 12,
       shown: false,
       duration: 7,
     },
     {
-      message: 'Hold A to open the Action Menu — use arrow keys to navigate it',
+      message: 'Hold E to open the Action Menu — use arrow keys to navigate it',
       trigger: (_s, elapsed) => elapsed >= 22,
       shown: false,
       duration: 7,
@@ -74,7 +74,7 @@ function createTutorialSteps(): TutorialStep[] {
     },
     {
       message: 'Navigate to a location, then press Enter to place a building',
-      trigger: (s, _elapsed) => Input.isDown('a') || Input.isDown('A'),
+      trigger: (s, _elapsed) => Input.isDown('e') || Input.isDown('E'),
       shown: false,
       duration: 6,
     },
@@ -97,7 +97,7 @@ function createTutorialSteps(): TutorialStep[] {
       duration: 7,
     },
     {
-      message: 'Hold W to view the full radar overlay',
+      message: 'Hold Tab to view the full radar overlay',
       trigger: (_s, elapsed) => elapsed >= 80,
       shown: false,
       duration: 6,

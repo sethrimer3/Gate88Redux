@@ -16,9 +16,10 @@ import { DT, WORLD_WIDTH, WORLD_HEIGHT, BUILDING_COST, BUILD_TIME, RESEARCH_COST
 import { CommandPost, PowerGenerator, Shipyard, ResearchLab, Factory } from './building.js';
 import { MissileTurret, ExciterTurret, MassDriverTurret, RegenTurret, TurretBase } from './turret.js';
 import { FighterShip, BomberShip } from './fighter.js';
-import { Bullet, Missile } from './projectile.js';
+import { Bullet } from './projectile.js';
 import { PracticeMode } from './practicemode.js';
 import { TutorialMode } from './tutorial.js';
+import { tryFireSpecial } from './special.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 
@@ -178,22 +179,34 @@ export class Game {
     const menuResult = this.actionMenu.update(this.state);
     this.handleActionResult(menuResult);
 
+    // Update aim point from current mouse position so the ship's mouse-aim
+    // logic in handleInput sees a fresh target this tick.
+    if (this.state.player.alive) {
+      const aimWorld = this.camera.screenToWorld(Input.mousePos);
+      this.state.player.setAimPoint(aimWorld);
+    }
+
     // Update core game state (entities, collision, power, resources, research, particles)
     this.state.update(DT);
 
     // Camera follows player
     this.camera.update(this.state.player.position, DT);
 
-    // Emit exhaust particles when player is thrusting
-    if (Input.isDown('ArrowUp') && this.state.player.alive && !this.actionMenu.open) {
+    // Emit exhaust particles when the player is thrusting (any WASD key).
+    // Exhaust trails opposite the actual thrust direction, which under the new
+    // mouse-aim controls is decoupled from the ship's facing.
+    if (this.state.player.alive && this.state.player.isThrusting && !this.actionMenu.open) {
+      const td = this.state.player.thrustDir;
+      const thrustAngle = Math.atan2(td.y, td.x);
       this.state.particles.emitExhaust(
         this.state.player.position,
-        this.state.player.angle,
+        thrustAngle,
         Team.Player,
       );
     }
 
-    // Emit side exhaust particles when strafing
+    // Emit side exhaust particles when strafing (thrust direction is roughly
+    // perpendicular to the ship's facing — happens naturally with WASD + aim).
     if (this.state.player.alive) {
       if (this.state.player.isStrafingLeft) {
         this.state.particles.emitSideExhaust(
@@ -218,13 +231,13 @@ export class Game {
       Audio.skipSong();
     }
 
-    // Open radar sound when radar key is first pressed
-    if (Input.wasPressed('w') || Input.wasPressed('W')) {
+    // Open radar sound when Tab is first pressed (full-screen radar hold key)
+    if (Input.wasPressed('Tab')) {
       Audio.playSound('openradar');
     }
 
-    // Player drive loop — run while thrusting
-    if (Input.isDown('ArrowUp') && this.state.player.alive && !this.actionMenu.open) {
+    // Player drive loop — run while any WASD movement key is held
+    if (this.state.player.alive && this.state.player.isThrusting && !this.actionMenu.open) {
       Audio.startDriveLoop();
     } else {
       Audio.stopDriveLoop();
@@ -252,8 +265,10 @@ export class Game {
     // Don't fire when action menu is open or in placement mode
     if (this.actionMenu.open || this.actionMenu.placementMode) return;
 
-    // Primary fire with D key or mouse click (original: D or Joystick Button 1)
-    if ((Input.isDown('d') || Input.isDown('D') || Input.mouseDown) && this.state.player.canFirePrimary()) {
+    const aimWorld = this.camera.screenToWorld(Input.mousePos);
+
+    // Primary fire: left mouse button only.
+    if (Input.mouseDown && this.state.player.canFirePrimary()) {
       this.state.player.consumePrimaryFire(PLAYER_FIRE_COOLDOWN);
       const proj = new Bullet(
         Team.Player,
@@ -265,29 +280,11 @@ export class Game {
       Audio.playSound('fire');
     }
 
-    // Secondary fire with S key or right-click (original: S or Joystick Button 2)
-    if ((Input.isDown('s') || Input.isDown('S') || Input.mouse2Down) && this.state.player.canFireSpecial()) {
-      this.state.player.consumeSpecialFire(WEAPON_STATS.missile.fireRate * DT);
-      // Find nearest enemy for homing
-      const enemies = this.state.getEnemiesOf(Team.Player);
-      let target = null;
-      let bestDist: number = WEAPON_STATS.missile.range;
-      for (const e of enemies) {
-        const d = this.state.player.position.distanceTo(e.position);
-        if (d < bestDist) {
-          bestDist = d;
-          target = e;
-        }
-      }
-      const proj = new Missile(
-        Team.Player,
-        this.state.player.position.clone(),
-        this.state.player.angle,
-        this.state.player,
-        target,
-      );
-      this.state.addEntity(proj);
-      Audio.playSound('missile');
+    // Special ability: right mouse button. Routed through the SpecialAbility
+    // registry so future abilities (cloak, dash, time bomb, ...) drop in
+    // without further changes here.
+    if (Input.mouse2Down) {
+      tryFireSpecial(this.state, this.state.player, aimWorld);
     }
   }
 
@@ -541,8 +538,8 @@ export class Game {
     // Edge indicators (always)
     drawEdgeIndicators(ctx, this.camera, this.state, w, h);
 
-    // Full radar overlay (hold W)
-    if (Input.isDown('w') || Input.isDown('W')) {
+    // Full radar overlay (hold Tab)
+    if (Input.isDown('Tab')) {
       drawRadarOverlay(ctx, this.state, w, h);
     }
 
