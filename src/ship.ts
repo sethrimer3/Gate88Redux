@@ -107,9 +107,22 @@ export class PlayerShip extends Entity {
   }
 
   /**
-   * Set the world-space point the ship should aim at. Called by the game loop
-   * each tick from the current mouse cursor position.
+   * Revive the ship at a new position after death (respawn). Preserves
+   * equipped specials and any other configuration that should survive death.
    */
+  revive(position: Vec2): void {
+    this.position = position.clone();
+    this.velocity = new Vec2(0, 0);
+    this.health = this.maxHealth;
+    this.alive = true;
+    this.battery = BATTERY_MAX;
+    this.primaryFireTimer = 0;
+    this.specialFireTimer = 0;
+    this.aimWorld = new Vec2(position.x + 100, position.y);
+    this.thrustDir = new Vec2(0, 0);
+    this.isThrusting = false;
+  }
+
   setAimPoint(world: Vec2): void {
     this.aimWorld = world;
   }

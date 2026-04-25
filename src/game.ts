@@ -25,7 +25,6 @@ import { AIShip, VsAIDirector } from './vsaibot.js';
 import { tryFireSpecial } from './special.js';
 import { getBuildDef } from './builddefs.js';
 import { worldToCell, cellCenter, GRID_CELL_SIZE } from './grid.js';
-import { PlayerShip } from './ship.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 
@@ -335,7 +334,7 @@ export class Game {
         ? new Vec2(cp.position.x, cp.position.y - 60)
         : new Vec2(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
 
-      this.state.player = new PlayerShip(spawnPos, Team.Player);
+      this.state.player.revive(spawnPos);
       this.hud.showMessage('Respawned!', Colors.friendly_status, 2);
     }
   }

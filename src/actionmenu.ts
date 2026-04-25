@@ -434,8 +434,10 @@ class PaintMenu {
     // consume the mouse buttons here — doing so would clear mouseDown before
     // the hold-detection block below, preventing any paint from registering.
     if (Input.mousePressed) {
+      this.dragMode = 'paint';
       this.touchedThisDrag.clear();
     } else if (Input.mouse2Pressed) {
+      this.dragMode = 'erase';
       this.touchedThisDrag.clear();
     }
 
