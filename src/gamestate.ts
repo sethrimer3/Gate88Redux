@@ -10,6 +10,7 @@ import { FighterShip } from './fighter.js';
 import { ParticleSystem } from './particles.js';
 import { Camera } from './camera.js';
 import { Audio } from './audio.js';
+import { WorldGrid, GRID_CELL_SIZE } from './grid.js';
 import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN, POWERGENERATOR_COVERAGE_RADIUS, COMMANDPOST_BUILD_RADIUS } from './constants.js';
 
 export interface ResearchProgress {
@@ -26,6 +27,8 @@ export class GameState {
   projectiles: ProjectileBase[] = [];
   fighters: FighterShip[] = [];
   particles: ParticleSystem;
+  /** PR3: universal world grid storing painted conduits. */
+  grid: WorldGrid = new WorldGrid();
 
   resources: number = 500;
   researchProgress: ResearchProgress = { item: null, progress: 0, timeNeeded: 0 };
@@ -131,6 +134,11 @@ export class GameState {
 
     // Resources from factories
     this.accumulateResources(dt);
+
+    // PR3: ship ↔ conduit interaction. Enemy fighters that pass over a
+    // friendly conduit are dragged (treated as electrified fence) — gives
+    // painted networks defensive value without making them solid walls.
+    this.applyConduitInteraction(dt);
 
     // Research progress
     this.tickResearch(dt);
@@ -302,6 +310,38 @@ export class GameState {
       }
     }
   }
+
+  // -----------------------------------------------------------------------
+  // Conduit interaction (PR3)
+  // -----------------------------------------------------------------------
+
+  /**
+   * Enemy fighters that overlap a friendly conduit cell get a velocity drag
+   * and a tiny damage tick. Friendly ships are unaffected — they may move
+   * freely along painted lanes. Implementation samples each fighter's
+   * containing cell once per tick (O(n) over fighters).
+   */
+  private applyConduitInteraction(dt: number): void {
+    if (this.grid.conduitCount() === 0) return;
+    // 0.5 dmg/sec is enough to discourage parking but not chip-kill in 1s.
+    const CONDUIT_DPS = 0.5;
+    const DRAG_PER_SEC = 1.5;
+    const dragFactor = 1 / (1 + DRAG_PER_SEC * dt);
+    for (const f of this.fighters) {
+      if (!f.alive || f.docked) continue;
+      // Sample the cell under the fighter's current position.
+      const cx = Math.floor(f.position.x / GRID_CELL_SIZE);
+      const cy = Math.floor(f.position.y / GRID_CELL_SIZE);
+      const team = this.grid.conduitTeam(cx, cy);
+      if (team === null) continue;
+      // Only enemy fighters are affected by friendly conduits and vice versa.
+      if (team === f.team) continue;
+      f.velocity = f.velocity.scale(dragFactor);
+      f.takeDamage(CONDUIT_DPS * dt);
+      this.recentlyDamaged.add(f.id);
+    }
+  }
+
 
   // -----------------------------------------------------------------------
   // Research

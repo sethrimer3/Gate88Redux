@@ -17,8 +17,9 @@ import { Colors, colorToCSS } from './colors.js';
 import { Input } from './input.js';
 import { Audio } from './audio.js';
 import { GameState } from './gamestate.js';
-import { ShipGroup, TacticalOrder } from './entities.js';
+import { ShipGroup, TacticalOrder, Team } from './entities.js';
 import { BUILDING_COST, RESEARCH_COST } from './constants.js';
+import { worldToCell, cellKey, GRID_CELL_SIZE } from './grid.js';
 
 /** Rebuild cost for the command post (not in BUILDING_COST since it starts pre-built). */
 const COMMANDPOST_REBUILD_COST = 300;
@@ -387,6 +388,130 @@ class HoldMenu {
 }
 
 // ---------------------------------------------------------------------------
+// PaintMenu — Q-hold conduit paint mode (PR3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Hold Q to enter conduit paint mode. While active:
+ *   - The cell under the mouse cursor is highlighted.
+ *   - LMB (or LMB-drag) paints player conduits.
+ *   - RMB (or RMB-drag) erases conduits.
+ *   - Releasing Q exits paint mode.
+ *
+ * Paint mode sets `ActionMenu.placementMode = true` so primary fire is
+ * suppressed by `Game.updatePlayerFiring()`.
+ *
+ * Painting is rate-limited to one cell change per (cell, drag) so a single
+ * LMB-press can paint a row by dragging without the same cell being touched
+ * dozens of times per second.
+ */
+class PaintMenu {
+  open = false;
+
+  /** Cells already touched during the current drag, to avoid spamming Audio. */
+  private touchedThisDrag = new Set<string>();
+  /** Whether LMB or RMB started the current drag. */
+  private dragMode: 'paint' | 'erase' | null = null;
+
+  /**
+   * Run paint-mode logic. Returns true if the menu is currently active.
+   * Caller is responsible for calling `Input.consumeMouseButton` on the
+   * frame the drag begins so the click doesn't fire a special / weapon.
+   */
+  update(state: GameState, camera: Camera): boolean {
+    const keyDown = Input.isDown('q') || Input.isDown('Q');
+    if (keyDown && !this.open) {
+      this.open = true;
+      this.touchedThisDrag.clear();
+      this.dragMode = null;
+    } else if (!keyDown && this.open) {
+      this.open = false;
+      this.touchedThisDrag.clear();
+      this.dragMode = null;
+      return false;
+    }
+    if (!this.open) return false;
+
+    // Determine current paint/erase state.
+    if (Input.mousePressed) {
+      this.dragMode = 'paint';
+      this.touchedThisDrag.clear();
+      Input.consumeMouseButton(0);
+    } else if (Input.mouse2Pressed) {
+      this.dragMode = 'erase';
+      this.touchedThisDrag.clear();
+      Input.consumeMouseButton(2);
+    }
+
+    if (Input.mouseDown) {
+      this.dragMode = 'paint';
+    } else if (Input.mouse2Down) {
+      this.dragMode = 'erase';
+    } else {
+      this.dragMode = null;
+      this.touchedThisDrag.clear();
+    }
+
+    if (this.dragMode !== null) {
+      const worldPos = camera.screenToWorld(Input.mousePos);
+      const { cx, cy } = worldToCell(worldPos);
+      const key = cellKey(cx, cy);
+      if (!this.touchedThisDrag.has(key)) {
+        this.touchedThisDrag.add(key);
+        if (this.dragMode === 'paint') {
+          if (!state.grid.hasConduit(cx, cy)) {
+            state.grid.addConduit(cx, cy, Team.Player);
+            Audio.playSound('build');
+          }
+        } else if (this.dragMode === 'erase') {
+          if (state.grid.conduitTeam(cx, cy) === Team.Player) {
+            state.grid.removeConduit(cx, cy);
+            Audio.playSound('menucursor');
+          }
+        }
+      }
+    }
+
+    return true;
+  }
+
+  /** Highlight the cell currently under the mouse cursor. */
+  draw(
+    ctx: CanvasRenderingContext2D,
+    state: GameState,
+    camera: Camera,
+    screenW: number,
+    screenH: number,
+  ): void {
+    if (!this.open) return;
+    const worldPos = camera.screenToWorld(Input.mousePos);
+    const cell = worldToCell(worldPos);
+    const mode: 'paint' | 'erase' = this.dragMode === 'erase' ? 'erase' : 'paint';
+    state.grid.drawPaintCursor(ctx, camera, cell, mode);
+
+    // Top-of-screen hint banner.
+    ctx.font = '12px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.85);
+    ctx.fillText(
+      '[Q] Conduit Paint  •  LMB paint  •  RMB erase  •  release Q to exit',
+      screenW * 0.5,
+      24,
+    );
+    // Conduit count for feedback.
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
+    ctx.fillText(
+      `conduits: ${state.grid.conduitCount()}  •  cell ${cell.cx},${cell.cy}  •  ${GRID_CELL_SIZE}u/cell`,
+      screenW * 0.5,
+      40,
+    );
+    void screenH;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // ActionMenu — public façade, same shape as the original so game.ts is minimal
 // ---------------------------------------------------------------------------
 
@@ -394,25 +519,40 @@ export class ActionMenu {
   private buildMenu    = new HoldMenu('z', buildBuildRoot,    '[Z] Build');
   private researchMenu = new HoldMenu('x', buildResearchRoot, '[X] Research');
   private commandMenu  = new HoldMenu('c', buildCommandRoot,  '[C] Command');
+  private paintMenu    = new PaintMenu();
 
-  /** True when any of the three hold menus is currently open. */
+  /** True when any of the four hold menus / paint mode is currently open. */
   open = false;
 
   /**
-   * PR 2: placement mode is always false here.
-   * PR 3 will set this flag when Q-hold grid-paint mode is active.
-   * Kept so existing game.ts guards compile without changes.
+   * PR3: when the Q-hold paint mode is active, `placementMode` is true and
+   * `placementType` is set to 'conduit'. Game.updatePlayerFiring() already
+   * gates fire on `placementMode`, so the LMB used to paint won't fire.
    */
   placementMode = false;
   placementType: string | null = null;
 
   update(state: GameState, camera: Camera): MenuResult {
-    const br = this.buildMenu.update(state, camera);
-    const rr = this.researchMenu.update(state, camera);
-    const cr = this.commandMenu.update(state, camera);
+    // Paint mode runs first so it consumes mouse-down before radial menus see it.
+    const paintOpen = this.paintMenu.update(state, camera);
+    this.placementMode = paintOpen;
+    this.placementType = paintOpen ? 'conduit' : null;
+
+    // Radial menus are mutually exclusive with paint mode.
+    let br: MenuResult = { action: 'none' };
+    let rr: MenuResult = { action: 'none' };
+    let cr: MenuResult = { action: 'none' };
+    if (!paintOpen) {
+      br = this.buildMenu.update(state, camera);
+      rr = this.researchMenu.update(state, camera);
+      cr = this.commandMenu.update(state, camera);
+    }
 
     this.open =
-      this.buildMenu.open || this.researchMenu.open || this.commandMenu.open;
+      paintOpen ||
+      this.buildMenu.open ||
+      this.researchMenu.open ||
+      this.commandMenu.open;
 
     if (br.action !== 'none') return br;
     if (rr.action !== 'none') return rr;
@@ -423,13 +563,14 @@ export class ActionMenu {
   draw(
     ctx: CanvasRenderingContext2D,
     state: GameState,
-    _camera: Camera,
-    _screenW: number,
-    _screenH: number,
+    camera: Camera,
+    screenW: number,
+    screenH: number,
   ): void {
     this.buildMenu.draw(ctx, state);
     this.researchMenu.draw(ctx, state);
     this.commandMenu.draw(ctx, state);
+    this.paintMenu.draw(ctx, state, camera, screenW, screenH);
   }
 }
 

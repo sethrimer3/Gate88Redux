@@ -60,6 +60,12 @@ function createTutorialSteps(): TutorialStep[] {
       duration: 7,
     },
     {
+      message: 'Hold Q to paint conduits — LMB paints, RMB erases. Conduits zap enemy ships.',
+      trigger: (_s, elapsed) => elapsed >= 16,
+      shown: false,
+      duration: 8,
+    },
+    {
       message: 'Hold Z to open the Build menu — aim with the mouse, left-click to select',
       trigger: (_s, elapsed) => elapsed >= 22,
       shown: false,

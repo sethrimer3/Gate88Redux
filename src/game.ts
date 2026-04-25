@@ -571,6 +571,7 @@ export class Game {
 
     // Draw game world
     this.starfield.draw(ctx, this.camera, w, h);
+    this.state.grid.draw(ctx, this.camera, w, h);
     this.state.drawEntities(ctx, this.camera);
 
     // Edge indicators (always)
