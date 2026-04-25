@@ -5,6 +5,8 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
+    // No file-size constraint — this port prioritises fidelity over bundle size.
+    chunkSizeWarningLimit: 100_000,
   },
   publicDir: 'public',
 });

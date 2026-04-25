@@ -6,6 +6,7 @@ import { Audio } from './audio.js';
 import { Camera } from './camera.js';
 import { GameState } from './gamestate.js';
 import { Starfield } from './starfield.js';
+import { Nebula } from './nebula.js';
 import { drawEdgeIndicators, drawRadarOverlay } from './radar.js';
 import { ActionMenu, MenuResult } from './actionmenu.js';
 import { HUD } from './hud.js';
@@ -34,6 +35,7 @@ export class Game {
   private camera: Camera;
   private state: GameState;
   private starfield: Starfield;
+  private nebula: Nebula;
   private actionMenu: ActionMenu;
   private hud: HUD;
   private mainMenu: MainMenu;
@@ -55,6 +57,7 @@ export class Game {
     this.camera = new Camera();
     this.state = new GameState();
     this.starfield = new Starfield();
+    this.nebula = new Nebula();
     this.actionMenu = new ActionMenu();
     this.hud = new HUD();
     this.mainMenu = new MainMenu();
@@ -190,6 +193,9 @@ export class Game {
 
     // Update core game state (entities, collision, power, resources, research, particles)
     this.state.update(DT);
+
+    // Advance starfield animations (twinkling, shooting stars)
+    this.starfield.update(DT);
 
     // Camera follows player
     this.camera.update(this.state.player.position, DT);
@@ -534,6 +540,7 @@ export class Game {
     }
 
     // Draw game world
+    this.nebula.draw(ctx, this.camera, w, h);
     this.starfield.draw(ctx, this.camera, w, h);
     this.state.grid.draw(
       ctx,
@@ -552,6 +559,9 @@ export class Game {
     if (Input.isDown('Tab')) {
       drawRadarOverlay(ctx, this.state, w, h);
     }
+
+    // Vignette — darkens the viewport edges to create a deep-space atmosphere.
+    this.drawVignette(ctx, w, h);
 
     // Action menu
     this.actionMenu.draw(ctx, this.state, this.camera, w, h);
@@ -598,5 +608,24 @@ export class Game {
       `Bases destroyed: ${this.practiceMode.score.basesDestroyed} | Time: ${Math.floor(this.practiceMode.score.timeSurvived)}s`,
       10, 10,
     );
+  }
+
+  /**
+   * Draws a soft radial vignette over the entire viewport using a
+   * transparent-to-black radial gradient.  The effect deepens the sense of
+   * looking out into space from inside a cockpit.
+   */
+  private drawVignette(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    const cx = w * 0.5;
+    const cy = h * 0.5;
+    const outerR = Math.hypot(cx, cy);
+    const innerR = outerR * 0.55;
+
+    const grad = ctx.createRadialGradient(cx, cy, innerR, cx, cy, outerR);
+    grad.addColorStop(0.0, 'rgba(0,0,0,0)');
+    grad.addColorStop(1.0, 'rgba(0,0,0,0.55)');
+
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
   }
 }

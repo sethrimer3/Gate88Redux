@@ -20,13 +20,20 @@ interface Particle {
   maxLife: number;
   size: number;
   active: boolean;
+  /**
+   * When true the particle is rendered with additive blending
+   * (`globalCompositeOperation = 'lighter'`) so overlapping hot particles
+   * bloom into bright white cores — essential for convincing explosions and
+   * energy sparks in a space setting.
+   */
+  additive: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // Object pool
 // ---------------------------------------------------------------------------
 
-const POOL_SIZE = 2048;
+const POOL_SIZE = 4096;
 
 function createParticle(): Particle {
   return {
@@ -38,6 +45,7 @@ function createParticle(): Particle {
     maxLife: 1,
     size: 2,
     active: false,
+    additive: false,
   };
 }
 
@@ -98,6 +106,7 @@ export class ParticleSystem {
       p.life = randomRange(0.2, 0.5);
       p.maxLife = p.life;
       p.size = randomRange(1, 2.5);
+      p.additive = false;
     }
   }
 
@@ -143,49 +152,72 @@ export class ParticleSystem {
       p.life = randomRange(0.15, 0.35);
       p.maxLife = p.life;
       p.size = randomRange(0.8, 2.0);
+      p.additive = false;
     }
   }
 
   emitExplosion(pos: Vec2, size: number): void {
-    const count = Math.floor(12 + size * 2);
+    // Primary fireball — large additive particles that bloom together.
+    const primaryCount = Math.floor(18 + size * 2.5);
     const colors: Color[] = [
       Colors.particles_explosion1,
       Colors.particles_explosion2,
       Colors.particles_explosion3,
     ];
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < primaryCount; i++) {
       const p = this.acquire();
       p.active = true;
-      p.x = pos.x + randomRange(-size * 0.2, size * 0.2);
-      p.y = pos.y + randomRange(-size * 0.2, size * 0.2);
+      p.x = pos.x + randomRange(-size * 0.25, size * 0.25);
+      p.y = pos.y + randomRange(-size * 0.25, size * 0.25);
       const ang = randomRange(0, Math.PI * 2);
-      const spd = randomRange(20, 120) * (size / 20);
+      const spd = randomRange(30, 150) * (size / 20);
       p.vx = Math.cos(ang) * spd;
       p.vy = Math.sin(ang) * spd;
       p.color = colors[i % colors.length];
       p.alpha = 1;
-      p.life = randomRange(0.3, 1.0);
+      p.life = randomRange(0.35, 1.1);
       p.maxLife = p.life;
-      p.size = randomRange(1.5, 3.5);
+      p.size = randomRange(2.0, 4.5);
+      p.additive = true;
+    }
+
+    // Secondary debris — small normal-blend particles that stay longer.
+    const debrisCount = Math.floor(8 + size * 1.2);
+    for (let i = 0; i < debrisCount; i++) {
+      const p = this.acquire();
+      p.active = true;
+      p.x = pos.x + randomRange(-size * 0.4, size * 0.4);
+      p.y = pos.y + randomRange(-size * 0.4, size * 0.4);
+      const ang = randomRange(0, Math.PI * 2);
+      const spd = randomRange(10, 60) * (size / 20);
+      p.vx = Math.cos(ang) * spd;
+      p.vy = Math.sin(ang) * spd;
+      p.color = Colors.particles_explosion2;
+      p.alpha = 0.8;
+      p.life = randomRange(0.5, 1.5);
+      p.maxLife = p.life;
+      p.size = randomRange(1.0, 2.5);
+      p.additive = false;
     }
   }
 
   emitSpark(pos: Vec2): void {
-    const count = 3;
+    const count = 5;
     for (let i = 0; i < count; i++) {
       const p = this.acquire();
       p.active = true;
       p.x = pos.x;
       p.y = pos.y;
       const ang = randomRange(0, Math.PI * 2);
-      const spd = randomRange(40, 100);
+      const spd = randomRange(60, 150);
       p.vx = Math.cos(ang) * spd;
       p.vy = Math.sin(ang) * spd;
       p.color = Colors.particles_spark;
       p.alpha = 1;
-      p.life = randomRange(0.1, 0.3);
+      p.life = randomRange(0.1, 0.35);
       p.maxLife = p.life;
-      p.size = randomRange(1, 2);
+      p.size = randomRange(1.2, 2.5);
+      p.additive = true;
     }
   }
 
@@ -203,6 +235,7 @@ export class ParticleSystem {
       p.life = randomRange(0.4, 0.8);
       p.maxLife = p.life;
       p.size = randomRange(1.5, 3);
+      p.additive = false;
     }
   }
 
@@ -222,6 +255,7 @@ export class ParticleSystem {
       p.life = randomRange(0.3, 0.7);
       p.maxLife = p.life;
       p.size = randomRange(1, 2.5);
+      p.additive = false;
     }
   }
 
@@ -244,17 +278,37 @@ export class ParticleSystem {
   // --- Rendering ---
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    // Two passes: first normal-blend particles, then additive-blend particles.
+    // This avoids repeated composite-mode switches on every particle.
+
+    // Pass 1 — normal blend
     for (let i = 0; i < POOL_SIZE; i++) {
       const p = this.pool[i];
-      if (!p.active || p.alpha <= 0) continue;
+      if (!p.active || p.alpha <= 0 || p.additive) continue;
 
       const screen = camera.worldToScreen(new Vec2(p.x, p.y));
       const r = p.size * camera.zoom;
 
       ctx.fillStyle = colorToCSS(p.color, p.alpha);
       ctx.beginPath();
-      ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
+      ctx.arc(screen.x, screen.y, Math.max(0.4, r), 0, Math.PI * 2);
       ctx.fill();
     }
+
+    // Pass 2 — additive blend (hot glowing particles)
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < POOL_SIZE; i++) {
+      const p = this.pool[i];
+      if (!p.active || p.alpha <= 0 || !p.additive) continue;
+
+      const screen = camera.worldToScreen(new Vec2(p.x, p.y));
+      const r = p.size * camera.zoom;
+
+      ctx.fillStyle = colorToCSS(p.color, p.alpha);
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, Math.max(0.4, r), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
   }
 }
