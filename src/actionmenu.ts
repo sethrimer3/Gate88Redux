@@ -1,4 +1,15 @@
-/** Action menu (pie menu system) for Gate88 */
+/**
+ * Phase-2 hold-to-open radial menus for Gate88.
+ *
+ * Three menus, each opened by holding a key:
+ *   Z → Build       (general buildings + turrets)
+ *   X → Research    (all non-researched items from RESEARCH_COST table)
+ *   C → Command     (issue tactical orders to Red / Green / Blue fighter groups)
+ *
+ * Each menu draws a radial of items centred on the player's screen position.
+ * The item closest in angle to the mouse cursor is highlighted.
+ * LMB confirms, releasing the hold key closes, RMB goes back one level or closes.
+ */
 
 import { Vec2 } from './math.js';
 import { Camera } from './camera.js';
@@ -6,341 +17,546 @@ import { Colors, colorToCSS } from './colors.js';
 import { Input } from './input.js';
 import { Audio } from './audio.js';
 import { GameState } from './gamestate.js';
-import { ShipGroup, Team, EntityType } from './entities.js';
-import {
-  BUILDING_COST,
-  RESEARCH_COST,
-  RESEARCH_TIME,
-  COMMANDPOST_BUILD_RADIUS,
-  POWERGENERATOR_COVERAGE_RADIUS,
-  TICK_RATE,
-} from './constants.js';
+import { ShipGroup, TacticalOrder, Team } from './entities.js';
+import { RESEARCH_COST } from './constants.js';
+import { worldToCell, cellKey, GRID_CELL_SIZE } from './grid.js';
+import { defsByTier, BuildDef } from './builddefs.js';
 
-/** Rebuild cost for the command post (not in BUILDING_COST since it starts pre-built). */
-const COMMANDPOST_REBUILD_COST = 300;
+/** Radius (px) from the menu centre at which items are placed. */
+const ITEM_RADIUS = 110;
+
+/** Radius (px) of each item circle. */
+const ITEM_CIRCLE_R = 40;
+
+/**
+ * Minimum distance (px) from the menu centre before any item is considered
+ * hovered. Prevents an accidental click when the cursor is right on the ship.
+ */
+const MIN_SELECT_DIST = 32;
 
 // ---------------------------------------------------------------------------
-// Types
+// Public types (kept compatible with game.ts's handleActionResult)
 // ---------------------------------------------------------------------------
 
 export type MenuResult =
   | { action: 'none' }
   | { action: 'build'; buildingType: string }
   | { action: 'order'; group: ShipGroup; order: string }
-  | { action: 'research'; item: string }
-  | { action: 'startPlacement'; buildingType: string };
+  | { action: 'research'; item: string };
 
-interface MenuItem {
+// Re-export kept for convenience so callers don't need to know the origin
+// of TacticalOrder; remove this if the dependency becomes confusing.
+export { TacticalOrder };
+
+// ---------------------------------------------------------------------------
+// Radial item data
+// ---------------------------------------------------------------------------
+
+interface RadialItem {
+  /** Display label; '\n' splits into multiple lines inside the circle. */
   label: string;
-  direction: 'up' | 'down' | 'left' | 'right';
-  shortcut?: string;
-  cost?: number;
-  /** Sub-menu items if this item opens a deeper level. */
-  children?: MenuItem[];
-  /** Leaf action to perform. */
+  /** Small secondary line (e.g. "$120"). */
+  sublabel?: string;
+  /** Grayed-out; click is ignored. */
+  disabled?: boolean;
+  /** Drill into sub-menu on confirm. */
+  children?: RadialItem[];
+  /** Leaf: place a building of this type. */
   buildingType?: string;
+  /** Leaf: issue a tactical order to this group. */
   orderGroup?: ShipGroup;
-  orderCommand?: string;
+  tacticalOrder?: TacticalOrder;
+  /** Leaf: start researching this item. */
   researchItem?: string;
-  /** Condition callback — if returns false the item is hidden. */
+  /** Hide from the live-filtered item list when false. */
   condition?: (state: GameState) => boolean;
 }
 
 // ---------------------------------------------------------------------------
-// Menu structure
+// Angle helpers
 // ---------------------------------------------------------------------------
 
-function buildMenuTree(state: GameState): MenuItem[] {
-  return [
-    {
-      label: 'Build',
-      direction: 'up',
-      children: [
-        {
-          label: 'General Buildings',
-          direction: 'up',
-          shortcut: 'q',
-          children: buildGeneralBuildingsMenu(state),
-        },
-        {
-          label: 'Turrets',
-          direction: 'down',
-          shortcut: 'e',
-          children: buildTurretsMenu(),
-        },
-      ],
-    },
-    {
-      label: 'Ship Orders',
-      direction: 'down',
-      children: [
-        {
-          label: 'Red Group',
-          direction: 'up',
-          shortcut: 'z',
-          children: buildGroupOrdersMenu(ShipGroup.Red),
-        },
-        {
-          label: 'Green Group',
-          direction: 'down',
-          shortcut: 'x',
-          children: buildGroupOrdersMenu(ShipGroup.Green),
-        },
-        {
-          label: 'Blue Group',
-          direction: 'left',
-          shortcut: 'v',
-          children: buildGroupOrdersMenu(ShipGroup.Blue),
-        },
-      ],
-    },
-    {
-      label: 'Research',
-      direction: 'left',
-      condition: (s) => s.hasResearchLab(),
-      children: buildResearchMenu(state),
-    },
-  ];
+/** Angle (radians) for item i out of n, starting from the top (−π/2) clockwise. */
+function itemAngle(i: number, n: number): number {
+  return -Math.PI / 2 + (Math.PI * 2 / n) * i;
 }
 
-function buildGeneralBuildingsMenu(state: GameState): MenuItem[] {
-  const items: MenuItem[] = [];
-  const cpAlive = state.getPlayerCommandPost() !== null;
-  if (!cpAlive) {
-    items.push({
-      label: `Command Post ($${COMMANDPOST_REBUILD_COST})`,
-      direction: 'up',
-      buildingType: 'commandpost',
-      cost: COMMANDPOST_REBUILD_COST,
-    });
+/**
+ * Return the index of the item whose angle is closest to the mouse direction
+ * from the menu centre, or −1 if the cursor is within MIN_SELECT_DIST.
+ */
+function getHoveredIndex(items: RadialItem[], centre: Vec2, mouse: Vec2): number {
+  const dx = mouse.x - centre.x;
+  const dy = mouse.y - centre.y;
+  if (Math.hypot(dx, dy) < MIN_SELECT_DIST) return -1;
+  const mouseAngle = Math.atan2(dy, dx);
+  let best = -1;
+  let bestDiff = Infinity;
+  for (let i = 0; i < items.length; i++) {
+    let diff = mouseAngle - itemAngle(i, items.length);
+    while (diff >  Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    const abs = Math.abs(diff);
+    if (abs < bestDiff) { bestDiff = abs; best = i; }
   }
-  items.push(
-    {
-      label: `Power Generator ($${BUILDING_COST.powergenerator})`,
-      direction: cpAlive ? 'up' : 'right',
-      buildingType: 'powergenerator',
-      cost: BUILDING_COST.powergenerator,
-    },
-    {
-      label: `Fighter Yard ($${BUILDING_COST.fighteryard})`,
-      direction: 'down',
-      buildingType: 'fighteryard',
-      cost: BUILDING_COST.fighteryard,
-    },
-    {
-      label: `Bomber Yard ($${BUILDING_COST.bomberyard})`,
-      direction: 'left',
-      buildingType: 'bomberyard',
-      cost: BUILDING_COST.bomberyard,
-    },
-    {
-      label: `Research Lab ($${BUILDING_COST.researchlab})`,
-      direction: 'right',
-      buildingType: 'researchlab',
-      cost: BUILDING_COST.researchlab,
-    },
-    {
-      label: `Factory ($${BUILDING_COST.factory})`,
-      direction: cpAlive ? 'right' : 'left',
-      buildingType: 'factory',
-      cost: BUILDING_COST.factory,
-    },
-  );
+  return best;
+}
+
+// ---------------------------------------------------------------------------
+// Menu data builders
+// ---------------------------------------------------------------------------
+
+/** Convert a BuildDef to a RadialItem, gating affordability against `state`. */
+function defToRadialItem(def: BuildDef, state: GameState): RadialItem {
+  return {
+    label: def.radialLabel ?? def.label,
+    sublabel: `$${def.cost}`,
+    buildingType: def.key,
+    disabled: state.resources < def.cost,
+  };
+}
+
+function buildGeneralItems(state: GameState): RadialItem[] {
+  const items: RadialItem[] = [];
+  for (const def of defsByTier('general')) {
+    // Hidden defs (e.g. command post) are only revealed when the player has
+    // no command post — they own that placement slot.
+    if (def.hidden) {
+      if (def.key === 'commandpost' && !state.getPlayerCommandPost()) {
+        items.push(defToRadialItem(def, state));
+      }
+      continue;
+    }
+    items.push(defToRadialItem(def, state));
+  }
   return items;
 }
 
-function buildTurretsMenu(): MenuItem[] {
+function buildTurretItems(state: GameState): RadialItem[] {
+  return defsByTier('turret').map((d) => defToRadialItem(d, state));
+}
+
+function buildBuildRoot(state: GameState): RadialItem[] {
   return [
-    {
-      label: `Missile Turret ($${BUILDING_COST.missileturret})`,
-      direction: 'up',
-      buildingType: 'missileturret',
-      cost: BUILDING_COST.missileturret,
-    },
-    {
-      label: `Exciter Turret ($${BUILDING_COST.exciterturret})`,
-      direction: 'down',
-      buildingType: 'exciterturret',
-      cost: BUILDING_COST.exciterturret,
-    },
-    {
-      label: `Mass Driver ($${BUILDING_COST.massdriverturret})`,
-      direction: 'left',
-      buildingType: 'massdriverturret',
-      cost: BUILDING_COST.massdriverturret,
-    },
-    {
-      label: `Regen Turret ($${BUILDING_COST.regenturret})`,
-      direction: 'right',
-      buildingType: 'regenturret',
-      cost: BUILDING_COST.regenturret,
-    },
+    { label: 'General\nBuildings', children: buildGeneralItems(state) },
+    { label: 'Turrets',            children: buildTurretItems(state)   },
   ];
 }
 
-function buildGroupOrdersMenu(group: ShipGroup): MenuItem[] {
-  return [
-    { label: 'Attack', direction: 'up', orderGroup: group, orderCommand: 'attack' },
-    { label: 'Set Target', direction: 'right', orderGroup: group, orderCommand: 'settarget' },
-    { label: 'Dock', direction: 'down', orderGroup: group, orderCommand: 'dock' },
-    { label: 'Assign Shipyard', direction: 'left', orderGroup: group, orderCommand: 'assignyard' },
-  ];
-}
-
-function buildResearchMenu(state: GameState): MenuItem[] {
-  const directions: Array<'up' | 'down' | 'left' | 'right'> = [
-    'up', 'down', 'left', 'right',
-  ];
-  const items: MenuItem[] = [];
-  const researchKeys = Object.keys(RESEARCH_COST) as Array<
-    keyof typeof RESEARCH_COST
-  >;
-  let dirIdx = 0;
-  for (const key of researchKeys) {
+function buildResearchRoot(state: GameState): RadialItem[] {
+  const items: RadialItem[] = [];
+  const keys = Object.keys(RESEARCH_COST) as Array<keyof typeof RESEARCH_COST>;
+  for (const key of keys) {
     if (state.researchedItems.has(key)) continue;
     items.push({
-      label: `${key} ($${RESEARCH_COST[key]})`,
-      direction: directions[dirIdx % directions.length],
-      researchItem: key,
-      cost: RESEARCH_COST[key],
+      label: String(key),
+      sublabel: `$${RESEARCH_COST[key]}`,
+      researchItem: String(key),
+      disabled: state.resources < RESEARCH_COST[key],
     });
-    dirIdx++;
   }
   return items;
 }
 
+function buildGroupOrders(group: ShipGroup): RadialItem[] {
+  return [
+    { label: 'Attack\nTarget',  tacticalOrder: TacticalOrder.AttackTarget,  orderGroup: group },
+    { label: 'Defend\nArea',    tacticalOrder: TacticalOrder.DefendArea,    orderGroup: group },
+    { label: 'Dock',            tacticalOrder: TacticalOrder.Dock,          orderGroup: group },
+    { label: 'Escort\nPlayer',  tacticalOrder: TacticalOrder.EscortPlayer,  orderGroup: group },
+    { label: 'Harass\nPower',   tacticalOrder: TacticalOrder.HarassPower,   orderGroup: group },
+  ];
+}
+
+function buildCommandRoot(_state: GameState): RadialItem[] {
+  return [
+    { label: 'Red\nGroup',   children: buildGroupOrders(ShipGroup.Red)   },
+    { label: 'Green\nGroup', children: buildGroupOrders(ShipGroup.Green) },
+    { label: 'Blue\nGroup',  children: buildGroupOrders(ShipGroup.Blue)  },
+  ];
+}
+
 // ---------------------------------------------------------------------------
-// ActionMenu class
+// HoldMenu — one instance per hold key
 // ---------------------------------------------------------------------------
 
-export class ActionMenu {
-  open: boolean = false;
-  /** Placement mode: player navigates to a location and confirms. */
-  placementMode: boolean = false;
-  placementType: string | null = null;
+class HoldMenu {
+  open = false;
 
-  private menuStack: MenuItem[][] = [];
-  private selectedIndex: number = 0;
+  private stack: RadialItem[][] = [];
+  private centre: Vec2 = new Vec2(0, 0);
+  private hoveredIdx = -1;
 
-  /** Process input and return any resulting action. */
-  update(state: GameState): MenuResult {
-    // Toggle open on 'a' key
-    if (Input.isDown('a') || Input.isDown('A')) {
-      if (!this.open && !this.placementMode) {
-        this.open = true;
-        this.menuStack = [buildMenuTree(state)];
-        this.selectedIndex = 0;
-      }
-    } else {
-      if (this.open) {
-        this.open = false;
-        this.menuStack = [];
-      }
+  constructor(
+    private readonly holdKey: string,
+    private readonly rootFactory: (state: GameState) => RadialItem[],
+    private readonly title: string,
+  ) {}
+
+  private currentItems(state: GameState): RadialItem[] {
+    const raw = this.stack[this.stack.length - 1] ?? [];
+    return raw.filter((i) => !i.condition || i.condition(state));
+  }
+
+  update(state: GameState, camera: Camera): MenuResult {
+    // Hold key (case-insensitive) opens/keeps open; release closes.
+    const keyDown = Input.isDown(this.holdKey) || Input.isDown(this.holdKey.toUpperCase());
+    if (keyDown && !this.open) {
+      this.open = true;
+      this.stack = [this.rootFactory(state)];
+      Audio.playSound('menucursor');
+    } else if (!keyDown && this.open) {
+      this.open = false;
+      this.stack = [];
     }
 
     if (!this.open) return { action: 'none' };
 
-    const currentItems = this.currentMenuItems(state);
-    if (currentItems.length === 0) return { action: 'none' };
+    // Cache the player's screen position for draw().
+    this.centre = camera.worldToScreen(state.player.position);
 
-    // Consume all arrow keys so they never reach the player ship
-    Input.consumeKey('ArrowUp');
-    Input.consumeKey('ArrowDown');
-    Input.consumeKey('ArrowLeft');
-    Input.consumeKey('ArrowRight');
-
-    // Arrow keys immediately select AND activate the item in that direction
-    const dirMap: Array<['up' | 'down' | 'left' | 'right', string]> = [
-      ['up', 'ArrowUp'],
-      ['down', 'ArrowDown'],
-      ['left', 'ArrowLeft'],
-      ['right', 'ArrowRight'],
-    ];
-    for (const [dir, key] of dirMap) {
-      if (Input.wasPressed(key)) {
-        const idx = currentItems.findIndex((i) => i.direction === dir);
-        if (idx >= 0) {
-          this.selectedIndex = idx;
-          Audio.playSound('menucursor');
-          return this.selectItem(currentItems[idx], state);
-        }
-      }
-    }
-
-    // Shortcuts
-    for (const item of currentItems) {
-      if (item.shortcut && Input.wasPressed(item.shortcut)) {
-        const idx = currentItems.indexOf(item);
-        if (idx >= 0) {
-          this.selectedIndex = idx;
-          return this.selectItem(currentItems[idx], state);
-        }
-      }
-    }
-
-    // Confirm selection with Enter / Space
-    if (Input.wasPressed('Enter') || Input.wasPressed(' ')) {
-      const sel = currentItems[this.selectedIndex];
-      if (sel) {
-        return this.selectItem(sel, state);
-      }
-    }
-
-    // Back
-    if (Input.wasPressed('Escape') || Input.wasPressed('Backspace')) {
-      if (this.menuStack.length > 1) {
-        this.menuStack.pop();
-        this.selectedIndex = 0;
+    // RMB → go back one level or close.
+    if (Input.mouse2Pressed) {
+      Input.consumeMouseButton(2);
+      if (this.stack.length > 1) {
+        this.stack.pop();
         Audio.playSound('menucursor');
+      } else {
+        this.open = false;
+        this.stack = [];
+      }
+      return { action: 'none' };
+    }
+
+    const items = this.currentItems(state);
+    this.hoveredIdx = items.length > 0
+      ? getHoveredIndex(items, this.centre, Input.mousePos)
+      : -1;
+
+    // LMB confirm (only on fresh press, not hold).
+    if (Input.mousePressed && this.hoveredIdx >= 0) {
+      const item = items[this.hoveredIdx];
+      if (!item.disabled) {
+        Input.consumeMouseButton(0);
+        return this.confirm(item, state);
       }
     }
 
     return { action: 'none' };
   }
 
-  private currentMenuItems(state: GameState): MenuItem[] {
-    const items = this.menuStack[this.menuStack.length - 1] ?? [];
-    return items.filter((i) => !i.condition || i.condition(state));
-  }
-
-  private selectItem(item: MenuItem, state: GameState): MenuResult {
+  private confirm(item: RadialItem, state: GameState): MenuResult {
     Audio.playSound('menuselection');
 
     if (item.children && item.children.length > 0) {
-      this.menuStack.push(item.children);
-      this.selectedIndex = 0;
+      const filtered = item.children.filter((i) => !i.condition || i.condition(state));
+      if (filtered.length > 0) this.stack.push(filtered);
       return { action: 'none' };
     }
 
+    // Leaf — close the menu and emit the result.
+    this.open = false;
+    this.stack = [];
+
     if (item.buildingType) {
-      // Place building immediately at the player's current position (camera center)
-      this.open = false;
-      this.menuStack = [];
       return { action: 'build', buildingType: item.buildingType };
     }
-
-    if (item.orderGroup !== undefined && item.orderCommand) {
-      this.open = false;
-      this.menuStack = [];
-      return {
-        action: 'order',
-        group: item.orderGroup,
-        order: item.orderCommand,
-      };
+    if (item.orderGroup !== undefined && item.tacticalOrder !== undefined) {
+      return { action: 'order', group: item.orderGroup, order: item.tacticalOrder };
     }
-
     if (item.researchItem) {
-      this.open = false;
-      this.menuStack = [];
       return { action: 'research', item: item.researchItem };
     }
-
     return { action: 'none' };
   }
 
   // -----------------------------------------------------------------------
   // Drawing
   // -----------------------------------------------------------------------
+
+  draw(ctx: CanvasRenderingContext2D, state: GameState): void {
+    if (!this.open) return;
+
+    const items = this.currentItems(state);
+    const cx = this.centre.x;
+    const cy = this.centre.y;
+
+    // Central hub disc.
+    ctx.fillStyle = colorToCSS(Colors.menu_background, 0.78);
+    ctx.beginPath();
+    ctx.arc(cx, cy, 30, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.7);
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillStyle = colorToCSS(Colors.general_building, 0.9);
+    ctx.fillText(this.title, cx, cy - (this.stack.length > 1 ? 7 : 0));
+    if (this.stack.length > 1) {
+      ctx.font = '8px "Courier New", monospace';
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
+      ctx.fillText('RMB=back', cx, cy + 9);
+    }
+
+    if (items.length === 0) {
+      ctx.font = '10px "Courier New", monospace';
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
+      ctx.fillText('(nothing available)', cx, cy - 75);
+      return;
+    }
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const angle = itemAngle(i, items.length);
+      const ix = cx + Math.cos(angle) * ITEM_RADIUS;
+      const iy = cy + Math.sin(angle) * ITEM_RADIUS;
+      const hovered = i === this.hoveredIdx;
+
+      // Connector line.
+      ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, hovered ? 0.45 : 0.18);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(ix, iy);
+      ctx.stroke();
+
+      // Item circle.
+      if (item.disabled) {
+        ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.15);
+      } else if (hovered) {
+        ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.5);
+      } else {
+        ctx.fillStyle = colorToCSS(Colors.menu_background, 0.5);
+      }
+      ctx.beginPath();
+      ctx.arc(ix, iy, ITEM_CIRCLE_R, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = item.disabled
+        ? colorToCSS(Colors.radar_gridlines, 0.25)
+        : hovered
+          ? colorToCSS(Colors.radar_friendly_status, 0.95)
+          : colorToCSS(Colors.radar_gridlines, 0.45);
+      ctx.lineWidth = hovered ? 2 : 1;
+      ctx.stroke();
+
+      // Label (split on '\n').
+      ctx.font = '10px "Courier New", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = item.disabled
+        ? colorToCSS(Colors.radar_gridlines, 0.35)
+        : hovered
+          ? colorToCSS(Colors.radar_friendly_status)
+          : colorToCSS(Colors.general_building, 0.9);
+
+      const lines = item.label.split('\n');
+      const lineH = 11;
+      const hasSubLabel = !!item.sublabel;
+      // Shift label up slightly when there's a cost sublabel below it.
+      const blockTop = hasSubLabel
+        ? iy - (lines.length * lineH) / 2 - 5
+        : iy - (lines.length * lineH) / 2 + lineH / 2;
+      for (let l = 0; l < lines.length; l++) {
+        ctx.fillText(lines[l], ix, blockTop + l * lineH);
+      }
+
+      if (item.sublabel) {
+        ctx.font = '9px "Courier New", monospace';
+        ctx.fillStyle = item.disabled
+          ? colorToCSS(Colors.radar_gridlines, 0.3)
+          : hovered
+            ? colorToCSS(Colors.radar_friendly_status, 0.75)
+            : colorToCSS(Colors.factory_detail, 0.9);
+        ctx.fillText(item.sublabel, ix, blockTop + lines.length * lineH + 2);
+      }
+
+      // Sub-menu arrow indicator.
+      if (item.children && item.children.length > 0) {
+        ctx.font = '10px "Courier New", monospace';
+        ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.6);
+        ctx.fillText('▸', ix + ITEM_CIRCLE_R - 13, iy - ITEM_CIRCLE_R + 15);
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PaintMenu — Q-hold conduit paint mode (PR3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Hold Q to enter conduit paint mode. While active:
+ *   - The cell under the mouse cursor is highlighted.
+ *   - LMB (or LMB-drag) paints player conduits.
+ *   - RMB (or RMB-drag) erases conduits.
+ *   - Releasing Q exits paint mode.
+ *
+ * Paint mode sets `ActionMenu.placementMode = true` so primary fire is
+ * suppressed by `Game.updatePlayerFiring()`.
+ *
+ * Painting is rate-limited to one cell change per (cell, drag) so a single
+ * LMB-press can paint a row by dragging without the same cell being touched
+ * dozens of times per second.
+ */
+class PaintMenu {
+  open = false;
+
+  /** Cells already touched during the current drag, to avoid spamming Audio. */
+  private touchedThisDrag = new Set<string>();
+  /** Whether LMB or RMB started the current drag. */
+  private dragMode: 'paint' | 'erase' | null = null;
+
+  /**
+   * Run paint-mode logic. Returns true if the menu is currently active.
+   * Caller is responsible for calling `Input.consumeMouseButton` on the
+   * frame the drag begins so the click doesn't fire a special / weapon.
+   */
+  update(state: GameState, camera: Camera): boolean {
+    const keyDown = Input.isDown('q') || Input.isDown('Q');
+    if (keyDown && !this.open) {
+      this.open = true;
+      this.touchedThisDrag.clear();
+      this.dragMode = null;
+    } else if (!keyDown && this.open) {
+      this.open = false;
+      this.touchedThisDrag.clear();
+      this.dragMode = null;
+      return false;
+    }
+    if (!this.open) return false;
+
+    // Determine current paint/erase state.
+    if (Input.mousePressed) {
+      this.dragMode = 'paint';
+      this.touchedThisDrag.clear();
+      Input.consumeMouseButton(0);
+    } else if (Input.mouse2Pressed) {
+      this.dragMode = 'erase';
+      this.touchedThisDrag.clear();
+      Input.consumeMouseButton(2);
+    }
+
+    if (Input.mouseDown) {
+      this.dragMode = 'paint';
+    } else if (Input.mouse2Down) {
+      this.dragMode = 'erase';
+    } else {
+      this.dragMode = null;
+      this.touchedThisDrag.clear();
+    }
+
+    if (this.dragMode !== null) {
+      const worldPos = camera.screenToWorld(Input.mousePos);
+      const { cx, cy } = worldToCell(worldPos);
+      const key = cellKey(cx, cy);
+      if (!this.touchedThisDrag.has(key)) {
+        this.touchedThisDrag.add(key);
+        if (this.dragMode === 'paint') {
+          if (!state.grid.hasConduit(cx, cy)) {
+            state.grid.addConduit(cx, cy, Team.Player);
+            state.power.markDirty();
+            Audio.playSound('build');
+          }
+        } else if (this.dragMode === 'erase') {
+          if (state.grid.conduitTeam(cx, cy) === Team.Player) {
+            state.grid.removeConduit(cx, cy);
+            state.power.markDirty();
+            Audio.playSound('menucursor');
+          }
+        }
+      }
+    }
+
+    return true;
+  }
+
+  /** Highlight the cell currently under the mouse cursor. */
+  draw(
+    ctx: CanvasRenderingContext2D,
+    state: GameState,
+    camera: Camera,
+    screenW: number,
+    _screenH: number,
+  ): void {
+    if (!this.open) return;
+    const worldPos = camera.screenToWorld(Input.mousePos);
+    const cell = worldToCell(worldPos);
+    const mode: 'paint' | 'erase' = this.dragMode === 'erase' ? 'erase' : 'paint';
+    state.grid.drawPaintCursor(ctx, camera, cell, mode);
+
+    // Top-of-screen hint banner.
+    ctx.font = '12px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.85);
+    ctx.fillText(
+      '[Q] Conduit Paint  •  LMB paint  •  RMB erase  •  release Q to exit',
+      screenW * 0.5,
+      24,
+    );
+    // Conduit count for feedback.
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
+    ctx.fillText(
+      `conduits: ${state.grid.conduitCount()}  •  cell ${cell.cx},${cell.cy}  •  ${GRID_CELL_SIZE}u/cell`,
+      screenW * 0.5,
+      40,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ActionMenu — public façade, same shape as the original so game.ts is minimal
+// ---------------------------------------------------------------------------
+
+export class ActionMenu {
+  private buildMenu    = new HoldMenu('z', buildBuildRoot,    '[Z] Build');
+  private researchMenu = new HoldMenu('x', buildResearchRoot, '[X] Research');
+  private commandMenu  = new HoldMenu('c', buildCommandRoot,  '[C] Command');
+  private paintMenu    = new PaintMenu();
+
+  /** True when any of the four hold menus / paint mode is currently open. */
+  open = false;
+
+  /**
+   * PR3: when the Q-hold paint mode is active, `placementMode` is true and
+   * `placementType` is set to 'conduit'. Game.updatePlayerFiring() already
+   * gates fire on `placementMode`, so the LMB used to paint won't fire.
+   */
+  placementMode = false;
+  placementType: string | null = null;
+
+  update(state: GameState, camera: Camera): MenuResult {
+    // Paint mode runs first so it consumes mouse-down before radial menus see it.
+    const paintOpen = this.paintMenu.update(state, camera);
+    this.placementMode = paintOpen;
+    this.placementType = paintOpen ? 'conduit' : null;
+
+    // Radial menus are mutually exclusive with paint mode.
+    let br: MenuResult = { action: 'none' };
+    let rr: MenuResult = { action: 'none' };
+    let cr: MenuResult = { action: 'none' };
+    if (!paintOpen) {
+      br = this.buildMenu.update(state, camera);
+      rr = this.researchMenu.update(state, camera);
+      cr = this.commandMenu.update(state, camera);
+    }
+
+    this.open =
+      paintOpen ||
+      this.buildMenu.open ||
+      this.researchMenu.open ||
+      this.commandMenu.open;
+
+    if (br.action !== 'none') return br;
+    if (rr.action !== 'none') return rr;
+    if (cr.action !== 'none') return cr;
+    return { action: 'none' };
+  }
 
   draw(
     ctx: CanvasRenderingContext2D,
@@ -349,215 +565,11 @@ export class ActionMenu {
     screenW: number,
     screenH: number,
   ): void {
-    if (this.placementMode) {
-      this.drawPlacementOverlay(ctx, state, camera, screenW, screenH);
-      return;
-    }
-
-    if (!this.open) return;
-
-    const cx = screenW * 0.5;
-    const cy = screenH * 0.5;
-    const items = this.currentMenuItems(state);
-
-    // Center hub circle
-    ctx.fillStyle = colorToCSS(Colors.menu_background, 0.6);
-    ctx.beginPath();
-    ctx.arc(cx, cy, 30, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.5);
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // Draw each menu item around center
-    const itemRadius = 100;
-    ctx.font = '13px "Courier New", monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
-      const angle = directionToAngle(item.direction);
-      const ix = cx + Math.cos(angle) * itemRadius;
-      const iy = cy + Math.sin(angle) * itemRadius;
-      const selected = i === this.selectedIndex;
-
-      // Item background circle
-      ctx.fillStyle = selected
-        ? colorToCSS(Colors.radar_friendly_status, 0.35)
-        : colorToCSS(Colors.menu_background, 0.45);
-      ctx.beginPath();
-      ctx.arc(ix, iy, 40, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = selected
-        ? colorToCSS(Colors.radar_friendly_status, 0.8)
-        : colorToCSS(Colors.radar_gridlines, 0.4);
-      ctx.lineWidth = selected ? 2 : 1;
-      ctx.stroke();
-
-      // Line from center to item
-      ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.2);
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(ix, iy);
-      ctx.stroke();
-
-      // Label
-      ctx.fillStyle = selected
-        ? colorToCSS(Colors.radar_friendly_status)
-        : colorToCSS(Colors.general_building, 0.8);
-      ctx.fillText(item.label, ix, iy);
-
-      // Shortcut hint
-      if (item.shortcut) {
-        ctx.font = '10px "Courier New", monospace';
-        ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.5);
-        ctx.fillText(`[${item.shortcut.toUpperCase()}]`, ix, iy + 14);
-        ctx.font = '13px "Courier New", monospace';
-      }
-    }
-
-    // Bottom bar: resources, research, fighter counts
-    this.drawStatusBar(ctx, state, screenW, screenH);
-  }
-
-  private drawStatusBar(
-    ctx: CanvasRenderingContext2D,
-    state: GameState,
-    screenW: number,
-    screenH: number,
-  ): void {
-    const barY = screenH - 50;
-    ctx.fillStyle = colorToCSS(Colors.menu_background, 0.5);
-    ctx.fillRect(0, barY, screenW, 50);
-
-    ctx.font = '12px "Courier New", monospace';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-
-    // Resources
-    ctx.fillStyle = colorToCSS(Colors.general_building);
-    ctx.fillText(`Resources: ${Math.floor(state.resources)}`, 10, barY + 15);
-
-    // Research progress
-    if (state.researchProgress.item) {
-      const rp = state.researchProgress;
-      const fraction = rp.progress / rp.timeNeeded;
-      const barW = 120;
-      const bx = 200;
-      ctx.fillStyle = colorToCSS(Colors.researchlab_detail, 0.4);
-      ctx.fillRect(bx, barY + 8, barW, 14);
-      ctx.fillStyle = colorToCSS(Colors.researchlab_detail, 0.9);
-      ctx.fillRect(bx, barY + 8, barW * fraction, 14);
-      ctx.fillStyle = colorToCSS(Colors.general_building);
-      ctx.fillText(`Research: ${rp.item}`, bx, barY + 32);
-    }
-
-    // Fighter group counts
-    const groupNames = ['Red', 'Green', 'Blue'];
-    const groupColors = [Colors.redgroup, Colors.greengroup, Colors.bluegroup];
-    let gx = 400;
-    for (let g = 0; g < 3; g++) {
-      const counts = state.getFighterGroupCounts(Team.Player, g);
-      ctx.fillStyle = colorToCSS(groupColors[g]);
-      ctx.fillText(
-        `${groupNames[g]}: ${counts.docked}/${counts.total}`,
-        gx,
-        barY + 15,
-      );
-      gx += 120;
-    }
-  }
-
-  private drawPlacementOverlay(
-    ctx: CanvasRenderingContext2D,
-    state: GameState,
-    camera: Camera,
-    screenW: number,
-    screenH: number,
-  ): void {
-    // Draw build zones around command post and power generators
-    const isShipyard =
-      this.placementType === 'fighteryard' ||
-      this.placementType === 'bomberyard';
-
-    if (!isShipyard) {
-      const cp = state.getPlayerCommandPost();
-      if (cp) {
-        const sp = camera.worldToScreen(cp.position);
-        ctx.strokeStyle = colorToCSS(Colors.powergenerator_coverage, 0.4);
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.arc(sp.x, sp.y, COMMANDPOST_BUILD_RADIUS * camera.zoom, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-
-      for (const b of state.buildings) {
-        if (
-          b.alive &&
-          b.type === EntityType.PowerGenerator &&
-          b.team === Team.Player
-        ) {
-          const sp = camera.worldToScreen(b.position);
-          ctx.strokeStyle = colorToCSS(Colors.powergenerator_coverage, 0.35);
-          ctx.lineWidth = 1;
-          ctx.setLineDash([4, 4]);
-          ctx.beginPath();
-          ctx.arc(
-            sp.x,
-            sp.y,
-            POWERGENERATOR_COVERAGE_RADIUS * camera.zoom,
-            0,
-            Math.PI * 2,
-          );
-          ctx.stroke();
-          ctx.setLineDash([]);
-        }
-      }
-    }
-
-    // Placement prompt
-    ctx.font = '14px "Courier New", monospace';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = colorToCSS(Colors.general_building);
-    ctx.fillText(
-      `Place ${this.placementType} — navigate & press Enter`,
-      screenW * 0.5,
-      30,
-    );
-    ctx.font = '11px "Courier New", monospace';
-    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.6);
-    ctx.fillText('Press Escape to cancel', screenW * 0.5, 50);
-
-    // Crosshair at screen center
-    const chSize = 10;
-    ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.8);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(screenW * 0.5 - chSize, screenH * 0.5);
-    ctx.lineTo(screenW * 0.5 + chSize, screenH * 0.5);
-    ctx.moveTo(screenW * 0.5, screenH * 0.5 - chSize);
-    ctx.lineTo(screenW * 0.5, screenH * 0.5 + chSize);
-    ctx.stroke();
+    this.buildMenu.draw(ctx, state);
+    this.researchMenu.draw(ctx, state);
+    this.commandMenu.draw(ctx, state);
+    this.paintMenu.draw(ctx, state, camera, screenW, screenH);
   }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
-function directionToAngle(dir: 'up' | 'down' | 'left' | 'right'): number {
-  switch (dir) {
-    case 'up':
-      return -Math.PI / 2;
-    case 'down':
-      return Math.PI / 2;
-    case 'left':
-      return Math.PI;
-    case 'right':
-      return 0;
-  }
-}

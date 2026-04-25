@@ -3,7 +3,6 @@
 import { Colors } from './colors.js';
 import { HUD } from './hud.js';
 import { GameState } from './gamestate.js';
-import { Input } from './input.js';
 
 const TUTORIAL_RESOURCES = 50000;
 
@@ -49,38 +48,44 @@ export class TutorialMode {
 function createTutorialSteps(): TutorialStep[] {
   return [
     {
-      message: 'Use Arrow Keys to move your ship — Up to thrust, Left/Right to turn',
+      message: 'Use WASD to move your ship — aim with the mouse, left-click to fire',
       trigger: (_s, elapsed) => elapsed >= 2,
       shown: false,
       duration: 8,
     },
     {
-      message: 'Double-tap Left or Right to barrel roll! Double-tap Down to brake.',
+      message: 'Right-click to fire your special ability (homing missile by default)',
       trigger: (_s, elapsed) => elapsed >= 12,
       shown: false,
       duration: 7,
     },
     {
-      message: 'Hold A to open the Action Menu — use arrow keys to navigate it',
-      trigger: (_s, elapsed) => elapsed >= 22,
+      message: 'Hold Q to paint conduits — LMB paints, RMB erases. Conduits zap enemy ships.',
+      trigger: (_s, elapsed) => elapsed >= 16,
       shown: false,
-      duration: 7,
+      duration: 8,
     },
     {
-      message: 'Try building a Power Generator near your Command Post',
+      message: 'Hold Z to open the Build menu — aim with the mouse, left-click to select',
+      trigger: (_s, elapsed) => elapsed >= 22,
+      shown: false,
+      duration: 8,
+    },
+    {
+      message: 'Try building a Power Generator — it appears near your ship',
       trigger: (_s, elapsed) => elapsed >= 32,
       shown: false,
       duration: 7,
     },
     {
-      message: 'Navigate to a location, then press Enter to place a building',
-      trigger: (s, _elapsed) => Input.isDown('a') || Input.isDown('A'),
+      message: 'Your selected building is shown bottom-left — hold Z and pick another any time',
+      trigger: (_s, elapsed) => elapsed >= 42,
       shown: false,
-      duration: 6,
+      duration: 7,
     },
     {
       message: 'Build a Factory to generate resources over time',
-      trigger: (_s, elapsed) => elapsed >= 50,
+      trigger: (_s, elapsed) => elapsed >= 52,
       shown: false,
       duration: 6,
     },
@@ -91,19 +96,19 @@ function createTutorialSteps(): TutorialStep[] {
       duration: 6,
     },
     {
-      message: 'Use Ship Orders in the Action Menu to command your fighters',
+      message: 'Hold C to open the Command menu — issue orders to Red, Green, or Blue group',
       trigger: (s, _elapsed) => s.fighters.length > 0,
       shown: false,
       duration: 7,
     },
     {
-      message: 'Hold W to view the full radar overlay',
+      message: 'Hold Tab to view the full radar overlay',
       trigger: (_s, elapsed) => elapsed >= 80,
       shown: false,
       duration: 6,
     },
     {
-      message: 'Build a Research Lab, then use Research in the Action Menu',
+      message: 'Build a Research Lab, then hold X to open the Research menu',
       trigger: (_s, elapsed) => elapsed >= 100,
       shown: false,
       duration: 7,

@@ -12,6 +12,7 @@ import { HUD } from './hud.js';
 import { Colors } from './colors.js';
 import { Audio } from './audio.js';
 import { WORLD_WIDTH, WORLD_HEIGHT, DT, WEAPON_STATS } from './constants.js';
+import { EnemyAI } from './enemyai.js';
 
 const BASE_SPAWN_INTERVAL = 90; // seconds between new enemy bases
 const MIN_SPAWN_DISTANCE = 1500; // minimum distance from player
@@ -27,6 +28,8 @@ export class PracticeMode {
   private spawnTimer: number = 0;
   private turretCheckTimer: number = 0;
   private basesSpawned: number = 0;
+  /** PR6: strategic AI driving the enemy team. */
+  private enemyAI: EnemyAI = new EnemyAI(Team.Enemy);
   score: PracticeScore = { basesDestroyed: 0, timeSurvived: 0 };
   gameOver: boolean = false;
   victory: boolean = false;
@@ -38,6 +41,7 @@ export class PracticeMode {
     this.score = { basesDestroyed: 0, timeSurvived: 0 };
     this.gameOver = false;
     this.victory = false;
+    this.enemyAI = new EnemyAI(Team.Enemy);
 
     // Spawn first enemy base away from the player
     this.spawnEnemyBase(state, hud);
@@ -101,6 +105,12 @@ export class PracticeMode {
 
     // Update enemy fighter AI — attack nearest player building
     this.updateEnemyFighters(state);
+
+    // PR6: strategic enemy AI — paints conduits, builds turrets, dispatches
+    // fighters via the heat map. Runs alongside the legacy per-fighter
+    // logic above; the legacy code handles in-engagement firing while the
+    // EnemyAI handles longer-horizon decisions.
+    this.enemyAI.update(state, dt);
   }
 
   private spawnEnemyBase(state: GameState, _hud: HUD): void {

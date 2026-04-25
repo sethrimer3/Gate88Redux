@@ -9,6 +9,22 @@ export enum Team {
   Enemy = 2,
 }
 
+/**
+ * Tactical orders that can be issued to fighter groups via the Command menu.
+ *
+ * AttackTarget and Dock map to existing fighter AI orders immediately.
+ * DefendArea, EscortPlayer, and HarassPower are placeholders backed by the
+ * existing attack/dock/settarget plumbing for now; PR 6 will wire them to the
+ * full tactical-mode dispatcher.
+ */
+export enum TacticalOrder {
+  AttackTarget = 'attack',
+  DefendArea   = 'defend',
+  Dock         = 'dock',
+  EscortPlayer = 'escort',
+  HarassPower  = 'harass',
+}
+
 export enum ShipGroup {
   Red = 0,
   Green = 1,

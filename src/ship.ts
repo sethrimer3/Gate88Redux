@@ -6,12 +6,26 @@ import { Input } from './input.js';
 import { Entity, EntityType, Team } from './entities.js';
 import { Colors, colorToCSS } from './colors.js';
 import { ENTITY_RADIUS, SHIP_STATS } from './constants.js';
+import { DEFAULT_SPECIAL_ID } from './special.js';
 
 const BATTERY_MAX = 100;
 const BATTERY_REGEN_RATE = 8;
 const BATTERY_FIRE_COST = 5;
-const BRAKE_FRICTION = 6.0;
-const STRAFE_THRUST_SCALE = 0.8;
+
+/**
+ * How quickly the visual ship rotation chases the mouse-aim target. Set high
+ * enough that aim feels instant but not so high that fast cursor jumps cause
+ * visible snaps in the trail of exhaust particles.
+ */
+const AIM_TURN_RATE = 18.0; // radians per second
+
+/**
+ * Cross-product magnitude of (facing × thrustDir) above which we consider the
+ * thrust to be perpendicular enough to the ship's facing to count as a "strafe"
+ * (which triggers the side-thruster flame visual). Sin(~17°) ≈ 0.3 means
+ * thrust within ~17° of straight forward/back is *not* counted as strafing.
+ */
+const STRAFE_CROSS_THRESHOLD = 0.3;
 
 export class PlayerShip extends Entity {
   turnRate: number;
@@ -28,9 +42,25 @@ export class PlayerShip extends Entity {
   /** Accumulated time used for visual effects like the low-battery flash. */
   drawTime: number = 0;
 
-  private braking: boolean = false;
-  private strafingLeft: boolean = false;
-  private strafingRight: boolean = false;
+  /**
+   * World-space target the ship rotates toward. The game loop updates this
+   * each tick from the mouse cursor (via Camera.screenToWorld). Defaults to
+   * "directly to the right" so the ship has a sensible angle before any
+   * mouse movement.
+   */
+  aimWorld: Vec2;
+
+  /** Id of the currently equipped special ability (RMB). */
+  specialAbilityId: string = DEFAULT_SPECIAL_ID;
+
+  /**
+   * Direction of last applied thrust (unit vector). Used by game.ts to emit
+   * exhaust particles trailing behind the actual motion direction rather than
+   * behind the ship's facing (which is now decoupled from movement).
+   */
+  thrustDir: Vec2 = new Vec2(0, 0);
+  /** True if any movement key was held this tick (used for SFX/exhaust). */
+  isThrusting: boolean = false;
 
   constructor(position: Vec2, team: Team = Team.Player) {
     super(
@@ -44,6 +74,7 @@ export class PlayerShip extends Entity {
     this.thrustPower = SHIP_STATS.mainguy.speed;
     this.maxSpeed = SHIP_STATS.mainguy.speed;
     this.friction = 1.0;
+    this.aimWorld = new Vec2(position.x + 100, position.y);
   }
 
   update(dt: number): void {
@@ -51,9 +82,9 @@ export class PlayerShip extends Entity {
 
     this.handleInput(dt);
 
-    // Apply friction / braking
-    const fric = this.braking ? BRAKE_FRICTION : this.friction;
-    this.velocity = this.velocity.scale(1 / (1 + fric * dt));
+    // Apply friction (damping). No brake in the new control scheme — releasing
+    // all keys naturally decelerates the ship via this friction term.
+    this.velocity = this.velocity.scale(1 / (1 + this.friction * dt));
 
     // Clamp speed
     const speed = this.velocity.length();
@@ -75,76 +106,69 @@ export class PlayerShip extends Entity {
     if (this.specialFireTimer > 0) this.specialFireTimer -= dt;
   }
 
-  private handleInput(dt: number): void {
-    this.braking = false;
-
-    // Activate strafe on double-tap-then-hold left/right
-    if (Input.isDoubleTapDown('ArrowLeft') && Input.isDown('ArrowLeft')) {
-      this.strafingLeft = true;
-      this.strafingRight = false;
-    }
-    if (Input.isDoubleTapDown('ArrowRight') && Input.isDown('ArrowRight')) {
-      this.strafingRight = true;
-      this.strafingLeft = false;
-    }
-
-    // Deactivate strafe when the key is released
-    if (!Input.isDown('ArrowLeft')) this.strafingLeft = false;
-    if (!Input.isDown('ArrowRight')) this.strafingRight = false;
-
-    // Rotation – only when not strafing
-    if (!this.strafingLeft && !this.strafingRight) {
-      if (Input.isDown('ArrowLeft')) {
-        this.angle -= this.turnRate * dt;
-      }
-      if (Input.isDown('ArrowRight')) {
-        this.angle += this.turnRate * dt;
-      }
-    }
-    this.angle = wrapAngle(this.angle);
-
-    // Thrust forward (ArrowUp)
-    if (Input.isDown('ArrowUp')) {
-      const thrust = new Vec2(Math.cos(this.angle), Math.sin(this.angle)).scale(
-        this.thrustPower * dt,
-      );
-      this.velocity = this.velocity.add(thrust);
-    }
-
-    // Reverse thrust (ArrowDown)
-    if (Input.isDown('ArrowDown')) {
-      const thrust = new Vec2(Math.cos(this.angle), Math.sin(this.angle)).scale(
-        -this.thrustPower * 0.5 * dt,
-      );
-      this.velocity = this.velocity.add(thrust);
-    }
-
-    // Strafe thrust (perpendicular to facing direction)
-    if (this.strafingLeft) {
-      const sideAngle = this.angle - Math.PI / 2;
-      const thrust = new Vec2(Math.cos(sideAngle), Math.sin(sideAngle)).scale(
-        this.thrustPower * STRAFE_THRUST_SCALE * dt,
-      );
-      this.velocity = this.velocity.add(thrust);
-    }
-    if (this.strafingRight) {
-      const sideAngle = this.angle + Math.PI / 2;
-      const thrust = new Vec2(Math.cos(sideAngle), Math.sin(sideAngle)).scale(
-        this.thrustPower * STRAFE_THRUST_SCALE * dt,
-      );
-      this.velocity = this.velocity.add(thrust);
-    }
-
-    // Brake (double-tap down)
-    if (Input.isDoubleTapped('ArrowDown')) {
-      this.braking = true;
-    }
+  /**
+   * Set the world-space point the ship should aim at. Called by the game loop
+   * each tick from the current mouse cursor position.
+   */
+  setAimPoint(world: Vec2): void {
+    this.aimWorld = world;
   }
 
-  /** Whether the ship is currently strafing left. */
-  get isStrafingLeft(): boolean { return this.strafingLeft; }
-  /** Whether the ship is currently strafing right. */
-  get isStrafingRight(): boolean { return this.strafingRight; }
+  private handleInput(dt: number): void {
+    // --- Movement: WASD as a 4-axis direction, decoupled from facing -----
+    let dx = 0;
+    let dy = 0;
+    if (Input.isDown('w') || Input.isDown('W')) dy -= 1;
+    if (Input.isDown('s') || Input.isDown('S')) dy += 1;
+    if (Input.isDown('a') || Input.isDown('A')) dx -= 1;
+    if (Input.isDown('d') || Input.isDown('D')) dx += 1;
+
+    if (dx !== 0 || dy !== 0) {
+      // Normalize so diagonals don't get a sqrt(2) speed boost.
+      const len = Math.hypot(dx, dy);
+      const ux = dx / len;
+      const uy = dy / len;
+      this.velocity = this.velocity.add(
+        new Vec2(ux * this.thrustPower * dt, uy * this.thrustPower * dt),
+      );
+      this.thrustDir = new Vec2(ux, uy);
+      this.isThrusting = true;
+    } else {
+      this.isThrusting = false;
+    }
+
+    // --- Aiming: rotate toward the world-space mouse cursor ---------------
+    const desired = Math.atan2(
+      this.aimWorld.y - this.position.y,
+      this.aimWorld.x - this.position.x,
+    );
+    // Smooth turn toward desired angle so rapid cursor flicks don't snap.
+    let delta = wrapAngle(desired - this.angle);
+    const maxStep = AIM_TURN_RATE * dt;
+    if (delta > maxStep) delta = maxStep;
+    else if (delta < -maxStep) delta = -maxStep;
+    this.angle = wrapAngle(this.angle + delta);
+  }
+
+  /**
+   * Whether the ship is being side-thrusted. Retained for backward-compatible
+   * rendering of the side thruster flames; under WASD-aim, "strafing" is any
+   * thrust direction that isn't roughly aligned with the ship's facing.
+   */
+  get isStrafingLeft(): boolean {
+    if (!this.isThrusting) return false;
+    // Cross product sign of facing × thrustDir; positive = thrust is to the
+    // ship's left (in screen-space where +y is down).
+    const fx = Math.cos(this.angle);
+    const fy = Math.sin(this.angle);
+    return fx * this.thrustDir.y - fy * this.thrustDir.x < -STRAFE_CROSS_THRESHOLD;
+  }
+  get isStrafingRight(): boolean {
+    if (!this.isThrusting) return false;
+    const fx = Math.cos(this.angle);
+    const fy = Math.sin(this.angle);
+    return fx * this.thrustDir.y - fy * this.thrustDir.x > STRAFE_CROSS_THRESHOLD;
+  }
 
   // --- Weapons ---
 
@@ -178,8 +202,8 @@ export class PlayerShip extends Entity {
     ctx.rotate(this.angle);
 
     // Side thruster flames when strafing
-    if (this.strafingLeft || this.strafingRight) {
-      const side = this.strafingLeft ? 1 : -1; // +1 = flame on right side of ship (strafing left)
+    if (this.isStrafingLeft || this.isStrafingRight) {
+      const side = this.isStrafingLeft ? 1 : -1; // +1 = flame on right side of ship (strafing left)
       ctx.strokeStyle = colorToCSS(Colors.particles_friendly_exhaust, 0.85);
       ctx.lineWidth = 1.5;
       ctx.beginPath();

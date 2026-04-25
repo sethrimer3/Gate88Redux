@@ -1,6 +1,7 @@
 /** Heads-up display for Gate88 — minimal, message-based */
 
 import { Colors, colorToCSS, Color } from './colors.js';
+import { getBuildDef } from './builddefs.js';
 
 // ---------------------------------------------------------------------------
 // HUD message
@@ -88,6 +89,41 @@ export class HUD {
     ctx.fillText(`$${Math.floor(resources)}`, screenW - 10, screenH - 10);
   }
 
+  /** Draw the selected-build slot just above the energy bar (bottom-left). */
+  drawSelectedBuild(
+    ctx: CanvasRenderingContext2D,
+    buildType: string | null,
+    resources: number,
+    _screenW: number,
+    screenH: number,
+  ): void {
+    // Label sits just above the ENERGY label drawn by drawPlayerEnergy.
+    const x = 10;
+    const y = screenH - 54;
+
+    ctx.font = '9px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+
+    if (!buildType) {
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.32);
+      ctx.fillText('No Build Selection', x, y);
+      return;
+    }
+
+    const def = getBuildDef(buildType);
+    const cost = def?.cost ?? 0;
+    const displayName = def?.label ?? buildType;
+    const canAfford = resources >= cost;
+
+    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.45);
+    ctx.fillText('BUILD:', x, y - 12);
+    ctx.fillStyle = canAfford
+      ? colorToCSS(Colors.general_building, 0.85)
+      : colorToCSS(Colors.alert1, 0.8);
+    ctx.fillText(`${displayName}  $${cost}`, x, y);
+  }
+
   /** Draw the player energy/battery indicator at the bottom-left. */
   drawPlayerEnergy(
     ctx: CanvasRenderingContext2D,
@@ -136,5 +172,29 @@ export class HUD {
     ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.35);
     ctx.lineWidth = 1;
     ctx.strokeRect(x, y - barH, barW, barH);
+  }
+
+  /**
+   * PR5: warn the player about disconnected (unpowered) buildings. Drawn
+   * just above the ENERGY/BUILD column so it stays in the same eye-line.
+   */
+  drawPowerStatus(
+    ctx: CanvasRenderingContext2D,
+    unpoweredCount: number,
+    screenH: number,
+  ): void {
+    if (unpoweredCount <= 0) return;
+    const x = 10;
+    const y = screenH - 70;
+    const flash = 0.5 + 0.5 * Math.sin(this.animTime * 5);
+    ctx.font = '10px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.fillStyle = colorToCSS(Colors.alert2, 0.5 + 0.5 * flash);
+    const label =
+      unpoweredCount === 1
+        ? '1 building unpowered'
+        : `${unpoweredCount} buildings unpowered`;
+    ctx.fillText(`⚠ ${label}`, x, y);
   }
 }
