@@ -241,19 +241,24 @@ export class Shipyard extends BuildingBase {
     team: Team,
   ) {
     super(type, team, position, 120);
-    this.powered = true; // self-powered
+    this.powered = false; // re-evaluated each tick by PowerGraph
   }
 
   update(dt: number): void {
     super.update(dt);
-    if (this.buildProgress >= 1 && this.activeShips < this.shipCapacity) {
+    // Only tick the build timer when finished AND powered. Disconnecting
+    // the conduit feeding a shipyard halts production immediately.
+    if (this.buildProgress >= 1 && this.powered && this.activeShips < this.shipCapacity) {
       this.buildTimer -= dt;
     }
   }
 
   /** Returns true if a new ship should be spawned and resets the timer. */
   shouldSpawnShip(): boolean {
-    if (this.buildTimer <= 0 && this.activeShips < this.shipCapacity && this.alive) {
+    if (!this.alive) return false;
+    if (!this.powered) return false;
+    if (this.buildProgress < 1) return false;
+    if (this.buildTimer <= 0 && this.activeShips < this.shipCapacity) {
       this.buildTimer = this.buildInterval;
       return true;
     }

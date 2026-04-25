@@ -19,6 +19,7 @@ import { Shipyard } from './building.js';
 import { FighterShip, BomberShip } from './fighter.js';
 import { Bullet } from './projectile.js';
 import { PracticeMode } from './practicemode.js';
+import { cloneDefaultPracticeConfig } from './practiceconfig.js';
 import { TutorialMode } from './tutorial.js';
 import { tryFireSpecial } from './special.js';
 import { getBuildDef } from './builddefs.js';
@@ -152,8 +153,11 @@ export class Game {
       case 'tutorial':
         this.startGame('tutorial');
         break;
-      case 'practice':
+      case 'start_practice':
         this.startGame('practice');
+        break;
+      case 'start_vs_ai':
+        this.startGame('vs_ai');
         break;
       case 'resume':
         this.phase = 'playing';
@@ -261,7 +265,7 @@ export class Game {
     this.hud.update(DT);
 
     // Mode-specific logic
-    if (this.state.gameMode === 'practice') {
+    if (this.state.gameMode === 'practice' || this.state.gameMode === 'vs_ai') {
       this.practiceMode.update(this.state, this.hud, DT);
     } else if (this.state.gameMode === 'tutorial') {
       this.tutorialMode.update(this.state, this.hud, DT);
@@ -484,7 +488,7 @@ export class Game {
     this.hud.showMessage(`Researching: ${item}`, Colors.researchlab_detail, 3);
   }
 
-  private startGame(mode: 'tutorial' | 'practice'): void {
+  private startGame(mode: 'tutorial' | 'practice' | 'vs_ai'): void {
     // Create fresh state
     const playerStart = new Vec2(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
     this.state = new GameState(playerStart);
@@ -502,15 +506,59 @@ export class Game {
     const cp = new CommandPost(cpPos, Team.Player);
     this.state.addEntity(cp);
 
-    // Set initial resources
+    // Seed a small starter conduit network around the player CP so that
+    // shipyards / labs / factories placed near the CP can be powered
+    // immediately. Without this, post-PR8 power rules (shipyards no
+    // longer self-power) would force the player to paint conduits
+    // before their first shipyard could function.
+    const startCx = Math.floor(cpPos.x / GRID_CELL_SIZE);
+    const startCy = Math.floor(cpPos.y / GRID_CELL_SIZE);
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        if (Math.abs(dx) + Math.abs(dy) <= 2) {
+          this.state.grid.addConduit(startCx + dx, startCy + dy, Team.Player);
+        }
+      }
+    }
+    this.state.power.markDirty();
+
+    // Set initial resources & spin up the appropriate mode driver.
     if (mode === 'tutorial') {
       this.state.resources = 50000;
       this.tutorialMode = new TutorialMode();
       this.tutorialMode.init(this.state, this.hud);
-    } else {
-      this.state.resources = 500;
+    } else if (mode === 'practice') {
+      const cfg = this.mainMenu.practiceConfig;
       this.practiceMode = new PracticeMode();
+      this.practiceMode.configure(cfg);
+      // Apply unlocked research from setup.
+      this.applyResearchUnlock(cfg.researchUnlocked);
       this.practiceMode.init(this.state, this.hud);
+    } else {
+      // Vs. AI: reuse PracticeMode's growing-base opponent as the
+      // foundation, layered with VsAIConfig (cheats, APM scaling).
+      // The base growth + builder-drone framework is identical; the
+      // distinct AI-main-ship / scouting / harassment behaviours are
+      // tracked separately and will be enabled by VsAIDirector once
+      // its bot-player implementation lands.
+      const vcfg = this.mainMenu.vsAIConfig;
+      const pcfg = cloneDefaultPracticeConfig();
+      pcfg.difficulty = vcfg.difficulty;
+      pcfg.enemyIncomeMul = vcfg.cheat125xResources ? 1.25 : 1.0;
+      pcfg.fogOfWar = vcfg.fogOfWar;
+      pcfg.startingDistance = vcfg.startingDistance;
+      pcfg.playerStartingResources = vcfg.startingResources;
+      pcfg.enemyStartingResources = vcfg.startingResources;
+      this.practiceMode = new PracticeMode();
+      this.practiceMode.configure(pcfg);
+      this.practiceMode.vsAIMode = true;
+      this.practiceMode.init(this.state, this.hud);
+      this.hud.showMessage(
+        `Vs. AI started — ${vcfg.difficulty}` +
+          (vcfg.cheatFullMapKnowledge ? ' [+full map]' : '') +
+          (vcfg.cheat125xResources ? ' [+1.25x res]' : ''),
+        Colors.alert2, 4,
+      );
     }
 
     // Start game
@@ -519,6 +567,21 @@ export class Game {
     Audio.stopDriveLoop();
     Audio.stopMusic();
     Audio.startPlaylist();
+  }
+
+  /**
+   * Apply Practice setup's `researchUnlocked` setting by pre-populating
+   * `state.researchedItems`. Cheap and additive.
+   */
+  private applyResearchUnlock(level: 'none' | 'basic_turrets' | 'all_turrets' | 'full_tech'): void {
+    if (level === 'none') return;
+    const basicTurrets = ['missileturret', 'exciterturret'];
+    const allTurrets = ['missileturret', 'exciterturret', 'massdriverturret', 'regenturret'];
+    const fullTech = [...allTurrets, 'timebomb', 'bomberyard', 'cloak', 'advancedFighters'];
+    const list = level === 'basic_turrets' ? basicTurrets
+      : level === 'all_turrets' ? allTurrets
+      : fullTech;
+    for (const item of list) this.state.researchedItems.add(item);
   }
 
   // -----------------------------------------------------------------------
@@ -588,8 +651,9 @@ export class Game {
       this.hud.drawPowerStatus(ctx, unpowered, h);
     }
 
-    // Practice mode score display
-    if (this.state.gameMode === 'practice' && !this.practiceMode.gameOver) {
+    // Practice / Vs. AI mode HUD
+    if ((this.state.gameMode === 'practice' || this.state.gameMode === 'vs_ai')
+        && !this.practiceMode.gameOver) {
       this.drawPracticeHUD(ctx, w, h);
     }
 

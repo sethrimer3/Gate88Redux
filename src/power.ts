@@ -171,12 +171,14 @@ export class PowerGraph {
   private applyBuildingPower(state: GameState): void {
     for (const b of state.buildings) {
       if (!b.alive) continue;
-      // Sources self-power; shipyards remain self-powered (legacy behaviour).
+      // Sources self-power. Shipyards are NOT self-powered any more —
+      // they must connect to the conduit network like every other
+      // consumer. This lets builder-grown enemy bases be cut off by
+      // the player attacking conduits or generators, and applies the
+      // same rule symmetrically to the player's network.
       if (
         b.type === EntityType.CommandPost ||
-        b.type === EntityType.PowerGenerator ||
-        b.type === EntityType.FighterYard ||
-        b.type === EntityType.BomberYard
+        b.type === EntityType.PowerGenerator
       ) {
         b.powered = true;
         continue;

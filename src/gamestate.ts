@@ -20,7 +20,7 @@ export interface ResearchProgress {
   timeNeeded: number;
 }
 
-export type GameMode = 'menu' | 'tutorial' | 'practice' | 'playing';
+export type GameMode = 'menu' | 'tutorial' | 'practice' | 'vs_ai' | 'playing';
 
 export class GameState {
   player: PlayerShip;
