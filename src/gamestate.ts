@@ -31,6 +31,13 @@ export class GameState {
   researchProgress: ResearchProgress = { item: null, progress: 0, timeNeeded: 0 };
   researchedItems: Set<string> = new Set();
 
+  /**
+   * The most recently selected building type from the Z-Build menu.
+   * Displayed in the HUD near the energy bar. PR 3's Q-hold grid paint mode
+   * will use this as the "active" building to lay down along conduit paths.
+   */
+  selectedBuildType: string | null = null;
+
   gameMode: GameMode = 'menu';
   gameTime: number = 0;
 

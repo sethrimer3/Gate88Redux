@@ -1,6 +1,7 @@
 /** Heads-up display for Gate88 — minimal, message-based */
 
 import { Colors, colorToCSS, Color } from './colors.js';
+import { BUILDING_COST } from './constants.js';
 
 // ---------------------------------------------------------------------------
 // HUD message
@@ -86,6 +87,65 @@ export class HUD {
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
     ctx.fillText(`$${Math.floor(resources)}`, screenW - 10, screenH - 10);
+  }
+
+  /** Draw the selected-build slot just above the energy bar (bottom-left). */
+  drawSelectedBuild(
+    ctx: CanvasRenderingContext2D,
+    buildType: string | null,
+    resources: number,
+    _screenW: number,
+    screenH: number,
+  ): void {
+    // Label sits just above the ENERGY label drawn by drawPlayerEnergy.
+    const x = 10;
+    const y = screenH - 54;
+
+    ctx.font = '9px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+
+    if (!buildType) {
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.32);
+      ctx.fillText('No Build Selection', x, y);
+      return;
+    }
+
+    const costLookup: Record<string, number> = {
+      commandpost:      300,
+      powergenerator:   BUILDING_COST.powergenerator,
+      fighteryard:      BUILDING_COST.fighteryard,
+      bomberyard:       BUILDING_COST.bomberyard,
+      researchlab:      BUILDING_COST.researchlab,
+      factory:          BUILDING_COST.factory,
+      missileturret:    BUILDING_COST.missileturret,
+      exciterturret:    BUILDING_COST.exciterturret,
+      massdriverturret: BUILDING_COST.massdriverturret,
+      regenturret:      BUILDING_COST.regenturret,
+    };
+    const nameMap: Record<string, string> = {
+      commandpost:      'Command Post',
+      powergenerator:   'Power Generator',
+      fighteryard:      'Fighter Yard',
+      bomberyard:       'Bomber Yard',
+      researchlab:      'Research Lab',
+      factory:          'Factory',
+      missileturret:    'Missile Turret',
+      exciterturret:    'Exciter Turret',
+      massdriverturret: 'Mass Driver',
+      regenturret:      'Regen Turret',
+    };
+
+    const cost = costLookup[buildType] ?? 0;
+    const canAfford = resources >= cost;
+    const displayName = nameMap[buildType] ?? buildType;
+
+    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.45);
+    ctx.fillText('BUILD:', x, y - 12);
+    ctx.fillStyle = canAfford
+      ? colorToCSS(Colors.general_building, 0.85)
+      : colorToCSS(Colors.alert1, 0.8);
+    ctx.fillText(`${displayName}  $${cost}`, x, y);
   }
 
   /** Draw the player energy/battery indicator at the bottom-left. */

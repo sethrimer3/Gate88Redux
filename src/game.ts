@@ -14,7 +14,7 @@ import { Colors, colorToCSS } from './colors.js';
 import { Team, EntityType, ShipGroup } from './entities.js';
 import { DT, WORLD_WIDTH, WORLD_HEIGHT, BUILDING_COST, BUILD_TIME, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS } from './constants.js';
 import { CommandPost, PowerGenerator, Shipyard, ResearchLab, Factory } from './building.js';
-import { MissileTurret, ExciterTurret, MassDriverTurret, RegenTurret, TurretBase } from './turret.js';
+import { MissileTurret, ExciterTurret, MassDriverTurret, RegenTurret } from './turret.js';
 import { FighterShip, BomberShip } from './fighter.js';
 import { Bullet } from './projectile.js';
 import { PracticeMode } from './practicemode.js';
@@ -176,7 +176,7 @@ export class Game {
 
     // Action menu is processed FIRST so it can consume arrow keys before the
     // player ship's handleInput sees them.
-    const menuResult = this.actionMenu.update(this.state);
+    const menuResult = this.actionMenu.update(this.state, this.camera);
     this.handleActionResult(menuResult);
 
     // Update aim point from current mouse position so the ship's mouse-aim
@@ -310,9 +310,6 @@ export class Game {
       case 'build':
         this.placeBuilding(result.buildingType);
         break;
-      case 'startPlacement':
-        // Placement mode started — visual handled by ActionMenu
-        break;
       case 'order':
         this.issueShipOrder(result.group, result.order);
         break;
@@ -405,6 +402,7 @@ export class Game {
 
     this.state.resources -= cost;
     this.state.addEntity(building);
+    this.state.selectedBuildType = type;
     Audio.playSound('build');
     this.hud.showMessage(`Building ${type}...`, Colors.general_building, 2);
   }
@@ -444,12 +442,52 @@ export class Game {
         this.hud.showMessage(`${ShipGroup[group]} group: Target set`, Colors.general_building, 2);
         break;
       }
+      // --- Phase-2 tactical orders (PR 6 will expand these with full AI) ---
+      case 'defend': {
+        // Placeholder: defend by attacking the enemy command post.
+        const enemyCP = this.state.getEnemyCommandPost();
+        for (const f of fighters) {
+          f.order = 'attack';
+          f.targetPos = enemyCP?.position.clone() ?? null;
+          if (f.docked) f.launch();
+        }
+        this.hud.showMessage(`${ShipGroup[group]} group: Defend Area`, Colors.general_building, 2);
+        break;
+      }
+      case 'escort': {
+        // Placeholder: escort by docking (stays near the shipyard / player area).
+        for (const f of fighters) {
+          f.order = 'dock';
+        }
+        this.hud.showMessage(`${ShipGroup[group]} group: Escort Player`, Colors.general_building, 2);
+        break;
+      }
+      case 'harass': {
+        // Placeholder: harass enemy power by targeting the nearest enemy generator,
+        // falling back to the enemy CP if no generator exists.
+        const enemyGen = this.state.buildings.find(
+          (b) => b.alive && b.type === EntityType.PowerGenerator && b.team === Team.Enemy,
+        );
+        const harassTarget = (enemyGen ?? this.state.getEnemyCommandPost())?.position ?? null;
+        for (const f of fighters) {
+          f.order = 'attack';
+          f.targetPos = harassTarget?.clone() ?? null;
+          if (f.docked) f.launch();
+        }
+        this.hud.showMessage(`${ShipGroup[group]} group: Harass Power`, Colors.general_building, 2);
+        break;
+      }
       default:
         break;
     }
   }
 
   private startResearch(item: string): void {
+    if (!this.state.hasResearchLab()) {
+      this.hud.showMessage('Build a Research Lab first!', Colors.alert1, 3);
+      return;
+    }
+
     if (this.state.researchProgress.item) {
       this.hud.showMessage('Research already in progress!', Colors.alert2, 3);
       return;
@@ -550,6 +588,7 @@ export class Game {
     this.hud.draw(ctx, w, h);
     this.hud.drawResources(ctx, this.state.resources, w, h);
     if (this.state.player.alive) {
+      this.hud.drawSelectedBuild(ctx, this.state.selectedBuildType, this.state.resources, w, h);
       this.hud.drawPlayerEnergy(ctx, this.state.player.battery, this.state.player.maxBattery, w, h);
     }
 

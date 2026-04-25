@@ -115,8 +115,23 @@ class InputManager {
   }
 
   /**
+   * Consume a mouse button's state so it doesn't bleed through to other
+   * subsystems on the same frame (e.g. closing a radial menu with RMB should
+   * not also fire a special ability).
+   */
+  consumeMouseButton(button: 0 | 2): void {
+    if (button === 0) {
+      this.mouseDown = false;
+      this.mousePressed = false;
+    } else {
+      this.mouse2Down = false;
+      this.mouse2Pressed = false;
+    }
+  }
+
+  /**
    * Remove a key from the held/pressed sets so it doesn't bleed through to
-   * other subsystems (e.g. after a menu consumes an arrow-key press).
+   * other subsystems on the same frame (e.g. after a menu consumes an arrow-key press).
    */
   consumeKey(key: string): void {
     this.keysDown.delete(key);
