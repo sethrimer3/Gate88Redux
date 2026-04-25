@@ -11,7 +11,7 @@ import { ParticleSystem } from './particles.js';
 import { RingEffectSystem } from './ringeffects.js';
 import { Camera } from './camera.js';
 import { Audio } from './audio.js';
-import { WorldGrid, GRID_CELL_SIZE } from './grid.js';
+import { WorldGrid, GRID_CELL_SIZE, cellKey } from './grid.js';
 import { PowerGraph } from './power.js';
 import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN } from './constants.js';
 
@@ -35,6 +35,13 @@ export class GameState {
   grid: WorldGrid = new WorldGrid();
   /** PR5: graph-based power network (lazy, dirty-flag cached). */
   power: PowerGraph = new PowerGraph();
+
+  /**
+   * Countdown until the next pending conduit is promoted to the active grid.
+   * Conduits queued by the player are built one at a time from the network
+   * frontier outward, with a 0.5 s delay between each.
+   */
+  private conduitBuildTimer: number = 0.5;
 
   resources: number = 500;
   researchProgress: ResearchProgress = { item: null, progress: 0, timeNeeded: 0 };
@@ -161,10 +168,14 @@ export class GameState {
     // Resources from factories
     this.accumulateResources(dt);
 
-    // PR3: ship ↔ conduit interaction. Enemy fighters that pass over a
-    // friendly conduit are dragged (treated as electrified fence) — gives
-    // painted networks defensive value without making them solid walls.
+    // PR3: ship ↔ conduit interaction. Enemy fighters on friendly powered
+    // conduits are bounced back and take light damage. Projectiles that hit
+    // a powered opposing conduit are destroyed. Unpowered conduits are
+    // intangible (pass-through for ships and shots alike).
     this.applyConduitInteraction(dt);
+
+    // Tick the player's pending conduit queue (0.5 s per cell, BFS outward).
+    this.tickPendingConduits(dt);
 
     // Research progress
     this.tickResearch(dt);
@@ -307,34 +318,137 @@ export class GameState {
   }
 
   // -----------------------------------------------------------------------
-  // Conduit interaction (PR3)
+  // Conduit interaction (PR3) — powered conduits block ships + shots
   // -----------------------------------------------------------------------
 
   /**
-   * Enemy fighters that overlap a friendly conduit cell get a velocity drag
-   * and a tiny damage tick. Friendly ships are unaffected — they may move
-   * freely along painted lanes. Implementation samples each fighter's
-   * containing cell once per tick (O(n) over fighters).
+   * Powered conduits of team T block entities of team ≠ T:
+   *   • Ships entering a powered opposing conduit cell are bounced back
+   *     (velocity reflected on the penetration axis) and take a small
+   *     damage tick so camping is punished.
+   *   • Projectiles that enter a powered opposing conduit cell are destroyed
+   *     immediately (shots cannot pass through powered conduit walls).
+   * Unpowered conduits are fully intangible — ships and shots pass freely.
    */
   private applyConduitInteraction(dt: number): void {
     if (this.grid.conduitCount() === 0) return;
-    // 0.5 dmg/sec is enough to discourage parking but not chip-kill in 1s.
-    const CONDUIT_DPS = 0.5;
-    const DRAG_PER_SEC = 1.5;
-    const dragFactor = 1 / (1 + DRAG_PER_SEC * dt);
+
+    // --- Ship bounce -------------------------------------------------------
+    const CONDUIT_DPS = 0.5; // damage while touching an opposing powered conduit
+
+    const shipsToCheck: Entity[] = [];
+    if (this.player.alive) shipsToCheck.push(this.player);
+    if (this.aiPlayerShip && this.aiPlayerShip.alive) shipsToCheck.push(this.aiPlayerShip);
     for (const f of this.fighters) {
-      if (!f.alive || f.docked) continue;
-      // Sample the cell under the fighter's current position.
-      const cx = Math.floor(f.position.x / GRID_CELL_SIZE);
-      const cy = Math.floor(f.position.y / GRID_CELL_SIZE);
-      const team = this.grid.conduitTeam(cx, cy);
-      if (team === null) continue;
-      // Only enemy fighters are affected by friendly conduits and vice versa.
-      if (team === f.team) continue;
-      f.velocity = f.velocity.scale(dragFactor);
-      f.takeDamage(CONDUIT_DPS * dt);
-      this.recentlyDamaged.add(f.id);
+      if (f.alive && !f.docked) shipsToCheck.push(f);
     }
+
+    for (const ship of shipsToCheck) {
+      const cx = Math.floor(ship.position.x / GRID_CELL_SIZE);
+      const cy = Math.floor(ship.position.y / GRID_CELL_SIZE);
+      const conduitTeam = this.grid.conduitTeam(cx, cy);
+      // Only opposing-team powered conduits block ships.
+      if (conduitTeam === null || conduitTeam === ship.team) continue;
+      if (!this.power.isCellEnergized(conduitTeam, cx, cy)) continue;
+
+      // Find the smallest penetration axis and push the ship out of the cell.
+      const cellLeft   = cx * GRID_CELL_SIZE;
+      const cellRight  = cellLeft + GRID_CELL_SIZE;
+      const cellTop    = cy * GRID_CELL_SIZE;
+      const cellBottom = cellTop + GRID_CELL_SIZE;
+
+      const overlapL = ship.position.x - cellLeft;
+      const overlapR = cellRight  - ship.position.x;
+      const overlapT = ship.position.y - cellTop;
+      const overlapB = cellBottom - ship.position.y;
+
+      const minH = Math.min(overlapL, overlapR);
+      const minV = Math.min(overlapT, overlapB);
+
+      if (minH <= minV) {
+        // Horizontal push
+        if (overlapL < overlapR) {
+          ship.position.x = cellLeft - ship.radius;
+          if (ship.velocity.x > 0) ship.velocity.x *= -0.5;
+        } else {
+          ship.position.x = cellRight + ship.radius;
+          if (ship.velocity.x < 0) ship.velocity.x *= -0.5;
+        }
+      } else {
+        // Vertical push
+        if (overlapT < overlapB) {
+          ship.position.y = cellTop - ship.radius;
+          if (ship.velocity.y > 0) ship.velocity.y *= -0.5;
+        } else {
+          ship.position.y = cellBottom + ship.radius;
+          if (ship.velocity.y < 0) ship.velocity.y *= -0.5;
+        }
+      }
+
+      // Light damage tick — deters camping against conduit walls.
+      ship.takeDamage(CONDUIT_DPS * dt);
+      this.recentlyDamaged.add(ship.id);
+    }
+
+    // --- Projectile blocking -----------------------------------------------
+    for (const proj of this.projectiles) {
+      if (!proj.alive) continue;
+      const cx = Math.floor(proj.position.x / GRID_CELL_SIZE);
+      const cy = Math.floor(proj.position.y / GRID_CELL_SIZE);
+      const conduitTeam = this.grid.conduitTeam(cx, cy);
+      // Only opposing-team powered conduits stop shots.
+      if (conduitTeam === null || conduitTeam === proj.team) continue;
+      if (!this.power.isCellEnergized(conduitTeam, cx, cy)) continue;
+      proj.destroy();
+      this.particles.emitSpark(proj.position);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Pending conduit build queue (0.5 s per cell, BFS frontier outward)
+  // -----------------------------------------------------------------------
+
+  /**
+   * Each tick, count down toward the next conduit build event. When the
+   * timer fires, promote the first pending conduit that sits on the build
+   * frontier (adjacent to an existing conduit or a power-source building).
+   */
+  private tickPendingConduits(dt: number): void {
+    if (this.grid.pendingConduitCount() === 0) return;
+    this.conduitBuildTimer -= dt;
+    if (this.conduitBuildTimer > 0) return;
+    this.conduitBuildTimer = 0.5;
+
+    for (const { cx, cy, team } of this.grid.eachPendingConduit()) {
+      if (this.isAtConduitFrontier(cx, cy, team)) {
+        this.grid.promotePendingConduit(cx, cy);
+        this.power.markDirty();
+        Audio.playSound('build');
+        break; // one per 0.5 s
+      }
+    }
+  }
+
+  /**
+   * True when (cx, cy) is adjacent to an existing conduit of the same team
+   * or adjacent to a Command Post / Power Generator cell of the same team.
+   */
+  private isAtConduitFrontier(cx: number, cy: number, team: Team): boolean {
+    const dirs: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (const [dx, dy] of dirs) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (this.grid.hasConduit(nx, ny) && this.grid.conduitTeam(nx, ny) === team) return true;
+    }
+    // Also count cells adjacent to a power-source building.
+    for (const b of this.buildings) {
+      if (!b.alive || b.team !== team) continue;
+      if (b.type !== EntityType.CommandPost && b.type !== EntityType.PowerGenerator) continue;
+      const bx = Math.floor(b.position.x / GRID_CELL_SIZE);
+      const by = Math.floor(b.position.y / GRID_CELL_SIZE);
+      if (Math.abs(cx - bx) + Math.abs(cy - by) <= 1) return true;
+    }
+    return false;
   }
 
 

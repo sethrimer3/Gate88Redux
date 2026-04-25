@@ -13,7 +13,7 @@ import { HUD } from './hud.js';
 import { MainMenu, MenuAction } from './menu.js';
 import { Colors, colorToCSS } from './colors.js';
 import { Team, EntityType, ShipGroup } from './entities.js';
-import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS, COMMANDPOST_BUILD_RADIUS } from './constants.js';
+import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS } from './constants.js';
 import { CommandPost } from './building.js';
 import { Shipyard } from './building.js';
 import { FighterShip, BomberShip } from './fighter.js';
@@ -219,15 +219,19 @@ export class Game {
 
     // Emit exhaust particles when the player is thrusting (any WASD key).
     // Exhaust trails opposite the actual thrust direction, which under the new
-    // mouse-aim controls is decoupled from the ship's facing.
+    // mouse-aim controls is decoupled from the ship's facing. When boosting
+    // (Shift held), emit extra particles for a more intense visual.
     if (this.state.player.alive && this.state.player.isThrusting && !this.actionMenu.open) {
       const td = this.state.player.thrustDir;
       const thrustAngle = Math.atan2(td.y, td.x);
-      this.state.particles.emitExhaust(
-        this.state.player.position,
-        thrustAngle,
-        Team.Player,
-      );
+      const exhaustCount = this.state.player.isBoosting ? 3 : 1;
+      for (let i = 0; i < exhaustCount; i++) {
+        this.state.particles.emitExhaust(
+          this.state.player.position,
+          thrustAngle,
+          Team.Player,
+        );
+      }
     }
 
     // Emit side exhaust particles when strafing (thrust direction is roughly
@@ -252,7 +256,7 @@ export class Game {
     }
 
     // Skip song with N key
-    if (Input.wasPressed('n') || Input.wasPressed('N')) {
+    if (Input.wasPressed('n')) {
       Audio.skipSong();
     }
 
@@ -409,32 +413,10 @@ export class Game {
       return;
     }
 
-    // PR4: snap placement to the grid cell nearest the cursor and require
-    // that cell to attach to the player's network — either it sits within
-    // the command-post build radius, or on/adjacent to an existing player
-    // conduit. This makes building placement *deterministic* (snapped) and
-    // *connected* (attached to the network).
+    // Snap placement to the grid cell nearest the cursor.
     const aimWorld = this.camera.screenToWorld(Input.mousePos);
     const cell = worldToCell(aimWorld);
     const worldPos = cellCenter(cell.cx, cell.cy);
-
-    // Command post is exempt from the attachment requirement — there may not
-    // be one yet to anchor the network to.
-    if (type !== 'commandpost') {
-      const cp = this.state.getPlayerCommandPost();
-      const inCpRadius =
-        cp !== null && worldPos.distanceTo(cp.position) <= COMMANDPOST_BUILD_RADIUS;
-      const onConduit =
-        this.state.grid.isOnOrAdjacentToConduit(cell.cx, cell.cy, Team.Player);
-      if (!inCpRadius && !onConduit) {
-        this.hud.showMessage(
-          'Place along a conduit or near your Command Post.',
-          Colors.alert1,
-          3,
-        );
-        return;
-      }
-    }
 
     const building = def.factory(worldPos, Team.Player);
     if (def.buildTime > 0) {

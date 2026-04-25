@@ -18,7 +18,7 @@ import { Input } from './input.js';
 import { Audio } from './audio.js';
 import { GameState } from './gamestate.js';
 import { ShipGroup, TacticalOrder, Team } from './entities.js';
-import { RESEARCH_COST } from './constants.js';
+import { RESEARCH_COST, CONDUIT_COST } from './constants.js';
 import { worldToCell, cellKey, cellCenter, GRID_CELL_SIZE } from './grid.js';
 import { defsByTier, BuildDef, getBuildDef } from './builddefs.js';
 
@@ -199,8 +199,9 @@ class HoldMenu {
   }
 
   update(state: GameState, camera: Camera): MenuResult {
-    // Hold key (case-insensitive) opens/keeps open; release closes.
-    const keyDown = Input.isDown(this.holdKey) || Input.isDown(this.holdKey.toUpperCase());
+    // Hold key opens/keeps open; release closes. Input normalization means
+    // the Shift-shifted variant is handled automatically.
+    const keyDown = Input.isDown(this.holdKey);
     if (keyDown && !this.open) {
       this.open = true;
       this.stack = [this.rootFactory(state)];
@@ -416,7 +417,7 @@ class PaintMenu {
    * frame the drag begins so the click doesn't fire a special / weapon.
    */
   update(state: GameState, camera: Camera): boolean {
-    const keyDown = Input.isDown('q') || Input.isDown('Q');
+    const keyDown = Input.isDown('q');
     if (keyDown && !this.open) {
       this.open = true;
       this.touchedThisDrag.clear();
@@ -457,10 +458,11 @@ class PaintMenu {
       if (!this.touchedThisDrag.has(key)) {
         this.touchedThisDrag.add(key);
         if (this.dragMode === 'paint') {
-          if (!state.grid.hasConduit(cx, cy)) {
-            state.grid.addConduit(cx, cy, Team.Player);
-            state.power.markDirty();
-            Audio.playSound('build');
+          if (!state.grid.hasConduit(cx, cy) && !state.grid.hasPendingConduit(cx, cy)) {
+            if (state.resources >= CONDUIT_COST) {
+              state.resources -= CONDUIT_COST;
+              state.grid.queueConduit(cx, cy, Team.Player);
+            }
           }
         } else if (this.dragMode === 'erase') {
           if (state.grid.conduitTeam(cx, cy) === Team.Player) {
@@ -495,7 +497,7 @@ class PaintMenu {
     ctx.textBaseline = 'top';
     ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.85);
     ctx.fillText(
-      '[Q] Conduit Paint  •  LMB paint  •  RMB erase  •  release Q to exit',
+      `[Q] Conduit Paint  •  LMB paint ($${CONDUIT_COST}/cell)  •  RMB erase  •  release Q to exit`,
       screenW * 0.5,
       24,
     );
@@ -503,7 +505,7 @@ class PaintMenu {
     ctx.font = '10px "Courier New", monospace';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
     ctx.fillText(
-      `conduits: ${state.grid.conduitCount()}  •  cell ${cell.cx},${cell.cy}  •  ${GRID_CELL_SIZE}u/cell`,
+      `conduits: ${state.grid.conduitCount()}  •  queued: ${state.grid.pendingConduitCount()}  •  cell ${cell.cx},${cell.cy}  •  resources: $${Math.floor(state.resources)}`,
       screenW * 0.5,
       40,
     );

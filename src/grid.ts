@@ -62,6 +62,11 @@ export function isAdjacent(a: CellCoord, b: CellCoord): boolean {
 export class WorldGrid {
   /** All conduit cells, keyed by cellKey(); value = team that painted it. */
   private conduits = new Map<string, Team>();
+  /**
+   * Conduits queued for construction (player-painted, not yet active).
+   * Built one per 0.5 s from the existing network outward.
+   */
+  private pendingConduits = new Map<string, { cx: number; cy: number; team: Team }>();
 
   // -- Conduit accessors ----------------------------------------------------
 
@@ -79,6 +84,8 @@ export class WorldGrid {
 
   removeConduit(cx: number, cy: number): void {
     this.conduits.delete(cellKey(cx, cy));
+    // Also cancel any pending cell at the same location.
+    this.pendingConduits.delete(cellKey(cx, cy));
   }
 
   /** Number of placed conduits — useful for debug/HUD. */
@@ -91,6 +98,47 @@ export class WorldGrid {
     for (const [k, team] of this.conduits) {
       const [sx, sy] = k.split(',');
       yield { cx: parseInt(sx, 10), cy: parseInt(sy, 10), team };
+    }
+  }
+
+  // -- Pending conduit queue -------------------------------------------------
+
+  /**
+   * Add (cx, cy) to the pending-build queue for `team`. Does nothing if the
+   * cell already has a conduit or is already queued.
+   */
+  queueConduit(cx: number, cy: number, team: Team): void {
+    const key = cellKey(cx, cy);
+    if (!this.conduits.has(key) && !this.pendingConduits.has(key)) {
+      this.pendingConduits.set(key, { cx, cy, team });
+    }
+  }
+
+  hasPendingConduit(cx: number, cy: number): boolean {
+    return this.pendingConduits.has(cellKey(cx, cy));
+  }
+
+  pendingConduitCount(): number {
+    return this.pendingConduits.size;
+  }
+
+  /**
+   * Promote (cx, cy) from pending → active conduit.
+   * Returns true if the pending entry existed.
+   */
+  promotePendingConduit(cx: number, cy: number): boolean {
+    const key = cellKey(cx, cy);
+    const entry = this.pendingConduits.get(key);
+    if (!entry) return false;
+    this.pendingConduits.delete(key);
+    this.conduits.set(key, entry.team);
+    return true;
+  }
+
+  /** Iterate all pending (not yet built) conduit cells. */
+  *eachPendingConduit(): IterableIterator<{ cx: number; cy: number; team: Team }> {
+    for (const entry of this.pendingConduits.values()) {
+      yield entry;
     }
   }
 
@@ -177,6 +225,18 @@ export class WorldGrid {
         }
       }
     }
+
+    // 1b. Pending conduits — drawn as a faint dashed outline so the player
+    //     can see where conduits are queued but not yet built.
+    ctx.setLineDash([3, 3]);
+    ctx.lineWidth = 1;
+    for (const { cx, cy } of this.pendingConduits.values()) {
+      if (cx < cxMin || cx > cxMax || cy < cyMin || cy > cyMax) continue;
+      const c = camera.worldToScreen(cellCenter(cx, cy));
+      ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.35);
+      ctx.strokeRect(c.x - cellPx / 2 + 1, c.y - cellPx / 2 + 1, cellPx - 2, cellPx - 2);
+    }
+    ctx.setLineDash([]);
 
     // 2. Grid lines — only drawn when sufficiently zoomed in to avoid clutter.
     if (camera.zoom >= 0.5) {

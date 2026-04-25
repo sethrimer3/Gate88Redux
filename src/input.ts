@@ -35,11 +35,24 @@ class InputManager {
     }
   }
 
+  /**
+   * Normalize a key name so that modifier-shifted letter keys (e.g. 'W' when
+   * Shift is held) are stored the same way as their unshifted counterpart
+   * ('w'). This prevents the well-known browser quirk where releasing Shift
+   * while a letter key is still held fires a keyup for the *unshifted* key
+   * ('w') even though the *shifted* name ('W') is what was pressed — leaving
+   * 'W' permanently stuck in keysDown until the next keydown cycle.
+   */
+  private normalizeKey(key: string): string {
+    if (key.length === 1) return key.toLowerCase();
+    return key;
+  }
+
   private onKeyDown = (e: KeyboardEvent): void => {
-    const key = e.key;
+    const key = this.normalizeKey(e.key);
     // Tab and certain keys would otherwise move browser focus / scroll the page.
     // We use Tab as the full-screen radar hold key, so suppress its default.
-    if (key === 'Tab') e.preventDefault();
+    if (e.key === 'Tab') e.preventDefault();
     if (!this.keysDown.has(key)) {
       this.keysPressed.add(key);
       // Detect second press within the double-tap window (for double-tap-then-hold)
@@ -53,7 +66,7 @@ class InputManager {
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
-    const key = e.key;
+    const key = this.normalizeKey(e.key);
     this.keysDown.delete(key);
     this.keysReleased.add(key);
 
@@ -91,27 +104,27 @@ class InputManager {
 
   /** True while the key is held down. */
   isDown(key: string): boolean {
-    return this.keysDown.has(key);
+    return this.keysDown.has(this.normalizeKey(key));
   }
 
   /** True only on the frame the key was first pressed. */
   wasPressed(key: string): boolean {
-    return this.keysPressed.has(key);
+    return this.keysPressed.has(this.normalizeKey(key));
   }
 
   /** True only on the frame the key was released. */
   wasReleased(key: string): boolean {
-    return this.keysReleased.has(key);
+    return this.keysReleased.has(this.normalizeKey(key));
   }
 
   /** True if the key was released twice within the double-tap window this frame. */
   isDoubleTapped(key: string): boolean {
-    return this.doubleTapped.has(key);
+    return this.doubleTapped.has(this.normalizeKey(key));
   }
 
   /** True on the frame the key is pressed for the second time quickly (double-tap-then-hold). */
   isDoubleTapDown(key: string): boolean {
-    return this.doubleTapDown.has(key);
+    return this.doubleTapDown.has(this.normalizeKey(key));
   }
 
   /**
@@ -134,8 +147,9 @@ class InputManager {
    * other subsystems on the same frame (e.g. after a menu consumes an arrow-key press).
    */
   consumeKey(key: string): void {
-    this.keysDown.delete(key);
-    this.keysPressed.delete(key);
+    const k = this.normalizeKey(key);
+    this.keysDown.delete(k);
+    this.keysPressed.delete(k);
   }
 
   /** Call once per frame after processing input to reset per-frame states. */
