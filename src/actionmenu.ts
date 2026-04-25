@@ -18,11 +18,9 @@ import { Input } from './input.js';
 import { Audio } from './audio.js';
 import { GameState } from './gamestate.js';
 import { ShipGroup, TacticalOrder, Team } from './entities.js';
-import { BUILDING_COST, RESEARCH_COST } from './constants.js';
+import { RESEARCH_COST } from './constants.js';
 import { worldToCell, cellKey, GRID_CELL_SIZE } from './grid.js';
-
-/** Rebuild cost for the command post (not in BUILDING_COST since it starts pre-built). */
-const COMMANDPOST_REBUILD_COST = 300;
+import { defsByTier, BuildDef } from './builddefs.js';
 
 /** Radius (px) from the menu centre at which items are placed. */
 const ITEM_RADIUS = 110;
@@ -108,35 +106,34 @@ function getHoveredIndex(items: RadialItem[], centre: Vec2, mouse: Vec2): number
 // Menu data builders
 // ---------------------------------------------------------------------------
 
+/** Convert a BuildDef to a RadialItem, gating affordability against `state`. */
+function defToRadialItem(def: BuildDef, state: GameState): RadialItem {
+  return {
+    label: def.radialLabel ?? def.label,
+    sublabel: `$${def.cost}`,
+    buildingType: def.key,
+    disabled: state.resources < def.cost,
+  };
+}
+
 function buildGeneralItems(state: GameState): RadialItem[] {
-  const r = state.resources;
   const items: RadialItem[] = [];
-  if (!state.getPlayerCommandPost()) {
-    items.push({
-      label: 'Command\nPost',
-      sublabel: `$${COMMANDPOST_REBUILD_COST}`,
-      buildingType: 'commandpost',
-      disabled: r < COMMANDPOST_REBUILD_COST,
-    });
+  for (const def of defsByTier('general')) {
+    // Hidden defs (e.g. command post) are only revealed when the player has
+    // no command post — they own that placement slot.
+    if (def.hidden) {
+      if (def.key === 'commandpost' && !state.getPlayerCommandPost()) {
+        items.push(defToRadialItem(def, state));
+      }
+      continue;
+    }
+    items.push(defToRadialItem(def, state));
   }
-  items.push(
-    { label: 'Power\nGenerator', sublabel: `$${BUILDING_COST.powergenerator}`, buildingType: 'powergenerator', disabled: r < BUILDING_COST.powergenerator },
-    { label: 'Fighter\nYard',    sublabel: `$${BUILDING_COST.fighteryard}`,    buildingType: 'fighteryard',    disabled: r < BUILDING_COST.fighteryard    },
-    { label: 'Bomber\nYard',     sublabel: `$${BUILDING_COST.bomberyard}`,     buildingType: 'bomberyard',     disabled: r < BUILDING_COST.bomberyard     },
-    { label: 'Research\nLab',    sublabel: `$${BUILDING_COST.researchlab}`,    buildingType: 'researchlab',    disabled: r < BUILDING_COST.researchlab    },
-    { label: 'Factory',          sublabel: `$${BUILDING_COST.factory}`,        buildingType: 'factory',        disabled: r < BUILDING_COST.factory        },
-  );
   return items;
 }
 
 function buildTurretItems(state: GameState): RadialItem[] {
-  const r = state.resources;
-  return [
-    { label: 'Missile\nTurret', sublabel: `$${BUILDING_COST.missileturret}`,    buildingType: 'missileturret',    disabled: r < BUILDING_COST.missileturret    },
-    { label: 'Exciter\nTurret', sublabel: `$${BUILDING_COST.exciterturret}`,    buildingType: 'exciterturret',    disabled: r < BUILDING_COST.exciterturret    },
-    { label: 'Mass\nDriver',    sublabel: `$${BUILDING_COST.massdriverturret}`, buildingType: 'massdriverturret', disabled: r < BUILDING_COST.massdriverturret },
-    { label: 'Regen\nTurret',   sublabel: `$${BUILDING_COST.regenturret}`,      buildingType: 'regenturret',      disabled: r < BUILDING_COST.regenturret      },
-  ];
+  return defsByTier('turret').map((d) => defToRadialItem(d, state));
 }
 
 function buildBuildRoot(state: GameState): RadialItem[] {
@@ -481,7 +478,7 @@ class PaintMenu {
     state: GameState,
     camera: Camera,
     screenW: number,
-    screenH: number,
+    _screenH: number,
   ): void {
     if (!this.open) return;
     const worldPos = camera.screenToWorld(Input.mousePos);
@@ -507,7 +504,6 @@ class PaintMenu {
       screenW * 0.5,
       40,
     );
-    void screenH;
   }
 }
 

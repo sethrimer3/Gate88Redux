@@ -1,7 +1,7 @@
 /** Heads-up display for Gate88 — minimal, message-based */
 
 import { Colors, colorToCSS, Color } from './colors.js';
-import { BUILDING_COST } from './constants.js';
+import { getBuildDef } from './builddefs.js';
 
 // ---------------------------------------------------------------------------
 // HUD message
@@ -111,34 +111,10 @@ export class HUD {
       return;
     }
 
-    const costLookup: Record<string, number> = {
-      commandpost:      300,
-      powergenerator:   BUILDING_COST.powergenerator,
-      fighteryard:      BUILDING_COST.fighteryard,
-      bomberyard:       BUILDING_COST.bomberyard,
-      researchlab:      BUILDING_COST.researchlab,
-      factory:          BUILDING_COST.factory,
-      missileturret:    BUILDING_COST.missileturret,
-      exciterturret:    BUILDING_COST.exciterturret,
-      massdriverturret: BUILDING_COST.massdriverturret,
-      regenturret:      BUILDING_COST.regenturret,
-    };
-    const nameMap: Record<string, string> = {
-      commandpost:      'Command Post',
-      powergenerator:   'Power Generator',
-      fighteryard:      'Fighter Yard',
-      bomberyard:       'Bomber Yard',
-      researchlab:      'Research Lab',
-      factory:          'Factory',
-      missileturret:    'Missile Turret',
-      exciterturret:    'Exciter Turret',
-      massdriverturret: 'Mass Driver',
-      regenturret:      'Regen Turret',
-    };
-
-    const cost = costLookup[buildType] ?? 0;
+    const def = getBuildDef(buildType);
+    const cost = def?.cost ?? 0;
+    const displayName = def?.label ?? buildType;
     const canAfford = resources >= cost;
-    const displayName = nameMap[buildType] ?? buildType;
 
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.45);
     ctx.fillText('BUILD:', x, y - 12);

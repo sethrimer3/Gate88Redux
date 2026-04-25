@@ -12,14 +12,16 @@ import { HUD } from './hud.js';
 import { MainMenu, MenuAction } from './menu.js';
 import { Colors, colorToCSS } from './colors.js';
 import { Team, EntityType, ShipGroup } from './entities.js';
-import { DT, WORLD_WIDTH, WORLD_HEIGHT, BUILDING_COST, BUILD_TIME, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS } from './constants.js';
-import { CommandPost, PowerGenerator, Shipyard, ResearchLab, Factory } from './building.js';
-import { MissileTurret, ExciterTurret, MassDriverTurret, RegenTurret } from './turret.js';
+import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS, COMMANDPOST_BUILD_RADIUS } from './constants.js';
+import { CommandPost } from './building.js';
+import { Shipyard } from './building.js';
 import { FighterShip, BomberShip } from './fighter.js';
 import { Bullet } from './projectile.js';
 import { PracticeMode } from './practicemode.js';
 import { TutorialMode } from './tutorial.js';
 import { tryFireSpecial } from './special.js';
+import { getBuildDef } from './builddefs.js';
+import { worldToCell, cellCenter, GRID_CELL_SIZE } from './grid.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 
@@ -322,89 +324,51 @@ export class Game {
   }
 
   private placeBuilding(type: string): void {
-    // Place at center of screen (camera target, i.e. player position area)
-    const worldPos = this.camera.screenToWorld(
-      new Vec2(this.screenW * 0.5, this.screenH * 0.5),
-    );
+    const def = getBuildDef(type);
+    if (!def) return;
 
-    const costMap: Record<string, number> = {
-      commandpost: 300,
-      powergenerator: BUILDING_COST.powergenerator,
-      fighteryard: BUILDING_COST.fighteryard,
-      bomberyard: BUILDING_COST.bomberyard,
-      researchlab: BUILDING_COST.researchlab,
-      factory: BUILDING_COST.factory,
-      missileturret: BUILDING_COST.missileturret,
-      exciterturret: BUILDING_COST.exciterturret,
-      massdriverturret: BUILDING_COST.massdriverturret,
-      regenturret: BUILDING_COST.regenturret,
-    };
-
-    const cost = costMap[type] ?? 0;
-    if (this.state.resources < cost) {
+    if (this.state.resources < def.cost) {
       this.hud.showMessage('Not enough resources!', Colors.alert1, 3);
       return;
     }
 
-    const buildTimeMap: Record<string, number> = {
-      powergenerator: BUILD_TIME.powergenerator,
-      fighteryard: BUILD_TIME.fighteryard,
-      bomberyard: BUILD_TIME.bomberyard,
-      researchlab: BUILD_TIME.researchlab,
-      factory: BUILD_TIME.factory,
-      missileturret: BUILD_TIME.missileturret,
-      exciterturret: BUILD_TIME.exciterturret,
-      massdriverturret: BUILD_TIME.massdriverturret,
-      regenturret: BUILD_TIME.regenturret,
-    };
+    // PR4: snap placement to the grid cell nearest the cursor and require
+    // that cell to attach to the player's network — either it sits within
+    // the command-post build radius, or on/adjacent to an existing player
+    // conduit. This makes building placement *deterministic* (snapped) and
+    // *connected* (attached to the network).
+    const aimWorld = this.camera.screenToWorld(Input.mousePos);
+    const cell = worldToCell(aimWorld);
+    const worldPos = cellCenter(cell.cx, cell.cy);
 
-    let building;
-    switch (type) {
-      case 'commandpost':
-        building = new CommandPost(worldPos, Team.Player);
-        break;
-      case 'powergenerator':
-        building = new PowerGenerator(worldPos, Team.Player);
-        break;
-      case 'fighteryard':
-        building = new Shipyard(EntityType.FighterYard, worldPos, Team.Player);
-        break;
-      case 'bomberyard':
-        building = new Shipyard(EntityType.BomberYard, worldPos, Team.Player);
-        break;
-      case 'researchlab':
-        building = new ResearchLab(worldPos, Team.Player);
-        break;
-      case 'factory':
-        building = new Factory(worldPos, Team.Player);
-        break;
-      case 'missileturret':
-        building = new MissileTurret(worldPos, Team.Player);
-        break;
-      case 'exciterturret':
-        building = new ExciterTurret(worldPos, Team.Player);
-        break;
-      case 'massdriverturret':
-        building = new MassDriverTurret(worldPos, Team.Player);
-        break;
-      case 'regenturret':
-        building = new RegenTurret(worldPos, Team.Player);
-        break;
-      default:
+    // Command post is exempt from the attachment requirement — there may not
+    // be one yet to anchor the network to.
+    if (type !== 'commandpost') {
+      const cp = this.state.getPlayerCommandPost();
+      const inCpRadius =
+        cp !== null && worldPos.distanceTo(cp.position) <= COMMANDPOST_BUILD_RADIUS;
+      const onConduit =
+        this.state.grid.isOnOrAdjacentToConduit(cell.cx, cell.cy, Team.Player);
+      if (!inCpRadius && !onConduit) {
+        this.hud.showMessage(
+          'Place along a conduit or near your Command Post.',
+          Colors.alert1,
+          3,
+        );
         return;
+      }
     }
 
-    // Set build progress (0 = under construction)
-    const buildTicks = buildTimeMap[type];
-    if (buildTicks !== undefined) {
+    const building = def.factory(worldPos, Team.Player);
+    if (def.buildTime > 0) {
       building.buildProgress = 0;
     }
 
-    this.state.resources -= cost;
+    this.state.resources -= def.cost;
     this.state.addEntity(building);
     this.state.selectedBuildType = type;
     Audio.playSound('build');
-    this.hud.showMessage(`Building ${type}...`, Colors.general_building, 2);
+    this.hud.showMessage(`Building ${def.label}…`, Colors.general_building, 2);
   }
 
   private issueShipOrder(group: ShipGroup, order: string): void {
