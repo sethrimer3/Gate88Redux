@@ -20,7 +20,7 @@ import { Colors, colorToCSS } from './colors.js';
 import { Team } from './entities.js';
 
 /** Side length of one grid cell in world units. */
-export const GRID_CELL_SIZE = 40;
+export const GRID_CELL_SIZE = 26;
 
 /** Stable string key for a (cx, cy) cell coordinate. */
 export function cellKey(cx: number, cy: number): string {
