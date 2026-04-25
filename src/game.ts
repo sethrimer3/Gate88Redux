@@ -535,7 +535,14 @@ export class Game {
 
     // Draw game world
     this.starfield.draw(ctx, this.camera, w, h);
-    this.state.grid.draw(ctx, this.camera, w, h);
+    this.state.grid.draw(
+      ctx,
+      this.camera,
+      w,
+      h,
+      this.state.gameTime,
+      (cx, cy, team) => this.state.power.isCellEnergized(team, cx, cy),
+    );
     this.state.drawEntities(ctx, this.camera);
 
     // Edge indicators (always)
@@ -555,6 +562,20 @@ export class Game {
     if (this.state.player.alive) {
       this.hud.drawSelectedBuild(ctx, this.state.selectedBuildType, this.state.resources, w, h);
       this.hud.drawPlayerEnergy(ctx, this.state.player.battery, this.state.player.maxBattery, w, h);
+      // Count unpowered player buildings (excluding sources / shipyards which are always powered).
+      let unpowered = 0;
+      for (const b of this.state.buildings) {
+        if (!b.alive || b.team !== Team.Player) continue;
+        if (b.buildProgress < 1) continue;
+        if (
+          b.type === EntityType.CommandPost ||
+          b.type === EntityType.PowerGenerator ||
+          b.type === EntityType.FighterYard ||
+          b.type === EntityType.BomberYard
+        ) continue;
+        if (!b.powered) unpowered++;
+      }
+      this.hud.drawPowerStatus(ctx, unpowered, h);
     }
 
     // Practice mode score display

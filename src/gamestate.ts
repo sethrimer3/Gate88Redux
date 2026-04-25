@@ -3,7 +3,7 @@
 import { Vec2 } from './math.js';
 import { Entity, Team, EntityType } from './entities.js';
 import { PlayerShip } from './ship.js';
-import { BuildingBase, CommandPost, PowerGenerator, Shipyard, ResearchLab, Factory } from './building.js';
+import { BuildingBase, CommandPost } from './building.js';
 import { TurretBase } from './turret.js';
 import { ProjectileBase, RegenBullet } from './projectile.js';
 import { FighterShip } from './fighter.js';
@@ -11,7 +11,8 @@ import { ParticleSystem } from './particles.js';
 import { Camera } from './camera.js';
 import { Audio } from './audio.js';
 import { WorldGrid, GRID_CELL_SIZE } from './grid.js';
-import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN, POWERGENERATOR_COVERAGE_RADIUS, COMMANDPOST_BUILD_RADIUS } from './constants.js';
+import { PowerGraph } from './power.js';
+import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN } from './constants.js';
 
 export interface ResearchProgress {
   item: string | null;
@@ -29,6 +30,8 @@ export class GameState {
   particles: ParticleSystem;
   /** PR3: universal world grid storing painted conduits. */
   grid: WorldGrid = new WorldGrid();
+  /** PR5: graph-based power network (lazy, dirty-flag cached). */
+  power: PowerGraph = new PowerGraph();
 
   resources: number = 500;
   researchProgress: ResearchProgress = { item: null, progress: 0, timeNeeded: 0 };
@@ -63,6 +66,7 @@ export class GameState {
       this.fighters.push(entity);
     } else if (entity instanceof BuildingBase) {
       this.buildings.push(entity);
+      this.power.markDirty();
     }
   }
 
@@ -241,50 +245,11 @@ export class GameState {
   }
 
   // -----------------------------------------------------------------------
-  // Building power
+  // Building power (PR5: graph-based, see src/power.ts)
   // -----------------------------------------------------------------------
 
   private updateBuildingPower(): void {
-    const commandPosts = this.buildings.filter(
-      (b) => b.alive && b.type === EntityType.CommandPost,
-    ) as CommandPost[];
-
-    const generators = this.buildings.filter(
-      (b) => b.alive && b.type === EntityType.PowerGenerator,
-    ) as PowerGenerator[];
-
-    for (const b of this.buildings) {
-      if (!b.alive) continue;
-      // CommandPosts and PowerGenerators are self-powered; shipyards too
-      if (
-        b.type === EntityType.CommandPost ||
-        b.type === EntityType.PowerGenerator ||
-        b.type === EntityType.FighterYard ||
-        b.type === EntityType.BomberYard
-      ) {
-        b.powered = true;
-        continue;
-      }
-
-      // Others need to be within a command post build radius or power generator coverage
-      b.powered = false;
-      for (const cp of commandPosts) {
-        if (cp.team !== b.team) continue;
-        if (cp.position.distanceTo(b.position) <= COMMANDPOST_BUILD_RADIUS) {
-          b.powered = true;
-          break;
-        }
-      }
-      if (!b.powered) {
-        for (const gen of generators) {
-          if (gen.team !== b.team) continue;
-          if (gen.position.distanceTo(b.position) <= POWERGENERATOR_COVERAGE_RADIUS) {
-            b.powered = true;
-            break;
-          }
-        }
-      }
-    }
+    this.power.recompute(this);
   }
 
   // -----------------------------------------------------------------------
@@ -374,7 +339,11 @@ export class GameState {
   // -----------------------------------------------------------------------
 
   private cleanupDead(): void {
+    const beforeBuildings = this.buildings.length;
     this.buildings = this.buildings.filter((b) => b.alive);
+    if (this.buildings.length !== beforeBuildings) {
+      this.power.markDirty();
+    }
     this.projectiles = this.projectiles.filter((p) => p.alive);
     this.fighters = this.fighters.filter((f) => f.alive);
   }

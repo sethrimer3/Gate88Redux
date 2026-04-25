@@ -173,4 +173,25 @@ export class HUD {
     ctx.lineWidth = 1;
     ctx.strokeRect(x, y - barH, barW, barH);
   }
+
+  /**
+   * PR5: warn the player about disconnected (unpowered) buildings. Drawn
+   * just above the ENERGY/BUILD column so it stays in the same eye-line.
+   */
+  drawPowerStatus(
+    ctx: CanvasRenderingContext2D,
+    unpoweredCount: number,
+    screenH: number,
+  ): void {
+    if (unpoweredCount <= 0) return;
+    const x = 10;
+    const y = screenH - 70;
+    const flash = 0.5 + 0.5 * Math.sin(this.animTime * 5);
+    ctx.font = '10px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.fillStyle = colorToCSS(Colors.alert2, 0.5 + 0.5 * flash);
+    const label = unpoweredCount === 1 ? '1 building unpowered' : `${unpoweredCount} buildings unpowered`;
+    ctx.fillText(`⚠ ${label}`, x, y);
+  }
 }

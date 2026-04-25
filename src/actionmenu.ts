@@ -458,11 +458,13 @@ class PaintMenu {
         if (this.dragMode === 'paint') {
           if (!state.grid.hasConduit(cx, cy)) {
             state.grid.addConduit(cx, cy, Team.Player);
+            state.power.markDirty();
             Audio.playSound('build');
           }
         } else if (this.dragMode === 'erase') {
           if (state.grid.conduitTeam(cx, cy) === Team.Player) {
             state.grid.removeConduit(cx, cy);
+            state.power.markDirty();
             Audio.playSound('menucursor');
           }
         }

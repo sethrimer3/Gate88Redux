@@ -114,13 +114,23 @@ export class WorldGrid {
 
   /**
    * Render the grid: faint grid lines for cells visible on screen, plus
-   * filled conduit tiles coloured by their owning team.
+   * filled conduit tiles coloured by their owning team. Energized player
+   * conduits get a brighter outline pulse driven by `time`.
+   *
+   * @param time      Accumulated game time, used to drive the pulse.
+   * @param isEnergized Optional predicate (cx, cy, team) → boolean. When the
+   *                  predicate returns true, the conduit is rendered with
+   *                  the energized colour ramp. Falls back to "always
+   *                  energized" so callers that don't know about the power
+   *                  graph still get a usable visual.
    */
   draw(
     ctx: CanvasRenderingContext2D,
     camera: Camera,
     screenW: number,
     screenH: number,
+    time: number = 0,
+    isEnergized?: (cx: number, cy: number, team: Team) => boolean,
   ): void {
     // Visible cell range (inclusive). Pad by one cell for line continuity.
     const tl = camera.screenToWorld(new Vec2(0, 0));
@@ -132,21 +142,31 @@ export class WorldGrid {
 
     // 1. Conduit fills first so grid lines overlay nicely on top.
     const cellPx = GRID_CELL_SIZE * camera.zoom;
+    const pulse = 0.5 + 0.5 * Math.sin(time * 2);
     for (let cy = cyMin; cy <= cyMax; cy++) {
       for (let cx = cxMin; cx <= cxMax; cx++) {
         const team = this.conduits.get(cellKey(cx, cy));
         if (team === undefined) continue;
         const c = camera.worldToScreen(cellCenter(cx, cy));
+        const energized = isEnergized ? isEnergized(cx, cy, team) : true;
+        const fillAlpha = energized
+          ? team === Team.Player
+            ? 0.32 + 0.10 * pulse
+            : 0.22 + 0.06 * pulse
+          : team === Team.Player
+            ? 0.14
+            : 0.10;
         ctx.fillStyle =
           team === Team.Player
-            ? colorToCSS(Colors.powergenerator_coverage, 0.32)
-            : colorToCSS(Colors.enemyfire, 0.22);
+            ? colorToCSS(Colors.powergenerator_coverage, fillAlpha)
+            : colorToCSS(Colors.enemyfire, fillAlpha);
         ctx.fillRect(c.x - cellPx / 2, c.y - cellPx / 2, cellPx, cellPx);
 
-        // Inner glow square for friendly conduits — gives the network a
-        // sense of being "alive" without a heavy particle cost.
-        if (team === Team.Player) {
-          ctx.strokeStyle = colorToCSS(Colors.particles_friendly_exhaust, 0.55);
+        // Inner glow square for friendly conduits — only for energized
+        // cells, so the player can see at a glance which segments are dead.
+        if (team === Team.Player && energized) {
+          const glowAlpha = 0.45 + 0.40 * pulse;
+          ctx.strokeStyle = colorToCSS(Colors.particles_friendly_exhaust, glowAlpha);
           ctx.lineWidth = 1;
           ctx.strokeRect(
             c.x - cellPx / 2 + 2,
