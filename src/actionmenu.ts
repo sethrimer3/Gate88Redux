@@ -459,9 +459,7 @@ class PaintMenu {
         this.touchedThisDrag.add(key);
         if (this.dragMode === 'paint') {
           if (!state.grid.hasConduit(cx, cy) && !state.grid.hasPendingConduit(cx, cy)) {
-            if (state.resources < CONDUIT_COST) {
-              // not enough resources — skip silently (no audio spam)
-            } else {
+            if (state.resources >= CONDUIT_COST) {
               state.resources -= CONDUIT_COST;
               state.grid.queueConduit(cx, cy, Team.Player);
             }

@@ -336,7 +336,7 @@ export class GameState {
     // --- Ship bounce -------------------------------------------------------
     const CONDUIT_DPS = 0.5; // damage while touching an opposing powered conduit
 
-    const shipsToCheck: Array<{ position: Vec2; velocity: Vec2; team: Team; radius: number }> = [];
+    const shipsToCheck: Entity[] = [];
     if (this.player.alive) shipsToCheck.push(this.player);
     if (this.aiPlayerShip && this.aiPlayerShip.alive) shipsToCheck.push(this.aiPlayerShip);
     for (const f of this.fighters) {
@@ -386,10 +386,8 @@ export class GameState {
       }
 
       // Light damage tick — deters camping against conduit walls.
-      if ('takeDamage' in ship && typeof (ship as Entity).takeDamage === 'function') {
-        (ship as Entity).takeDamage(CONDUIT_DPS * dt);
-        this.recentlyDamaged.add((ship as Entity).id);
-      }
+      ship.takeDamage(CONDUIT_DPS * dt);
+      this.recentlyDamaged.add(ship.id);
     }
 
     // --- Projectile blocking -----------------------------------------------
