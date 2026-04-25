@@ -185,3 +185,6 @@ export const BASELINE_RESOURCE_GAIN = 2.0;
 // Build zone radii
 export const COMMANDPOST_BUILD_RADIUS = 260;
 export const POWERGENERATOR_COVERAGE_RADIUS = 195;
+
+/** Resource cost to paint one conduit cell. */
+export const CONDUIT_COST = 5;

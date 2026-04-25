@@ -12,6 +12,11 @@ const BATTERY_MAX = 100;
 const BATTERY_REGEN_RATE = 16;
 const BATTERY_FIRE_COST = 5;
 
+/** Speed multiplier when boosting (Shift held). */
+const BOOST_SPEED_MULT = 1.8;
+/** Battery drained per second while boost-thrusting. */
+const BOOST_BATTERY_DRAIN = 30;
+
 /**
  * How quickly the visual ship rotation chases the mouse-aim target. Set high
  * enough that aim feels instant but not so high that fast cursor jumps cause
@@ -61,6 +66,8 @@ export class PlayerShip extends Entity {
   thrustDir: Vec2 = new Vec2(0, 0);
   /** True if any movement key was held this tick (used for SFX/exhaust). */
   isThrusting: boolean = false;
+  /** True when boosting (Shift held while thrusting with battery remaining). */
+  isBoosting: boolean = false;
 
   constructor(position: Vec2, team: Team = Team.Player) {
     super(
@@ -86,10 +93,11 @@ export class PlayerShip extends Entity {
     // all keys naturally decelerates the ship via this friction term.
     this.velocity = this.velocity.scale(1 / (1 + this.friction * dt));
 
-    // Clamp speed
+    // Clamp speed — boost allows a higher cap.
     const speed = this.velocity.length();
-    if (speed > this.maxSpeed) {
-      this.velocity = this.velocity.normalize().scale(this.maxSpeed);
+    const speedCap = this.isBoosting ? this.maxSpeed * BOOST_SPEED_MULT : this.maxSpeed;
+    if (speed > speedCap) {
+      this.velocity = this.velocity.normalize().scale(speedCap);
     }
 
     // Integrate position
@@ -121,6 +129,7 @@ export class PlayerShip extends Entity {
     this.aimWorld = new Vec2(position.x + 100, position.y);
     this.thrustDir = new Vec2(0, 0);
     this.isThrusting = false;
+    this.isBoosting = false;
   }
 
   setAimPoint(world: Vec2): void {
@@ -131,23 +140,35 @@ export class PlayerShip extends Entity {
     // --- Movement: WASD as a 4-axis direction, decoupled from facing -----
     let dx = 0;
     let dy = 0;
-    if (Input.isDown('w') || Input.isDown('W')) dy -= 1;
-    if (Input.isDown('s') || Input.isDown('S')) dy += 1;
-    if (Input.isDown('a') || Input.isDown('A')) dx -= 1;
-    if (Input.isDown('d') || Input.isDown('D')) dx += 1;
+    if (Input.isDown('w')) dy -= 1;
+    if (Input.isDown('s')) dy += 1;
+    if (Input.isDown('a')) dx -= 1;
+    if (Input.isDown('d')) dx += 1;
 
     if (dx !== 0 || dy !== 0) {
       // Normalize so diagonals don't get a sqrt(2) speed boost.
       const len = Math.hypot(dx, dy);
       const ux = dx / len;
       const uy = dy / len;
+
+      // Shift boost: doubles thrust and speed cap, drains battery.
+      const shiftHeld = Input.isDown('Shift');
+      const canBoost = shiftHeld && this.battery > 0;
+      const thrustMult = canBoost ? BOOST_SPEED_MULT : 1.0;
+
       this.velocity = this.velocity.add(
-        new Vec2(ux * this.thrustPower * dt, uy * this.thrustPower * dt),
+        new Vec2(ux * this.thrustPower * thrustMult * dt, uy * this.thrustPower * thrustMult * dt),
       );
       this.thrustDir = new Vec2(ux, uy);
       this.isThrusting = true;
+      this.isBoosting = canBoost;
+
+      if (canBoost) {
+        this.battery = Math.max(0, this.battery - BOOST_BATTERY_DRAIN * dt);
+      }
     } else {
       this.isThrusting = false;
+      this.isBoosting = false;
     }
 
     // --- Aiming: rotate toward the world-space mouse cursor ---------------
