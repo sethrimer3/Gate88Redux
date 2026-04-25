@@ -191,7 +191,10 @@ export class HUD {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.5 + 0.5 * flash);
-    const label = unpoweredCount === 1 ? '1 building unpowered' : `${unpoweredCount} buildings unpowered`;
+    const label =
+      unpoweredCount === 1
+        ? '1 building unpowered'
+        : `${unpoweredCount} buildings unpowered`;
     ctx.fillText(`⚠ ${label}`, x, y);
   }
 }

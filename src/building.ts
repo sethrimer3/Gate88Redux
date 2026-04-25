@@ -43,6 +43,45 @@ export abstract class BuildingBase extends Entity {
     r: number,
     color: string,
   ): void {
+    // PR7: under-construction visual — corner brackets + sweeping scanline.
+    // The opacity ramp on the body is preserved (via globalAlpha) so the
+    // underlying shape still fades in, but the brackets clearly read as
+    // "blueprint, not yet active".
+    if (this.buildProgress < 1) {
+      const t = this.buildProgress;
+      // Four expanding corner brackets in a square just outside `r`.
+      const sq = r * 1.1;
+      const armLen = sq * 0.55 * (0.6 + 0.4 * t);
+      ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.55 + 0.35 * t);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      // top-left
+      ctx.moveTo(screen.x - sq, screen.y - sq + armLen);
+      ctx.lineTo(screen.x - sq, screen.y - sq);
+      ctx.lineTo(screen.x - sq + armLen, screen.y - sq);
+      // top-right
+      ctx.moveTo(screen.x + sq, screen.y - sq + armLen);
+      ctx.lineTo(screen.x + sq, screen.y - sq);
+      ctx.lineTo(screen.x + sq - armLen, screen.y - sq);
+      // bottom-right
+      ctx.moveTo(screen.x + sq, screen.y + sq - armLen);
+      ctx.lineTo(screen.x + sq, screen.y + sq);
+      ctx.lineTo(screen.x + sq - armLen, screen.y + sq);
+      // bottom-left
+      ctx.moveTo(screen.x - sq, screen.y + sq - armLen);
+      ctx.lineTo(screen.x - sq, screen.y + sq);
+      ctx.lineTo(screen.x - sq + armLen, screen.y + sq);
+      ctx.stroke();
+
+      // Sweeping scanline that rises with build progress.
+      const sy = screen.y + sq - sq * 2 * t;
+      ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.4);
+      ctx.beginPath();
+      ctx.moveTo(screen.x - sq, sy);
+      ctx.lineTo(screen.x + sq, sy);
+      ctx.stroke();
+    }
+
     // Outer ring
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;

@@ -87,6 +87,39 @@ function drawRotatingT(
   ctx.restore();
 }
 
+/**
+ * PR7: yellow warning triangle with a central exclamation mark, used for
+ * "enemy is building near you" alerts. Drawn at (x, y) world space.
+ */
+function drawWarningTriangle(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(0, -size);
+  ctx.lineTo(size, size * 0.8);
+  ctx.lineTo(-size, size * 0.8);
+  ctx.closePath();
+  ctx.stroke();
+  // Exclamation: a vertical bar plus a dot.
+  ctx.beginPath();
+  ctx.moveTo(0, -size * 0.45);
+  ctx.lineTo(0, size * 0.25);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, size * 0.5, 1.4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 export function drawEdgeIndicators(
   ctx: CanvasRenderingContext2D,
   camera: Camera,
@@ -186,6 +219,45 @@ export function drawEdgeIndicators(
         INDICATOR_MIN_SIZE + 2,
         colorToCSS(GROUP_COLORS[group]),
         time,
+      );
+    }
+  }
+
+  // PR7: AI warning markers — flashing yellow exclamation at the screen
+  // edge for each recent enemy construction within 8s. If the construction
+  // is on-screen we drop a transient marker at the world position so the
+  // player can see *where* it appeared.
+  const WARNING_LIFETIME = 8;
+  const cutoff = state.gameTime - WARNING_LIFETIME;
+  // Drop expired warnings (mutates the array in place).
+  for (let i = state.recentEnemyConstructions.length - 1; i >= 0; i--) {
+    if (state.recentEnemyConstructions[i].time < cutoff) {
+      state.recentEnemyConstructions.splice(i, 1);
+    }
+  }
+  for (const w of state.recentEnemyConstructions) {
+    const age = state.gameTime - w.time;
+    const flash = Math.sin(time * 8) > 0;
+    if (!flash) continue;
+    const alpha = Math.max(0, 1 - age / WARNING_LIFETIME);
+    const sp = camera.worldToScreen(w.pos);
+    const edge = clampToEdge(sp, screenW, screenH);
+    if (edge.offScreen) {
+      drawWarningTriangle(
+        ctx,
+        edge.x,
+        edge.y,
+        INDICATOR_MAX_SIZE,
+        colorToCSS(Colors.alert2, alpha),
+      );
+    } else {
+      // On-screen marker — small triangle above the construction.
+      drawWarningTriangle(
+        ctx,
+        sp.x,
+        sp.y - 22,
+        INDICATOR_MIN_SIZE + 2,
+        colorToCSS(Colors.alert2, alpha),
       );
     }
   }

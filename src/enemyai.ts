@@ -184,6 +184,7 @@ export class EnemyAI {
     const turret = new TurretClass(pos, this.team);
     turret.buildProgress = 0; // visible construction
     state.addEntity(turret);
+    state.recentEnemyConstructions.push({ pos: pos.clone(), time: state.gameTime });
   }
 
   // -- Tactical fighter dispatch ------------------------------------------
@@ -254,6 +255,5 @@ export class EnemyAI {
         ctx.fillRect(c.x - cellPx / 2, c.y - cellPx / 2, cellPx, cellPx);
       }
     }
-    void state; // quiet "unused" if future refactor drops this
   }
 }

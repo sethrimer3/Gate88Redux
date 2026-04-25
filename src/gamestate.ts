@@ -50,6 +50,13 @@ export class GameState {
   /** Entities that took damage this frame, used by radar for flash indicators. */
   recentlyDamaged: Set<number> = new Set();
 
+  /**
+   * PR7: timestamps of recent enemy construction events (in seconds since
+   * gameTime). Used by the HUD to show warning markers near the player CP.
+   * Entries older than 8 seconds are dropped on read.
+   */
+  recentEnemyConstructions: Array<{ pos: Vec2; time: number }> = [];
+
   constructor(playerStart: Vec2 = new Vec2(0, 0)) {
     this.player = new PlayerShip(playerStart, Team.Player);
     this.particles = new ParticleSystem();
