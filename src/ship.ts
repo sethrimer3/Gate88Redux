@@ -114,7 +114,7 @@ export class PlayerShip extends Entity {
     this.aimWorld = world;
   }
 
-  private handleInput(dt: number): void {
+  protected handleInput(dt: number): void {
     // --- Movement: WASD as a 4-axis direction, decoupled from facing -----
     let dx = 0;
     let dy = 0;

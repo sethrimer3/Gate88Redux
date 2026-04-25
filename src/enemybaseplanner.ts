@@ -21,7 +21,8 @@
 import { Vec2 } from './math.js';
 import { Team, EntityType } from './entities.js';
 import { GameState } from './gamestate.js';
-import { CommandPost, Shipyard } from './building.js';
+import { BuildingBase, CommandPost, Shipyard, PowerGenerator, ResearchLab, Factory } from './building.js';
+import { TurretBase } from './turret.js';
 import { GRID_CELL_SIZE, cellCenter, cellKey } from './grid.js';
 import { BuildDef, getBuildDef } from './builddefs.js';
 import { BuilderDrone, BuildOrder } from './builderdrone.js';
@@ -179,6 +180,7 @@ export class EnemyBasePlanner {
   update(state: GameState, cp: CommandPost, dt: number): void {
     // 1. Builder lifecycle
     this.processBuilderRebuilds(state, cp, dt);
+    this.assignRepairTargets(state);
     this.dispatchIdleBuilders(state);
     this.collectFinishedBuilds(state);
 
@@ -186,8 +188,107 @@ export class EnemyBasePlanner {
     this.tickTimer -= dt;
     if (this.tickTimer <= 0) {
       this.tickTimer = this.basePlannerInterval();
-      this.maybeAdvanceRing();
+      this.maybeAdvanceRing(state);
       this.replanQueue();
+    }
+  }
+
+  /**
+   * Reassign each builder's repair target every tick. A builder switches
+   * to repair mode when there is a damaged friendly building that *no*
+   * other builder is already heading for, and the builder isn't actively
+   * placing a structure.
+   *
+   * Priorities follow the spec: power-critical generators → command post
+   * → shipyards → turrets → factories / labs.
+   */
+  private assignRepairTargets(state: GameState): void {
+    // Collect candidate damaged buildings, grouped by priority.
+    const damaged: BuildingBase[] = [];
+    for (const b of state.buildings) {
+      if (!b.alive || b.team !== this.team) continue;
+      if (b.buildProgress < 1) continue;
+      if (b.healthFraction >= 0.99) continue;
+      damaged.push(b);
+    }
+    if (damaged.length === 0) {
+      // No damage anywhere → release every drone from repair mode.
+      for (const b of this.builders) {
+        if (b.mode === 'repair') {
+          b.repairTarget = null;
+          b.mode = 'build';
+        }
+      }
+      return;
+    }
+
+    // Stable priority sort.
+    const priorityOf = (b: BuildingBase): number => {
+      if (b instanceof PowerGenerator) return 0;
+      if (b instanceof CommandPost)    return 1;
+      if (b instanceof Shipyard)       return 2;
+      if (b instanceof TurretBase)     return 3;
+      if (b instanceof ResearchLab)    return 4;
+      if (b instanceof Factory)        return 4;
+      return 5;
+    };
+    damaged.sort((a, b) => {
+      const pa = priorityOf(a), pb = priorityOf(b);
+      if (pa !== pb) return pa - pb;
+      return a.healthFraction - b.healthFraction; // most damaged first
+    });
+
+    // Track buildings already claimed by a repair drone so we don't
+    // pile every drone onto the same target.
+    const claimed = new Set<number>();
+    for (const drone of this.builders) {
+      if (drone.mode === 'repair' && drone.repairTarget &&
+          drone.repairTarget.alive &&
+          drone.repairTarget.healthFraction < 0.99) {
+        claimed.add(drone.repairTarget.id);
+      }
+    }
+
+    // Limit how many drones repair at once: at most floor(builders/2) so
+    // expansion never fully stalls. Higher difficulty allows more.
+    const idx = difficultyIndex(this.config.difficulty);
+    const maxRepairers = Math.max(1, Math.floor(this.builders.length *
+      [0.4, 0.5, 0.6, 0.7, 0.8][idx]));
+    const currentRepairers = this.builders.filter((b) => b.mode === 'repair' && b.alive).length;
+
+    // Promote idle builders to repair mode if budget allows.
+    let promotions = maxRepairers - currentRepairers;
+    if (promotions > 0) {
+      for (const drone of this.builders) {
+        if (promotions <= 0) break;
+        if (!drone.alive) continue;
+        if (drone.isBuilding) continue;       // mid-construction; leave it
+        if (drone.mode === 'repair') continue; // already repairing
+        // Find an unclaimed top-priority damaged target.
+        const target = damaged.find((b) => !claimed.has(b.id));
+        if (!target) break;
+        // Switch this drone into repair mode for the next pass.
+        drone.mode = 'repair';
+        drone.repairTarget = target;
+        // If they were carrying a build order, push it back to the queue
+        // so it isn't dropped.
+        if (drone.buildOrder) {
+          this.queue.unshift(drone.buildOrder);
+          drone.buildOrder = null;
+        }
+        claimed.add(target.id);
+        promotions--;
+      }
+    }
+
+    // Demote drones whose target is now healed/dead so they go back to building.
+    for (const drone of this.builders) {
+      if (drone.mode !== 'repair') continue;
+      const t = drone.repairTarget;
+      if (!t || !t.alive || t.healthFraction >= 0.99) {
+        drone.mode = 'build';
+        drone.repairTarget = null;
+      }
     }
   }
 
@@ -242,6 +343,7 @@ export class EnemyBasePlanner {
     if (this.queue.length === 0) return;
     for (const b of this.builders) {
       if (!b.alive) continue;
+      if (b.mode === 'repair') continue; // busy healing
       if (b.buildOrder) continue; // already busy
       if (b.isBuilding) continue;
       const order = this.queue.shift();
@@ -274,7 +376,7 @@ export class EnemyBasePlanner {
   // Ring planning
   // -----------------------------------------------------------------------
 
-  private maybeAdvanceRing(): void {
+  private maybeAdvanceRing(state: GameState): void {
     if (this.currentRing >= RING_RECIPES.length - 1) return;
     const recipe = RING_RECIPES[this.currentRing];
     const placed = this.ringPlacements.get(this.currentRing) ?? {};
@@ -287,6 +389,17 @@ export class EnemyBasePlanner {
     // Move on once 70% of the ring is complete; higher difficulty advances earlier.
     const advanceFraction = 0.85 - 0.10 * difficultyIndex(this.config.difficulty);
     if (totalPlaced >= totalNeeded * advanceFraction) {
+      // Visual feedback — a power-wave pulse sweeping outward across the
+      // completed ring tells the player a new defensive layer just came online.
+      const center = cellCenter(this.centerCx, this.centerCy);
+      const ringWorldR = recipe.radius * GRID_CELL_SIZE;
+      state.ringEffects.spawnPowerWave(
+        center,
+        Math.max(40, ringWorldR - GRID_CELL_SIZE),
+        ringWorldR + GRID_CELL_SIZE * 2,
+        1.6,
+        1.0 + 0.15 * difficultyIndex(this.config.difficulty),
+      );
       this.currentRing++;
     }
   }
