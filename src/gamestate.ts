@@ -8,6 +8,7 @@ import { TurretBase } from './turret.js';
 import { ProjectileBase, RegenBullet } from './projectile.js';
 import { FighterShip } from './fighter.js';
 import { ParticleSystem } from './particles.js';
+import { RingEffectSystem } from './ringeffects.js';
 import { Camera } from './camera.js';
 import { Audio } from './audio.js';
 import { WorldGrid, GRID_CELL_SIZE } from './grid.js';
@@ -20,7 +21,7 @@ export interface ResearchProgress {
   timeNeeded: number;
 }
 
-export type GameMode = 'menu' | 'tutorial' | 'practice' | 'playing';
+export type GameMode = 'menu' | 'tutorial' | 'practice' | 'vs_ai' | 'playing';
 
 export class GameState {
   player: PlayerShip;
@@ -28,6 +29,8 @@ export class GameState {
   projectiles: ProjectileBase[] = [];
   fighters: FighterShip[] = [];
   particles: ParticleSystem;
+  /** Ring/blackout pulse effects (PR9). */
+  ringEffects: RingEffectSystem = new RingEffectSystem();
   /** PR3: universal world grid storing painted conduits. */
   grid: WorldGrid = new WorldGrid();
   /** PR5: graph-based power network (lazy, dirty-flag cached). */
@@ -36,6 +39,13 @@ export class GameState {
   resources: number = 500;
   researchProgress: ResearchProgress = { item: null, progress: 0, timeNeeded: 0 };
   researchedItems: Set<string> = new Set();
+
+  /**
+   * Vs. AI bot-player main ship, when the active mode is `vs_ai`.
+   * Treated like a second player: physics tick, render, and projectile
+   * collisions all flow through the same paths as `player`.
+   */
+  aiPlayerShip: PlayerShip | null = null;
 
   /**
    * The most recently selected building type from the Z-Build menu.
@@ -85,6 +95,7 @@ export class GameState {
   allEntities(): Entity[] {
     const result: Entity[] = [];
     if (this.player.alive) result.push(this.player);
+    if (this.aiPlayerShip && this.aiPlayerShip.alive) result.push(this.aiPlayerShip);
     for (const b of this.buildings) if (b.alive) result.push(b);
     for (const f of this.fighters) if (f.alive) result.push(f);
     for (const p of this.projectiles) if (p.alive) result.push(p);
@@ -129,6 +140,10 @@ export class GameState {
 
     // Update player
     this.player.update(dt);
+    // Vs. AI bot ship — same physics tick path.
+    if (this.aiPlayerShip && this.aiPlayerShip.alive) {
+      this.aiPlayerShip.update(dt);
+    }
 
     // Update buildings and power status
     this.updateBuildingPower();
@@ -156,6 +171,8 @@ export class GameState {
 
     // Particles
     this.particles.update(dt);
+    this.ringEffects.update(dt);
+    this.ringEffects.prune();
 
     // Cleanup dead entities
     this.cleanupDead();
@@ -187,7 +204,13 @@ export class GameState {
 
       // Check against player
       if (this.player.alive) {
-        this.checkHit(proj, this.player, isRegen);
+        if (this.checkHit(proj, this.player, isRegen)) continue;
+      }
+
+      // Check against the Vs. AI bot ship — it's a player-class entity
+      // that must be damageable by player projectiles.
+      if (this.aiPlayerShip && this.aiPlayerShip.alive) {
+        this.checkHit(proj, this.aiPlayerShip, isRegen);
       }
     }
   }
@@ -364,7 +387,11 @@ export class GameState {
     for (const f of this.fighters) f.draw(ctx, camera);
     for (const p of this.projectiles) p.draw(ctx, camera);
     if (this.player.alive) this.player.draw(ctx, camera);
+    if (this.aiPlayerShip && this.aiPlayerShip.alive) {
+      this.aiPlayerShip.draw(ctx, camera);
+    }
     this.particles.draw(ctx, camera);
+    this.ringEffects.draw(ctx, camera);
   }
 
   // -----------------------------------------------------------------------

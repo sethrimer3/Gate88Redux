@@ -1,23 +1,25 @@
-/** Practice mode game logic for Gate88 */
+/** Practice mode game logic for Gate 88. */
 
-import { Vec2, randomRange, randomInt } from './math.js';
+import { Vec2, randomRange } from './math.js';
 import { Team, EntityType, ShipGroup } from './entities.js';
 import { GameState } from './gamestate.js';
 import { CommandPost, Shipyard } from './building.js';
-import { MissileTurret, ExciterTurret, MassDriverTurret } from './turret.js';
 import { TurretBase } from './turret.js';
 import { FighterShip } from './fighter.js';
 import { Bullet, Missile } from './projectile.js';
 import { HUD } from './hud.js';
 import { Colors } from './colors.js';
 import { Audio } from './audio.js';
-import { WORLD_WIDTH, WORLD_HEIGHT, DT, WEAPON_STATS } from './constants.js';
-import { EnemyAI } from './enemyai.js';
+import { WORLD_WIDTH, WORLD_HEIGHT, WEAPON_STATS } from './constants.js';
+import { EnemyBasePlanner } from './enemybaseplanner.js';
+import {
+  PracticeConfig,
+  cloneDefaultPracticeConfig,
+  difficultyIndex,
+} from './practiceconfig.js';
+import { BuilderDrone, isBuilderDrone } from './builderdrone.js';
 
-const BASE_SPAWN_INTERVAL = 90; // seconds between new enemy bases
-const MIN_SPAWN_DISTANCE = 1500; // minimum distance from player
-const TURRET_FIRE_CHECK_INTERVAL = 0.1; // seconds between turret targeting sweeps
-const ENEMY_RESOURCE_RATE = 0.2; // resource ticks per second for enemy
+const TURRET_FIRE_CHECK_INTERVAL = 0.1;
 
 export interface PracticeScore {
   basesDestroyed: number;
@@ -25,27 +27,69 @@ export interface PracticeScore {
 }
 
 export class PracticeMode {
-  private spawnTimer: number = 0;
   private turretCheckTimer: number = 0;
-  private basesSpawned: number = 0;
-  /** PR6: strategic AI driving the enemy team. */
-  private enemyAI: EnemyAI = new EnemyAI(Team.Enemy);
+  private planner: EnemyBasePlanner | null = null;
+  private config: PracticeConfig = cloneDefaultPracticeConfig();
+  /**
+   * If true, this mode will *also* drive an enemy main ship and a more
+   * aggressive raid cadence. PracticeMode itself stays focused on a
+   * growing base; the Vs. AI mode wraps PracticeMode and sets this flag
+   * via {@link setVsAIMode}.
+   */
+  vsAIMode: boolean = false;
+  /** Income multipliers, applied to the resource baseline. */
+  private playerIncomeMul: number = 1.0;
+  private enemyIncomeMul: number = 1.0;
+  /** Internal enemy resource pool — not currently spent (planner is free) but
+   *  surfaced to the HUD and used to gate future expensive actions. */
+  enemyResources: number = 0;
+  /** Accumulator so the AI raid timer doesn't depend on dt at low FPS. */
+  private raidTimer: number = 30;
+
   score: PracticeScore = { basesDestroyed: 0, timeSurvived: 0 };
   gameOver: boolean = false;
   victory: boolean = false;
 
-  /** Initialize practice mode: spawn the first enemy base. */
+  /** Apply the practice configuration before {@link init}. */
+  configure(cfg: PracticeConfig): void {
+    this.config = cfg;
+    this.playerIncomeMul = cfg.playerIncomeMul;
+    this.enemyIncomeMul = cfg.enemyIncomeMul;
+    this.enemyResources = cfg.enemyStartingResources;
+    // Difficulty raises raid cadence floor.
+    const idx = difficultyIndex(cfg.difficulty);
+    this.raidTimer = [60, 45, 30, 22, 16][idx];
+  }
+
+  /**
+   * Initialize practice: place a single enemy Command Post and let the
+   * builder-drone planner grow the base from there. No prebuilt
+   * shipyards or turrets — the player should see the base assemble.
+   */
   init(state: GameState, hud: HUD): void {
-    this.spawnTimer = BASE_SPAWN_INTERVAL;
-    this.basesSpawned = 0;
     this.score = { basesDestroyed: 0, timeSurvived: 0 };
     this.gameOver = false;
     this.victory = false;
-    this.enemyAI = new EnemyAI(Team.Enemy);
 
-    // Spawn first enemy base away from the player
-    this.spawnEnemyBase(state, hud);
-    hud.showMessage('Enemy base detected! Destroy it!', Colors.alert1, 5);
+    state.resources = this.config.playerStartingResources;
+
+    // Position the enemy CP at the configured distance from the player.
+    const playerPos = state.player.position;
+    const angle = randomRange(0, Math.PI * 2);
+    const dist = this.config.startingDistance;
+    const basePos = new Vec2(
+      Math.max(300, Math.min(WORLD_WIDTH - 300, playerPos.x + Math.cos(angle) * dist)),
+      Math.max(300, Math.min(WORLD_HEIGHT - 300, playerPos.y + Math.sin(angle) * dist)),
+    );
+    const cp = new CommandPost(basePos, Team.Enemy);
+    state.addEntity(cp);
+
+    this.planner = new EnemyBasePlanner(Team.Enemy, this.config, Math.floor(Math.random() * 0xffffff));
+    this.planner.init(state, cp);
+
+    hud.showMessage('Enemy base is constructing — destroy it before it grows!',
+      Colors.alert1, 5);
+    Audio.playSound('enemyhere');
   }
 
   update(state: GameState, hud: HUD, dt: number): void {
@@ -53,132 +97,87 @@ export class PracticeMode {
 
     this.score.timeSurvived = state.gameTime;
 
-    // Check lose condition: player command post destroyed
-    const playerCP = state.getPlayerCommandPost();
-    if (!playerCP) {
+    // Defeat check
+    if (this.checkDefeat(state)) {
       this.gameOver = true;
       this.victory = false;
-      hud.showMessage('Your Command Post has been destroyed!', Colors.alert1, 8);
+      hud.showMessage('Defeat! Your Command Post has fallen.', Colors.alert1, 8);
       hud.showMessage(
-        `Score: ${this.score.basesDestroyed} bases destroyed, ${Math.floor(this.score.timeSurvived)}s survived`,
-        Colors.general_building,
-        10,
+        `Time survived: ${Math.floor(this.score.timeSurvived)}s`,
+        Colors.general_building, 10,
       );
       return;
     }
 
-    // Spawn timer for additional enemy bases
-    this.spawnTimer -= dt;
-    if (this.spawnTimer <= 0) {
-      this.spawnEnemyBase(state, hud);
-      this.spawnTimer = BASE_SPAWN_INTERVAL;
-      hud.showMessage('New enemy base has appeared!', Colors.alert2, 5);
-    }
-
-    // Warn player when new base is about to spawn
-    if (this.spawnTimer <= 10 && this.spawnTimer > 10 - dt) {
-      hud.showMessage('Warning: New enemy base incoming in 10 seconds!', Colors.alert2, 4);
-    }
-
-    // Check victory: all enemy command posts destroyed
-    const enemyCPs = state.buildings.filter(
-      (b) => b.alive && b.type === EntityType.CommandPost && b.team === Team.Enemy,
-    );
-    if (enemyCPs.length === 0 && this.basesSpawned > 0) {
+    // Victory check
+    if (this.checkVictory(state)) {
+      this.gameOver = true;
+      this.victory = true;
+      hud.showMessage('Victory! Enemy Command Post destroyed.',
+        Colors.friendly_status, 10);
       this.score.basesDestroyed++;
-      hud.showMessage('Enemy base destroyed! +1', Colors.friendly_status, 4);
-      // Don't declare full victory — more bases will spawn
+      return;
     }
 
-    // Turret targeting and firing
+    // Income — apply multipliers (player baseline accumulation lives in
+    // GameState; we simulate the multiplier by sprinkling extra resources).
+    if (this.playerIncomeMul !== 1.0 && state.player.alive) {
+      const extra = (this.playerIncomeMul - 1.0) * 2.0 * dt;
+      if (extra > 0) state.resources += extra;
+      else if (extra < 0) state.resources = Math.max(0, state.resources + extra);
+    }
+
+    // Enemy "resources" tick (used for future spending and HUD)
+    this.enemyResources += this.enemyIncomeMul * 1.5 * dt;
+
+    // Drive the planner — only when there's still a CP.
+    const cp = state.getEnemyCommandPost();
+    if (cp && this.planner) {
+      this.planner.update(state, cp, dt);
+    }
+
+    // Turrets
     this.turretCheckTimer -= dt;
     if (this.turretCheckTimer <= 0) {
       this.turretCheckTimer = TURRET_FIRE_CHECK_INTERVAL;
       this.updateTurrets(state);
     }
-
-    // Fire turrets that are ready
     this.fireTurrets(state);
 
-    // Manage enemy shipyard spawning
+    // Ships only spawn from POWERED, finished shipyards. The CP no longer
+    // produces fighters directly.
     this.updateEnemyShipyards(state);
 
-    // Update enemy fighter AI — attack nearest player building
+    // Combat AI for already-launched fighters.
     this.updateEnemyFighters(state);
-
-    // PR6: strategic enemy AI — paints conduits, builds turrets, dispatches
-    // fighters via the heat map. Runs alongside the legacy per-fighter
-    // logic above; the legacy code handles in-engagement firing while the
-    // EnemyAI handles longer-horizon decisions.
-    this.enemyAI.update(state, dt);
   }
 
-  private spawnEnemyBase(state: GameState, _hud: HUD): void {
-    const basePos = this.findSpawnPosition(state);
-
-    // Command Post
-    const cp = new CommandPost(basePos, Team.Enemy);
-    state.addEntity(cp);
-
-    // Turrets around the command post (2-3)
-    const turretCount = randomInt(2, 3);
-    const turretTypes = [MissileTurret, ExciterTurret, MassDriverTurret];
-    for (let i = 0; i < turretCount; i++) {
-      const angle = (Math.PI * 2 * i) / turretCount + randomRange(-0.3, 0.3);
-      const dist = randomRange(80, 150);
-      const tPos = new Vec2(
-        basePos.x + Math.cos(angle) * dist,
-        basePos.y + Math.sin(angle) * dist,
-      );
-      const TurretClass = turretTypes[i % turretTypes.length];
-      const turret = new TurretClass(tPos, Team.Enemy);
-      state.addEntity(turret);
-    }
-
-    // Shipyard
-    const yardAngle = randomRange(0, Math.PI * 2);
-    const yardDist = randomRange(120, 200);
-    const yardPos = new Vec2(
-      basePos.x + Math.cos(yardAngle) * yardDist,
-      basePos.y + Math.sin(yardAngle) * yardDist,
+  private checkVictory(state: GameState): boolean {
+    const enemyCPs = state.buildings.filter(
+      (b) => b.alive && b.type === EntityType.CommandPost && b.team === Team.Enemy,
     );
-    const yard = new Shipyard(EntityType.FighterYard, yardPos, Team.Enemy);
-    state.addEntity(yard);
-
-    this.basesSpawned++;
-    Audio.playSound('enemyhere');
+    return enemyCPs.length === 0;
   }
 
-  private findSpawnPosition(state: GameState): Vec2 {
-    const playerPos = state.player.position;
-    for (let attempt = 0; attempt < 50; attempt++) {
-      const x = randomRange(200, WORLD_WIDTH - 200);
-      const y = randomRange(200, WORLD_HEIGHT - 200);
-      const pos = new Vec2(x, y);
-      if (pos.distanceTo(playerPos) >= MIN_SPAWN_DISTANCE) {
-        // Also ensure it's not too close to existing bases
-        let tooClose = false;
-        for (const b of state.buildings) {
-          if (b.alive && b.type === EntityType.CommandPost && b.position.distanceTo(pos) < 800) {
-            tooClose = true;
-            break;
-          }
-        }
-        if (!tooClose) return pos;
-      }
+  private checkDefeat(state: GameState): boolean {
+    switch (this.config.defeatCondition) {
+      case 'disabled': return false;
+      case 'cp_destroyed':
+        return state.getPlayerCommandPost() === null;
+      case 'ship_and_no_cp':
+        return !state.player.alive && state.getPlayerCommandPost() === null;
     }
-    // Fallback: spawn far from player
-    const angle = randomRange(0, Math.PI * 2);
-    return new Vec2(
-      playerPos.x + Math.cos(angle) * MIN_SPAWN_DISTANCE,
-      playerPos.y + Math.sin(angle) * MIN_SPAWN_DISTANCE,
-    );
   }
+
+  // --------------------------------------------------------------------
+  // Turrets — unchanged from the previous Practice impl.
+  // --------------------------------------------------------------------
 
   private updateTurrets(state: GameState): void {
     const allEntities = state.allEntities();
     for (const b of state.buildings) {
       if (!b.alive || !(b instanceof TurretBase)) continue;
+      if (b.buildProgress < 1) continue;
       b.acquireTarget(allEntities);
     }
   }
@@ -186,47 +185,45 @@ export class PracticeMode {
   private fireTurrets(state: GameState): void {
     for (const b of state.buildings) {
       if (!b.alive || !(b instanceof TurretBase)) continue;
+      if (b.buildProgress < 1) continue;
       if (!b.canFire()) continue;
 
       const target = b.targetEntity;
       if (!target) continue;
 
       b.consumeShot();
-
-      // Distance to player for audio culling
       const playerDist = state.player.position.distanceTo(b.position);
 
-      // Create appropriate projectile based on turret type
       if (b.type === EntityType.MissileTurret) {
-        const proj = new Missile(
-          b.team, b.position.clone(), b.turretAngle, b, target,
-        );
-        state.addEntity(proj);
+        state.addEntity(new Missile(b.team, b.position.clone(), b.turretAngle, b, target));
         Audio.playSoundAt('missile', playerDist);
       } else if (b.type === EntityType.ExciterTurret) {
-        const proj = new Bullet(b.team, b.position.clone(), b.turretAngle, b);
-        state.addEntity(proj);
+        state.addEntity(new Bullet(b.team, b.position.clone(), b.turretAngle, b));
         Audio.playSoundAt('exciterbullet', playerDist);
       } else if (b.type === EntityType.MassDriverTurret) {
-        const proj = new Bullet(b.team, b.position.clone(), b.turretAngle, b);
-        state.addEntity(proj);
+        state.addEntity(new Bullet(b.team, b.position.clone(), b.turretAngle, b));
         Audio.playSoundAt('massdriverbullet', playerDist);
       } else if (b.type === EntityType.RegenTurret) {
-        const proj = new Bullet(b.team, b.position.clone(), b.turretAngle, b);
-        state.addEntity(proj);
+        state.addEntity(new Bullet(b.team, b.position.clone(), b.turretAngle, b));
         Audio.playSoundAt('regenbullet', playerDist);
       } else {
-        const proj = new Bullet(b.team, b.position.clone(), b.turretAngle, b);
-        state.addEntity(proj);
+        state.addEntity(new Bullet(b.team, b.position.clone(), b.turretAngle, b));
         Audio.playSoundAt('fire', playerDist);
       }
     }
   }
 
+  // --------------------------------------------------------------------
+  // Enemy ship production — gated on `powered` and finished construction.
+  // --------------------------------------------------------------------
+
   private updateEnemyShipyards(state: GameState): void {
     for (const b of state.buildings) {
       if (!b.alive || b.team !== Team.Enemy) continue;
       if (!(b instanceof Shipyard)) continue;
+      if (b.buildProgress < 1) continue;
+      // KEY RULE: ships only come from POWERED enemy shipyards.
+      if (!b.powered) continue;
 
       if (b.shouldSpawnShip()) {
         const fighter = new FighterShip(
@@ -236,7 +233,6 @@ export class PracticeMode {
         b.activeShips++;
         state.addEntity(fighter);
 
-        // Set attack order — find nearest player building
         const target = this.findNearestPlayerBuilding(state, b.position);
         if (target) {
           fighter.order = 'attack';
@@ -249,8 +245,9 @@ export class PracticeMode {
   private updateEnemyFighters(state: GameState): void {
     for (const f of state.fighters) {
       if (!f.alive || f.docked || f.team !== Team.Enemy) continue;
+      // Skip builder drones — they are utility units, not combatants.
+      if (isBuilderDrone(f)) continue;
 
-      // If idle or has no target, find one
       if (f.order === 'idle' || !f.targetPos) {
         const target = this.findNearestPlayerBuilding(state, f.position);
         if (target) {
@@ -259,14 +256,12 @@ export class PracticeMode {
         }
       }
 
-      // Fire at nearby enemies
       if (f.canFire()) {
         const nearby = state.getEntitiesInRange(f.position, f.weaponRange);
         for (const e of nearby) {
           if (e.team === Team.Player && e.alive) {
             f.consumeShot(WEAPON_STATS.fire.fireRate);
-            const proj = new Bullet(f.team, f.position.clone(), f.angle, f);
-            state.addEntity(proj);
+            state.addEntity(new Bullet(f.team, f.position.clone(), f.angle, f));
             break;
           }
         }
@@ -287,13 +282,15 @@ export class PracticeMode {
         best = b;
       }
     }
-    // Also consider player ship
     if (state.player.alive) {
       const d = state.player.position.distanceTo(pos);
-      if (d < bestDist) {
-        best = state.player;
-      }
+      if (d < bestDist) best = state.player;
     }
     return best;
+  }
+
+  /** Optional: planner snapshot for debug overlays. */
+  getPlannerSnapshot() {
+    return this.planner?.snapshot() ?? null;
   }
 }

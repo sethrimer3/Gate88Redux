@@ -167,21 +167,33 @@ export class PowerGraph {
     this.applyBuildingPower(state);
   }
 
-  /** Set each building's `powered` flag based on the current snapshot. */
+  /** Set each building's `powered` flag based on the current snapshot.
+   *  Detects power-loss transitions and emits a blackout ripple at any
+   *  enemy building that just went dark, giving the player visible
+   *  confirmation that severing a conduit had an effect. */
   private applyBuildingPower(state: GameState): void {
     for (const b of state.buildings) {
       if (!b.alive) continue;
-      // Sources self-power; shipyards remain self-powered (legacy behaviour).
+      const wasPowered = b.powered;
+      // Sources self-power. Shipyards are NOT self-powered any more —
+      // they must connect to the conduit network like every other
+      // consumer. This lets builder-grown enemy bases be cut off by
+      // the player attacking conduits or generators, and applies the
+      // same rule symmetrically to the player's network.
       if (
         b.type === EntityType.CommandPost ||
-        b.type === EntityType.PowerGenerator ||
-        b.type === EntityType.FighterYard ||
-        b.type === EntityType.BomberYard
+        b.type === EntityType.PowerGenerator
       ) {
         b.powered = true;
-        continue;
+      } else {
+        b.powered = this.buildingIsEnergized(b);
       }
-      b.powered = this.buildingIsEnergized(b);
+      // Power-loss transition: emit blackout ripple. Only do this for
+      // *enemy* buildings — losing power on a player building is the
+      // player's own doing and doesn't need the same alert visual.
+      if (wasPowered && !b.powered && b.team === Team.Enemy) {
+        state.ringEffects.spawnBlackout(b.position, 6, 70, 0.8, 1.0);
+      }
     }
   }
 
