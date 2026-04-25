@@ -9,7 +9,7 @@ import { ENTITY_RADIUS, SHIP_STATS } from './constants.js';
 import { DEFAULT_SPECIAL_ID } from './special.js';
 
 const BATTERY_MAX = 100;
-const BATTERY_REGEN_RATE = 8;
+const BATTERY_REGEN_RATE = 16;
 const BATTERY_FIRE_COST = 5;
 
 /**

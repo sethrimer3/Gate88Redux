@@ -19,8 +19,8 @@ import { Audio } from './audio.js';
 import { GameState } from './gamestate.js';
 import { ShipGroup, TacticalOrder, Team } from './entities.js';
 import { RESEARCH_COST } from './constants.js';
-import { worldToCell, cellKey, GRID_CELL_SIZE } from './grid.js';
-import { defsByTier, BuildDef } from './builddefs.js';
+import { worldToCell, cellKey, cellCenter, GRID_CELL_SIZE } from './grid.js';
+import { defsByTier, BuildDef, getBuildDef } from './builddefs.js';
 
 /** Radius (px) from the menu centre at which items are placed. */
 const ITEM_RADIUS = 110;
@@ -430,14 +430,13 @@ class PaintMenu {
     if (!this.open) return false;
 
     // Determine current paint/erase state.
+    // Note: fire is already suppressed via placementMode=true, so we do NOT
+    // consume the mouse buttons here — doing so would clear mouseDown before
+    // the hold-detection block below, preventing any paint from registering.
     if (Input.mousePressed) {
-      this.dragMode = 'paint';
       this.touchedThisDrag.clear();
-      Input.consumeMouseButton(0);
     } else if (Input.mouse2Pressed) {
-      this.dragMode = 'erase';
       this.touchedThisDrag.clear();
-      Input.consumeMouseButton(2);
     }
 
     if (Input.mouseDown) {
@@ -526,13 +525,55 @@ export class ActionMenu {
    * PR3: when the Q-hold paint mode is active, `placementMode` is true and
    * `placementType` is set to 'conduit'. Game.updatePlayerFiring() already
    * gates fire on `placementMode`, so the LMB used to paint won't fire.
+   * Also true during pending building placement so LMB places the building
+   * rather than firing a weapon.
    */
   placementMode = false;
   placementType: string | null = null;
 
+  /**
+   * When the player selects a building type from the Z menu, it is stored
+   * here until they click a valid location to confirm placement. While set,
+   * `placementMode` is true and `open` is true so weapon fire is suppressed.
+   */
+  private pendingBuildType: string | null = null;
+
   update(state: GameState, camera: Camera): MenuResult {
     // Paint mode runs first so it consumes mouse-down before radial menus see it.
     const paintOpen = this.paintMenu.update(state, camera);
+
+    // --- Pending building placement mode ---
+    // When a build type was selected from the Z menu, wait for the player to
+    // click a valid cell before finalising the placement.
+    if (this.pendingBuildType !== null) {
+      this.placementMode = true;
+      this.placementType = this.pendingBuildType;
+      this.open = true;
+
+      // ESC or RMB cancels placement.
+      if (Input.wasPressed('Escape') || Input.mouse2Pressed) {
+        if (Input.mouse2Pressed) Input.consumeMouseButton(2);
+        this.pendingBuildType = null;
+        this.placementMode = false;
+        this.placementType = null;
+        this.open = false;
+        return { action: 'none' };
+      }
+
+      // LMB confirms placement at the cell under the cursor.
+      if (Input.mousePressed) {
+        Input.consumeMouseButton(0);
+        const type = this.pendingBuildType;
+        this.pendingBuildType = null;
+        this.placementMode = false;
+        this.placementType = null;
+        this.open = false;
+        return { action: 'build', buildingType: type };
+      }
+
+      return { action: 'none' };
+    }
+
     this.placementMode = paintOpen;
     this.placementType = paintOpen ? 'conduit' : null;
 
@@ -546,11 +587,19 @@ export class ActionMenu {
       cr = this.commandMenu.update(state, camera);
     }
 
+    // Intercept build results — enter placement mode instead of placing immediately.
+    if (br.action === 'build') {
+      this.pendingBuildType = br.buildingType;
+      Audio.playSound('menucursor');
+      br = { action: 'none' };
+    }
+
     this.open =
       paintOpen ||
       this.buildMenu.open ||
       this.researchMenu.open ||
-      this.commandMenu.open;
+      this.commandMenu.open ||
+      this.pendingBuildType !== null;
 
     if (br.action !== 'none') return br;
     if (rr.action !== 'none') return rr;
@@ -569,7 +618,53 @@ export class ActionMenu {
     this.researchMenu.draw(ctx, state);
     this.commandMenu.draw(ctx, state);
     this.paintMenu.draw(ctx, state, camera, screenW, screenH);
+    this.drawPlacementCursor(ctx, state, camera, screenW);
+  }
+
+  /** Draw placement preview when the player is choosing a build location. */
+  private drawPlacementCursor(
+    ctx: CanvasRenderingContext2D,
+    state: GameState,
+    camera: Camera,
+    screenW: number,
+  ): void {
+    if (this.pendingBuildType === null) return;
+
+    const worldPos = camera.screenToWorld(Input.mousePos);
+    const cell = worldToCell(worldPos);
+    const center = cellCenter(cell.cx, cell.cy);
+    const screen = camera.worldToScreen(center);
+    const cellPx = GRID_CELL_SIZE * camera.zoom;
+
+    const def = getBuildDef(this.pendingBuildType);
+    const canAfford = def ? state.resources >= def.cost : true;
+    const cursorColor = canAfford
+      ? colorToCSS(Colors.radar_friendly_status, 0.9)
+      : colorToCSS(Colors.alert1, 0.9);
+
+    // Cell highlight
+    ctx.strokeStyle = cursorColor;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(screen.x - cellPx / 2, screen.y - cellPx / 2, cellPx, cellPx);
+    ctx.setLineDash([]);
+
+    // Ghost dot at center
+    ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.35);
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, cellPx * 0.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Top-of-screen hint banner
+    const label = def ? `${def.label}  $${def.cost}` : this.pendingBuildType;
+    ctx.font = '12px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = cursorColor;
+    ctx.fillText(
+      `[Placing: ${label}]  •  LMB to place  •  RMB / Esc to cancel`,
+      screenW * 0.5,
+      24,
+    );
   }
 }
-
-

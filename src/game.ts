@@ -25,6 +25,7 @@ import { AIShip, VsAIDirector } from './vsaibot.js';
 import { tryFireSpecial } from './special.js';
 import { getBuildDef } from './builddefs.js';
 import { worldToCell, cellCenter, GRID_CELL_SIZE } from './grid.js';
+import { PlayerShip } from './ship.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 
@@ -51,6 +52,13 @@ export class Game {
   private lastTimestamp: number = 0;
   private accumulator: number = 0;
   private running: boolean = false;
+
+  /** Respawn timer: counts down after the player ship dies. */
+  private playerRespawnTimer: number = 0;
+  /** True once the death has been registered so we don't re-trigger. */
+  private playerDeathHandled: boolean = false;
+  /** Delay (seconds) before the player ship respawns. */
+  private static readonly RESPAWN_DELAY = 3;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -201,6 +209,9 @@ export class Game {
     // Update core game state (entities, collision, power, resources, research, particles)
     this.state.update(DT);
 
+    // Player respawn logic — trigger on death and revive after a short delay.
+    this.updatePlayerRespawn();
+
     // Advance starfield animations (twinkling, shooting stars)
     this.starfield.update(DT);
 
@@ -279,6 +290,53 @@ export class Game {
     // interval; the per-tick driveShip just steers / fires.
     if (this.vsAIDirector) {
       this.vsAIDirector.update(this.state, DT);
+    }
+  }
+
+  /**
+   * Detect player death, show a respawn countdown, then revive the ship near
+   * the command post. Deducts resources proportional to how many buildings
+   * and research items the player has (the more powerful your base, the more
+   * it costs to die) — clamped to zero so you can never go negative.
+   */
+  private updatePlayerRespawn(): void {
+    if (this.state.player.alive) {
+      // Reset tracking whenever the player is alive.
+      this.playerDeathHandled = false;
+      this.playerRespawnTimer = 0;
+      return;
+    }
+
+    // First frame of death — register it.
+    if (!this.playerDeathHandled) {
+      this.playerDeathHandled = true;
+      this.playerRespawnTimer = Game.RESPAWN_DELAY;
+
+      // Resource penalty: base cost + scaling per building and research item.
+      const playerBuildings = this.state.buildings.filter(
+        (b) => b.alive && b.team === Team.Player,
+      ).length;
+      const researchItems = this.state.researchedItems.size;
+      const penalty = 50 + playerBuildings * 10 + researchItems * 15;
+      this.state.resources = Math.max(0, this.state.resources - penalty);
+
+      this.hud.showMessage(
+        `Ship destroyed! Respawning in ${Game.RESPAWN_DELAY}s  (-${penalty} resources)`,
+        Colors.alert1,
+        Game.RESPAWN_DELAY + 1,
+      );
+    }
+
+    // Count down and respawn when the timer expires.
+    this.playerRespawnTimer -= DT;
+    if (this.playerRespawnTimer <= 0) {
+      const cp = this.state.getPlayerCommandPost();
+      const spawnPos = cp
+        ? new Vec2(cp.position.x, cp.position.y - 60)
+        : new Vec2(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
+
+      this.state.player = new PlayerShip(spawnPos, Team.Player);
+      this.hud.showMessage('Respawned!', Colors.friendly_status, 2);
     }
   }
 
@@ -505,6 +563,10 @@ export class Game {
     this.state.gameMode = mode;
     // Reset any director from a previous match.
     this.vsAIDirector = null;
+
+    // Reset respawn tracking.
+    this.playerDeathHandled = false;
+    this.playerRespawnTimer = 0;
 
     // Reset subsystems
     this.camera = new Camera();

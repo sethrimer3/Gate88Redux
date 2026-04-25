@@ -9,16 +9,16 @@ export const WORLD_HEIGHT = 6000;
 
 // Entity radii
 export const ENTITY_RADIUS = {
-  fighter: 8,
-  bomber: 12,
-  mainguy: 10,
+  fighter: 5,
+  bomber: 8,
+  mainguy: 7,
   bullet: 3,
-  missile: 5,
-  building: 20,
-  commandpost: 24,
-  jumpgate: 30,
-  signalstation: 18,
-  explosion: 40,
+  missile: 3,
+  building: 13,
+  commandpost: 16,
+  jumpgate: 20,
+  signalstation: 12,
+  explosion: 26,
 } as const;
 
 // Building costs (resource units)
@@ -183,5 +183,5 @@ export const RESOURCE_GAIN_RATE = 0.5;
 export const BASELINE_RESOURCE_GAIN = 2.0;
 
 // Build zone radii
-export const COMMANDPOST_BUILD_RADIUS = 400;
-export const POWERGENERATOR_COVERAGE_RADIUS = 300;
+export const COMMANDPOST_BUILD_RADIUS = 260;
+export const POWERGENERATOR_COVERAGE_RADIUS = 195;
