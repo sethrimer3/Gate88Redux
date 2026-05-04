@@ -6,8 +6,8 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 
 - WASD moves the player ship. Mouse aims. Left mouse fires the primary weapon.
 - Right mouse fires the equipped special; the only exposed special is Homing Missile.
-- Hold Z for the build menu, choose a building, then left click a valid cell to place it. Right mouse or Escape cancels placement.
-- Hold Q to paint conduits. Left mouse queues player conduits, right mouse erases player conduits.
+- Hold Z for the build menu, choose a building, then left click a valid footprint to place it. Right mouse or Escape cancels placement.
+- Hold Q for the quick-build palette. Conduit is first; mouse wheel or clicking a left-side palette icon selects what to place. With Conduit selected, left mouse queues player conduits and right mouse erases player conduits. With a building selected, left mouse places that building.
 - Hold X for research. Hold C for fighter group orders. Hold Tab for radar. F3 toggles the debug overlay. Escape pauses.
 
 ## Win And Loss
@@ -21,11 +21,12 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 
 - The player gains a small baseline income over time.
 - Finished, powered Factories add bonus income.
-- Buildings, conduits, and research spend resources only when the action succeeds.
+- Buildings, conduits, and research spend resources only when the action succeeds. Conduits cost $1 per cell.
 
 ## Building Placement
 
-- Buildings snap to grid cell centers.
+- The grid cell size is one third of the original port grid.
+- Buildings snap to grid footprints: most buildings are 3x3, Factories and Research Labs are 4x4, and Command Posts are 6x6.
 - Placement requires enough resources, an empty cell, world bounds, and adjacency to the player power network.
 - The player power network means a Command Post, Power Generator, powered conduit, existing conduit, or pending conduit next to the target cell.
 - Command Post rebuild is hidden until the player has no Command Post.

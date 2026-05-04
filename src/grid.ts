@@ -20,7 +20,7 @@ import { Colors, colorToCSS } from './colors.js';
 import { Team } from './entities.js';
 
 /** Side length of one grid cell in world units. */
-export const GRID_CELL_SIZE = 26;
+export const GRID_CELL_SIZE = 26 / 3;
 
 /** Stable string key for a (cx, cy) cell coordinate. */
 export function cellKey(cx: number, cy: number): string {
@@ -48,11 +48,39 @@ export function cellCenter(cx: number, cy: number): Vec2 {
   );
 }
 
+export function footprintOrigin(cx: number, cy: number, footprintCells: number): CellCoord {
+  return {
+    cx: cx - Math.floor(footprintCells / 2),
+    cy: cy - Math.floor(footprintCells / 2),
+  };
+}
+
+export function footprintCenter(cx: number, cy: number, footprintCells: number): Vec2 {
+  const origin = footprintOrigin(cx, cy, footprintCells);
+  return new Vec2(
+    (origin.cx + footprintCells / 2) * GRID_CELL_SIZE,
+    (origin.cy + footprintCells / 2) * GRID_CELL_SIZE,
+  );
+}
+
 /** True if cells (a) and (b) share an edge (4-neighbour adjacency). */
 export function isAdjacent(a: CellCoord, b: CellCoord): boolean {
   const dx = Math.abs(a.cx - b.cx);
   const dy = Math.abs(a.cy - b.cy);
   return dx + dy === 1;
+}
+
+function hash01(cx: number, cy: number, salt: number): number {
+  let h = Math.imul(cx | 0, 374761393) ^ Math.imul(cy | 0, 668265263) ^ salt;
+  h = (h ^ (h >>> 13)) >>> 0;
+  h = Math.imul(h, 1274126177) >>> 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 0x100000000;
+}
+
+function sheenBand(value: number, width: number): number {
+  const wrapped = value - Math.floor(value);
+  const dist = Math.abs(wrapped - 0.5);
+  return Math.max(0, 1 - dist / width);
 }
 
 // ---------------------------------------------------------------------------
@@ -188,42 +216,20 @@ export class WorldGrid {
     const cyMin = Math.floor(tl.y / GRID_CELL_SIZE) - 1;
     const cyMax = Math.floor(br.y / GRID_CELL_SIZE) + 1;
 
-    // 1. Conduit fills first so grid lines overlay nicely on top.
+    // 1. Conduit fills first. Iterate sparse conduit maps directly; scanning
+    // every visible cell is too expensive now that cells are much smaller.
     const cellPx = GRID_CELL_SIZE * camera.zoom;
     const pulse = 0.5 + 0.5 * Math.sin(time * 2);
-    for (let cy = cyMin; cy <= cyMax; cy++) {
-      for (let cx = cxMin; cx <= cxMax; cx++) {
-        const team = this.conduits.get(cellKey(cx, cy));
-        if (team === undefined) continue;
+    for (const [key, team] of this.conduits) {
+        const comma = key.indexOf(',');
+        const cx = Number(key.slice(0, comma));
+        const cy = Number(key.slice(comma + 1));
+        if (cx < cxMin || cx > cxMax || cy < cyMin || cy > cyMax) continue;
         const c = camera.worldToScreen(cellCenter(cx, cy));
         const energized = isEnergized ? isEnergized(cx, cy, team) : true;
-        const fillAlpha = energized
-          ? team === Team.Player
-            ? 0.32 + 0.10 * pulse
-            : 0.22 + 0.06 * pulse
-          : team === Team.Player
-            ? 0.14
-            : 0.10;
-        ctx.fillStyle =
-          team === Team.Player
-            ? colorToCSS(Colors.powergenerator_coverage, fillAlpha)
-            : colorToCSS(Colors.enemyfire, fillAlpha);
-        ctx.fillRect(c.x - cellPx / 2, c.y - cellPx / 2, cellPx, cellPx);
+        this.drawConduitPanel(ctx, c.x, c.y, cellPx, cx, cy, team, energized, time, pulse);
 
         // Inner glow square for friendly conduits — only for energized
-        // cells, so the player can see at a glance which segments are dead.
-        if (team === Team.Player && energized) {
-          const glowAlpha = 0.45 + 0.40 * pulse;
-          ctx.strokeStyle = colorToCSS(Colors.particles_friendly_exhaust, glowAlpha);
-          ctx.lineWidth = 1;
-          ctx.strokeRect(
-            c.x - cellPx / 2 + 2,
-            c.y - cellPx / 2 + 2,
-            cellPx - 4,
-            cellPx - 4,
-          );
-        }
-      }
     }
 
     // 1b. Pending conduits — drawn as a faint dashed outline so the player
@@ -239,7 +245,7 @@ export class WorldGrid {
     ctx.setLineDash([]);
 
     // 2. Grid lines — only drawn when sufficiently zoomed in to avoid clutter.
-    if (camera.zoom >= 0.5) {
+    if (camera.zoom >= 1.25) {
       ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.08);
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -258,6 +264,72 @@ export class WorldGrid {
         ctx.lineTo(b.x, b.y);
       }
       ctx.stroke();
+    }
+  }
+
+  private drawConduitPanel(
+    ctx: CanvasRenderingContext2D,
+    screenX: number,
+    screenY: number,
+    cellPx: number,
+    cx: number,
+    cy: number,
+    team: Team,
+    energized: boolean,
+    time: number,
+    pulse: number,
+  ): void {
+    const x = screenX - cellPx / 2;
+    const y = screenY - cellPx / 2;
+    const inset = Math.max(0.4, Math.min(1.2, cellPx * 0.08));
+    const panelX = x + inset;
+    const panelY = y + inset;
+    const panelSize = Math.max(1, cellPx - inset * 2);
+    const tilt = hash01(cx, cy, 0x51f15e);
+    const glint = hash01(cx, cy, 0x9e3779);
+    const wave = sheenBand(cx * 0.031 + cy * 0.047 - time * 0.32 + tilt * 0.18, 0.13);
+    const localFlash = Math.pow(wave, 2.8) * (0.65 + glint * 0.35);
+
+    if (team === Team.Player) {
+      const baseA = energized ? 0.42 + tilt * 0.10 : 0.16 + tilt * 0.05;
+      ctx.fillStyle = `rgba(${Math.floor(6 + tilt * 18)}, ${Math.floor(80 + tilt * 50)}, ${Math.floor(112 + tilt * 80)}, ${baseA})`;
+      ctx.fillRect(panelX, panelY, panelSize, panelSize);
+
+      const blueSheen = energized ? 0.16 + pulse * 0.08 : 0.05;
+      ctx.fillStyle = `rgba(150, 235, 255, ${blueSheen * (0.35 + tilt)})`;
+      ctx.fillRect(panelX, panelY, panelSize, Math.max(1, panelSize * (0.28 + tilt * 0.16)));
+
+      if (energized && localFlash > 0.01) {
+        ctx.fillStyle = `rgba(235, 255, 255, ${0.10 + localFlash * 0.42})`;
+        const stripeW = Math.max(1, panelSize * (0.22 + tilt * 0.18));
+        const offset = (tilt - 0.5) * panelSize * 0.45;
+        ctx.beginPath();
+        ctx.moveTo(panelX + offset, panelY + panelSize);
+        ctx.lineTo(panelX + offset + stripeW, panelY + panelSize);
+        ctx.lineTo(panelX + offset + panelSize, panelY);
+        ctx.lineTo(panelX + offset + panelSize - stripeW, panelY);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      ctx.strokeStyle = energized
+        ? `rgba(180, 255, 255, ${0.28 + pulse * 0.16 + localFlash * 0.25})`
+        : 'rgba(70, 120, 130, 0.28)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(panelX + 0.5, panelY + 0.5, Math.max(0, panelSize - 1), Math.max(0, panelSize - 1));
+    } else {
+      const baseA = energized ? 0.32 + tilt * 0.08 : 0.12 + tilt * 0.04;
+      ctx.fillStyle = `rgba(${Math.floor(112 + tilt * 70)}, ${Math.floor(14 + tilt * 12)}, ${Math.floor(24 + tilt * 24)}, ${baseA})`;
+      ctx.fillRect(panelX, panelY, panelSize, panelSize);
+      if (energized && localFlash > 0.02) {
+        ctx.fillStyle = `rgba(255, 210, 200, ${0.08 + localFlash * 0.25})`;
+        ctx.fillRect(panelX, panelY, panelSize, Math.max(1, panelSize * 0.35));
+      }
+      ctx.strokeStyle = energized
+        ? `rgba(255, 150, 140, ${0.22 + pulse * 0.12})`
+        : 'rgba(130, 60, 60, 0.25)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(panelX + 0.5, panelY + 0.5, Math.max(0, panelSize - 1), Math.max(0, panelSize - 1));
     }
   }
 

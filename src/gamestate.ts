@@ -12,11 +12,11 @@ import { ParticleSystem } from './particles.js';
 import { RingEffectSystem } from './ringeffects.js';
 import { Camera } from './camera.js';
 import { Audio } from './audio.js';
-import { WorldGrid, GRID_CELL_SIZE, cellKey } from './grid.js';
+import { WorldGrid, GRID_CELL_SIZE, cellKey, footprintOrigin } from './grid.js';
 import { PowerGraph } from './power.js';
 import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN } from './constants.js';
 import { WORLD_WIDTH, WORLD_HEIGHT } from './constants.js';
-import type { BuildDef } from './builddefs.js';
+import { footprintForBuildingType, type BuildDef } from './builddefs.js';
 
 export interface ResearchProgress {
   item: string | null;
@@ -565,45 +565,67 @@ export class GameState {
     return { docked, total: groupFighters.length };
   }
 
-  getPlacementStatus(def: BuildDef, pos: Vec2, team: Team): { valid: boolean; reason: string } {
+  getPlacementStatus(def: BuildDef, cx: number, cy: number, team: Team): { valid: boolean; reason: string } {
     if (this.resources < def.cost && team === Team.Player) {
       return { valid: false, reason: 'Not enough resources' };
     }
+    const origin = footprintOrigin(cx, cy, def.footprintCells);
+    const endCx = origin.cx + def.footprintCells - 1;
+    const endCy = origin.cy + def.footprintCells - 1;
     if (
-      pos.x < GRID_CELL_SIZE * 0.5 ||
-      pos.y < GRID_CELL_SIZE * 0.5 ||
-      pos.x > WORLD_WIDTH - GRID_CELL_SIZE * 0.5 ||
-      pos.y > WORLD_HEIGHT - GRID_CELL_SIZE * 0.5
+      origin.cx < 0 ||
+      origin.cy < 0 ||
+      (endCx + 1) * GRID_CELL_SIZE > WORLD_WIDTH ||
+      (endCy + 1) * GRID_CELL_SIZE > WORLD_HEIGHT
     ) {
       return { valid: false, reason: 'Outside world' };
     }
-    const cell = { cx: Math.floor(pos.x / GRID_CELL_SIZE), cy: Math.floor(pos.y / GRID_CELL_SIZE) };
     for (const b of this.buildings) {
       if (!b.alive) continue;
-      const bc = { cx: Math.floor(b.position.x / GRID_CELL_SIZE), cy: Math.floor(b.position.y / GRID_CELL_SIZE) };
-      if (bc.cx === cell.cx && bc.cy === cell.cy) {
+      const size = footprintForBuildingType(b.type);
+      const bc = {
+        cx: Math.floor(b.position.x / GRID_CELL_SIZE),
+        cy: Math.floor(b.position.y / GRID_CELL_SIZE),
+      };
+      const bo = footprintOrigin(bc.cx, bc.cy, size);
+      const bx2 = bo.cx + size - 1;
+      const by2 = bo.cy + size - 1;
+      const overlaps = origin.cx <= bx2 && endCx >= bo.cx && origin.cy <= by2 && endCy >= bo.cy;
+      if (overlaps) {
         return { valid: false, reason: 'Cell occupied' };
       }
     }
     if (def.key === 'commandpost') return { valid: true, reason: 'OK' };
-    if (this.isNearPowerNetwork(cell.cx, cell.cy, team)) return { valid: true, reason: 'OK' };
+    if (this.isNearPowerNetwork(origin.cx, origin.cy, def.footprintCells, team)) return { valid: true, reason: 'OK' };
     return { valid: false, reason: 'Build near command post, generator, or powered conduit' };
   }
 
-  private isNearPowerNetwork(cx: number, cy: number, team: Team): boolean {
-    const candidates = [
-      [cx, cy], [cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1],
-    ];
-    for (const [px, py] of candidates) {
-      if (this.power.isCellEnergized(team, px, py)) return true;
-      if (this.grid.conduitTeam(px, py) === team || this.grid.hasPendingConduit(px, py)) return true;
+  private isNearPowerNetwork(originCx: number, originCy: number, size: number, team: Team): boolean {
+    for (let y = originCy - 1; y <= originCy + size; y++) {
+      for (let x = originCx - 1; x <= originCx + size; x++) {
+        const border =
+          x === originCx - 1 || x === originCx + size ||
+          y === originCy - 1 || y === originCy + size;
+        if (!border) continue;
+        if (this.power.isCellEnergized(team, x, y)) return true;
+        if (this.grid.conduitTeam(x, y) === team || this.grid.hasPendingConduit(x, y)) return true;
+      }
     }
     for (const b of this.buildings) {
       if (!b.alive || b.team !== team) continue;
       if (b.type !== EntityType.CommandPost && b.type !== EntityType.PowerGenerator) continue;
       const bx = Math.floor(b.position.x / GRID_CELL_SIZE);
       const by = Math.floor(b.position.y / GRID_CELL_SIZE);
-      if (Math.abs(cx - bx) + Math.abs(cy - by) <= 1) return true;
+      const sourceSize = footprintForBuildingType(b.type);
+      const sourceOrigin = footprintOrigin(bx, by, sourceSize);
+      const sourceX2 = sourceOrigin.cx + sourceSize - 1;
+      const sourceY2 = sourceOrigin.cy + sourceSize - 1;
+      const adjacent =
+        originCx <= sourceX2 + 1 &&
+        originCx + size - 1 >= sourceOrigin.cx - 1 &&
+        originCy <= sourceY2 + 1 &&
+        originCy + size - 1 >= sourceOrigin.cy - 1;
+      if (adjacent) return true;
     }
     return false;
   }

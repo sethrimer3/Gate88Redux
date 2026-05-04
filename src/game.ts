@@ -24,7 +24,7 @@ import { TutorialMode } from './tutorial.js';
 import { AIShip, VsAIDirector } from './vsaibot.js';
 import { tryFireSpecial } from './special.js';
 import { createBuildingFromDef, getBuildDef } from './builddefs.js';
-import { worldToCell, cellCenter, GRID_CELL_SIZE } from './grid.js';
+import { worldToCell, footprintCenter, GRID_CELL_SIZE } from './grid.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 
@@ -423,9 +423,9 @@ export class Game {
     // Snap placement to the grid cell nearest the cursor.
     const aimWorld = this.camera.screenToWorld(Input.mousePos);
     const cell = worldToCell(aimWorld);
-    const worldPos = cellCenter(cell.cx, cell.cy);
+    const worldPos = footprintCenter(cell.cx, cell.cy, def.footprintCells);
 
-    const status = this.state.getPlacementStatus(def, worldPos, Team.Player);
+    const status = this.state.getPlacementStatus(def, cell.cx, cell.cy, Team.Player);
     if (!status.valid) {
       this.hud.showMessage(status.reason, Colors.alert1, 3);
       return;

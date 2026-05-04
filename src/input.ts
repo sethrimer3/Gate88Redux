@@ -23,6 +23,7 @@ class InputManager {
   mouse2Down = false;
   mouse2Pressed = false;
   mouse2Released = false;
+  wheelDelta = 0;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -31,6 +32,7 @@ class InputManager {
       window.addEventListener('mousemove', this.onMouseMove);
       window.addEventListener('mousedown', this.onMouseDown);
       window.addEventListener('mouseup', this.onMouseUp);
+      window.addEventListener('wheel', this.onWheel, { passive: false });
       window.addEventListener('contextmenu', (e) => e.preventDefault());
     }
   }
@@ -102,6 +104,11 @@ class InputManager {
     }
   };
 
+  private onWheel = (e: WheelEvent): void => {
+    this.wheelDelta += e.deltaY;
+    e.preventDefault();
+  };
+
   /** True while the key is held down. */
   isDown(key: string): boolean {
     return this.keysDown.has(this.normalizeKey(key));
@@ -162,6 +169,7 @@ class InputManager {
     this.mouseReleased = false;
     this.mouse2Pressed = false;
     this.mouse2Released = false;
+    this.wheelDelta = 0;
   }
 
   destroy(): void {
@@ -171,6 +179,7 @@ class InputManager {
       window.removeEventListener('mousemove', this.onMouseMove);
       window.removeEventListener('mousedown', this.onMouseDown);
       window.removeEventListener('mouseup', this.onMouseUp);
+      window.removeEventListener('wheel', this.onWheel);
     }
   }
 }

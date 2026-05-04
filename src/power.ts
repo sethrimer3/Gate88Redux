@@ -24,8 +24,9 @@
 
 import { Team, EntityType } from './entities.js';
 import type { GameState } from './gamestate.js';
-import { GRID_CELL_SIZE, cellKey } from './grid.js';
+import { GRID_CELL_SIZE, cellKey, footprintOrigin } from './grid.js';
 import type { BuildingBase } from './building.js';
+import { footprintForBuildingType } from './builddefs.js';
 
 /** Per-team energized cell set. Keys are `cellKey(cx, cy)`. */
 export interface PowerSnapshot {
@@ -106,7 +107,13 @@ export class PowerGraph {
         arr = [];
         sourceCells.set(b.team, arr);
       }
-      arr.push({ cx, cy });
+      const size = footprintForBuildingType(b.type);
+      const origin = footprintOrigin(cx, cy, size);
+      for (let y = origin.cy; y < origin.cy + size; y++) {
+        for (let x = origin.cx; x < origin.cx + size; x++) {
+          arr.push({ cx: x, cy: y });
+        }
+      }
     }
 
     // 3. BFS per team.
@@ -202,13 +209,14 @@ export class PowerGraph {
     if (!set || set.size === 0) return false;
     const cx = Math.floor(b.position.x / GRID_CELL_SIZE);
     const cy = Math.floor(b.position.y / GRID_CELL_SIZE);
+    const size = footprintForBuildingType(b.type);
+    const origin = footprintOrigin(cx, cy, size);
+    for (let y = origin.cy - 1; y <= origin.cy + size; y++) {
+      for (let x = origin.cx - 1; x <= origin.cx + size; x++) {
+        if (set.has(cellKey(x, y))) return true;
+      }
+    }
+    return false;
     // Cell or any 4-neighbour energized → powered.
-    return (
-      set.has(cellKey(cx, cy)) ||
-      set.has(cellKey(cx + 1, cy)) ||
-      set.has(cellKey(cx - 1, cy)) ||
-      set.has(cellKey(cx, cy + 1)) ||
-      set.has(cellKey(cx, cy - 1))
-    );
   }
 }

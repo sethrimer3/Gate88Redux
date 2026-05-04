@@ -46,6 +46,8 @@ export interface BuildDef {
   description?: string;
   /** Resource cost to place. */
   cost: number;
+  /** Square grid footprint side length, in cells. */
+  footprintCells: number;
   /** Build time in ticks (60 ticks = 1 second). */
   buildTime: number;
   /** Action-menu submenu this building lives in. */
@@ -90,6 +92,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     key: 'commandpost',
     label: 'Command Post',
     cost: COMMANDPOST_REBUILD_COST,
+    footprintCells: 6,
     buildTime: COMMANDPOST_REBUILD_TIME,
     tier: 'general',
     radialLabel: 'Command\nPost',
@@ -100,6 +103,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     key: 'powergenerator',
     label: 'Power Generator',
     cost: BUILDING_COST.powergenerator,
+    footprintCells: 3,
     buildTime: BUILD_TIME.powergenerator,
     tier: 'general',
     radialLabel: 'Power\nGenerator',
@@ -109,6 +113,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     key: 'fighteryard',
     label: 'Fighter Yard',
     cost: BUILDING_COST.fighteryard,
+    footprintCells: 3,
     buildTime: BUILD_TIME.fighteryard,
     tier: 'general',
     radialLabel: 'Fighter\nYard',
@@ -118,6 +123,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     key: 'bomberyard',
     label: 'Bomber Yard',
     cost: BUILDING_COST.bomberyard,
+    footprintCells: 3,
     buildTime: BUILD_TIME.bomberyard,
     tier: 'general',
     radialLabel: 'Bomber\nYard',
@@ -128,6 +134,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     key: 'researchlab',
     label: 'Research Lab',
     cost: BUILDING_COST.researchlab,
+    footprintCells: 4,
     buildTime: BUILD_TIME.researchlab,
     tier: 'general',
     radialLabel: 'Research\nLab',
@@ -137,6 +144,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     key: 'factory',
     label: 'Factory',
     cost: BUILDING_COST.factory,
+    footprintCells: 4,
     buildTime: BUILD_TIME.factory,
     tier: 'general',
     factory: (pos, team) => new Factory(pos, team),
@@ -145,6 +153,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     key: 'missileturret',
     label: 'Missile Turret',
     cost: BUILDING_COST.missileturret,
+    footprintCells: 3,
     buildTime: BUILD_TIME.missileturret,
     tier: 'turret',
     radialLabel: 'Missile\nTurret',
@@ -155,6 +164,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     key: 'exciterturret',
     label: 'Exciter Turret',
     cost: BUILDING_COST.exciterturret,
+    footprintCells: 3,
     buildTime: BUILD_TIME.exciterturret,
     tier: 'turret',
     radialLabel: 'Exciter\nTurret',
@@ -165,6 +175,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     key: 'massdriverturret',
     label: 'Mass Driver',
     cost: BUILDING_COST.massdriverturret,
+    footprintCells: 3,
     buildTime: BUILD_TIME.massdriverturret,
     tier: 'turret',
     radialLabel: 'Mass\nDriver',
@@ -175,6 +186,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     key: 'regenturret',
     label: 'Regen Turret',
     cost: BUILDING_COST.regenturret,
+    footprintCells: 3,
     buildTime: BUILD_TIME.regenturret,
     tier: 'turret',
     radialLabel: 'Regen\nTurret',
@@ -182,6 +194,18 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     factory: (pos, team) => new RegenTurret(pos, team),
   },
 };
+
+export function footprintForBuildingType(type: EntityType): number {
+  switch (type) {
+    case EntityType.CommandPost:
+      return 6;
+    case EntityType.Factory:
+    case EntityType.ResearchLab:
+      return 4;
+    default:
+      return 3;
+  }
+}
 
 /** Lookup helper that returns undefined for unknown keys. */
 export function getBuildDef(key: string): BuildDef | undefined {

@@ -19,7 +19,7 @@ import { Audio } from './audio.js';
 import { GameState } from './gamestate.js';
 import { ShipGroup, TacticalOrder, Team } from './entities.js';
 import { RESEARCH_COST, CONDUIT_COST, ACTIVE_RESEARCH_ITEMS } from './constants.js';
-import { worldToCell, cellKey, cellCenter, GRID_CELL_SIZE } from './grid.js';
+import { worldToCell, cellKey, cellCenter, footprintCenter, footprintOrigin, GRID_CELL_SIZE } from './grid.js';
 import { defsByTier, BuildDef, getBuildDef } from './builddefs.js';
 
 /** Radius (px) from the menu centre at which items are placed. */
@@ -140,6 +140,16 @@ function buildTurretItems(state: GameState): RadialItem[] {
   return defsByTier('turret')
     .filter((d) => isBuildDefAvailable(d, state))
     .map((d) => defToRadialItem(d, state));
+}
+
+function availableBuildDefs(state: GameState): BuildDef[] {
+  return [
+    ...defsByTier('general'),
+    ...defsByTier('turret'),
+  ].filter((def) => {
+    if (def.hidden) return def.key === 'commandpost' && !state.getPlayerCommandPost();
+    return isBuildDefAvailable(def, state);
+  });
 }
 
 function buildBuildRoot(state: GameState): RadialItem[] {
@@ -518,6 +528,231 @@ class PaintMenu {
   }
 }
 
+class QuickBuildMenu {
+  open = false;
+
+  private touchedThisDrag = new Set<string>();
+  private dragMode: 'paint' | 'erase' | null = null;
+  private selectedIndex = 0;
+  private readonly iconRects: Array<{ index: number; x: number; y: number; w: number; h: number }> = [];
+
+  update(state: GameState, camera: Camera): MenuResult {
+    const keyDown = Input.isDown('q');
+    if (keyDown && !this.open) {
+      this.open = true;
+      this.touchedThisDrag.clear();
+      this.dragMode = null;
+    } else if (!keyDown && this.open) {
+      this.open = false;
+      this.touchedThisDrag.clear();
+      this.dragMode = null;
+      return { action: 'none' };
+    }
+    if (!this.open) return { action: 'none' };
+
+    const palette = this.paletteItems(state);
+    if (this.selectedIndex >= palette.length) this.selectedIndex = Math.max(0, palette.length - 1);
+    if (Input.wheelDelta !== 0 && palette.length > 0) {
+      const dir = Input.wheelDelta > 0 ? 1 : -1;
+      this.selectedIndex = (this.selectedIndex + dir + palette.length) % palette.length;
+      Audio.playSound('menucursor');
+    }
+
+    if (Input.mousePressed) {
+      for (const r of this.iconRects) {
+        if (
+          Input.mousePos.x >= r.x && Input.mousePos.x <= r.x + r.w &&
+          Input.mousePos.y >= r.y && Input.mousePos.y <= r.y + r.h
+        ) {
+          this.selectedIndex = r.index;
+          Input.consumeMouseButton(0);
+          Audio.playSound('menucursor');
+          return { action: 'none' };
+        }
+      }
+    }
+
+    const selected = palette[this.selectedIndex];
+    if (selected?.type === 'building') {
+      this.dragMode = null;
+      this.touchedThisDrag.clear();
+      if (Input.mousePressed) {
+        Input.consumeMouseButton(0);
+        return { action: 'build', buildingType: selected.def.key };
+      }
+      return { action: 'none' };
+    }
+
+    if (Input.mousePressed) {
+      this.dragMode = 'paint';
+      this.touchedThisDrag.clear();
+    } else if (Input.mouse2Pressed) {
+      this.dragMode = 'erase';
+      this.touchedThisDrag.clear();
+    }
+
+    if (Input.mouseDown) {
+      this.dragMode = 'paint';
+    } else if (Input.mouse2Down) {
+      this.dragMode = 'erase';
+    } else {
+      this.dragMode = null;
+      this.touchedThisDrag.clear();
+    }
+
+    if (this.dragMode !== null) {
+      const worldPos = camera.screenToWorld(Input.mousePos);
+      const { cx, cy } = worldToCell(worldPos);
+      const key = cellKey(cx, cy);
+      if (!this.touchedThisDrag.has(key)) {
+        this.touchedThisDrag.add(key);
+        if (this.dragMode === 'paint') {
+          if (!state.grid.hasConduit(cx, cy) && !state.grid.hasPendingConduit(cx, cy)) {
+            if (state.resources >= CONDUIT_COST) {
+              state.resources -= CONDUIT_COST;
+              state.grid.queueConduit(cx, cy, Team.Player);
+            }
+          }
+        } else if (state.grid.conduitTeam(cx, cy) === Team.Player) {
+          state.grid.removeConduit(cx, cy);
+          state.power.markDirty();
+          Audio.playSound('menucursor');
+        }
+      }
+    }
+
+    return { action: 'none' };
+  }
+
+  private paletteItems(state: GameState): Array<{ type: 'conduit'; label: string; cost: number } | { type: 'building'; def: BuildDef }> {
+    return [
+      { type: 'conduit', label: 'Conduit', cost: CONDUIT_COST },
+      ...availableBuildDefs(state).map((def) => ({ type: 'building' as const, def })),
+    ];
+  }
+
+  draw(
+    ctx: CanvasRenderingContext2D,
+    state: GameState,
+    camera: Camera,
+    screenW: number,
+    _screenH: number,
+  ): void {
+    if (!this.open) return;
+    const palette = this.paletteItems(state);
+    if (this.selectedIndex >= palette.length) this.selectedIndex = Math.max(0, palette.length - 1);
+    const worldPos = camera.screenToWorld(Input.mousePos);
+    const cell = worldToCell(worldPos);
+    const selected = palette[this.selectedIndex];
+
+    if (selected?.type === 'building') {
+      this.drawBuildingFootprintCursor(ctx, state, camera, cell, selected.def);
+    } else {
+      const mode: 'paint' | 'erase' = this.dragMode === 'erase' ? 'erase' : 'paint';
+      state.grid.drawPaintCursor(ctx, camera, cell, mode);
+    }
+    this.drawPalette(ctx, state, palette);
+
+    ctx.font = '12px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.85);
+    ctx.fillText(
+      selected?.type === 'building'
+        ? '[Q] Quick Build - wheel/click selects - LMB places - release Q to exit'
+        : `[Q] Quick Build - Conduit $${CONDUIT_COST}/cell - LMB paint - RMB erase - wheel/click selects`,
+      screenW * 0.5,
+      24,
+    );
+    ctx.font = '10px "Courier New", monospace';
+    ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
+    ctx.fillText(
+      `conduits: ${state.grid.conduitCount()} - queued: ${state.grid.pendingConduitCount()} - cell ${cell.cx},${cell.cy} - resources: $${Math.floor(state.resources)}`,
+      screenW * 0.5,
+      40,
+    );
+  }
+
+  private drawBuildingFootprintCursor(
+    ctx: CanvasRenderingContext2D,
+    state: GameState,
+    camera: Camera,
+    cell: { cx: number; cy: number },
+    def: BuildDef,
+  ): void {
+    const center = footprintCenter(cell.cx, cell.cy, def.footprintCells);
+    const screen = camera.worldToScreen(center);
+    const sizePx = def.footprintCells * GRID_CELL_SIZE * camera.zoom;
+    const status = state.getPlacementStatus(def, cell.cx, cell.cy, Team.Player);
+    const color = status.valid
+      ? colorToCSS(Colors.radar_friendly_status, 0.9)
+      : colorToCSS(Colors.alert1, 0.9);
+
+    ctx.fillStyle = status.valid
+      ? colorToCSS(Colors.radar_friendly_status, 0.18)
+      : colorToCSS(Colors.alert1, 0.12);
+    ctx.fillRect(screen.x - sizePx / 2, screen.y - sizePx / 2, sizePx, sizePx);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(screen.x - sizePx / 2, screen.y - sizePx / 2, sizePx, sizePx);
+    ctx.setLineDash([]);
+
+    ctx.font = '10px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillStyle = color;
+    ctx.fillText(`${def.label} ${def.footprintCells}x${def.footprintCells}`, screen.x, screen.y - sizePx / 2 - 4);
+    if (!status.valid) {
+      ctx.textBaseline = 'top';
+      ctx.fillText(status.reason, screen.x, screen.y + sizePx / 2 + 4);
+    }
+  }
+
+  private drawPalette(
+    ctx: CanvasRenderingContext2D,
+    state: GameState,
+    palette: Array<{ type: 'conduit'; label: string; cost: number } | { type: 'building'; def: BuildDef }>,
+  ): void {
+    this.iconRects.length = 0;
+    const x = 12;
+    const y0 = 96;
+    const w = 154;
+    const h = 30;
+    const gap = 6;
+    ctx.save();
+    ctx.font = '10px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    for (let i = 0; i < palette.length; i++) {
+      const y = y0 + i * (h + gap);
+      const item = palette[i];
+      const selected = i === this.selectedIndex;
+      const cost = item.type === 'conduit' ? item.cost : item.def.cost;
+      const label = item.type === 'conduit'
+        ? item.label
+        : `${item.def.label} ${item.def.footprintCells}x${item.def.footprintCells}`;
+      this.iconRects.push({ index: i, x, y, w, h });
+      ctx.fillStyle = selected
+        ? colorToCSS(Colors.radar_friendly_status, 0.28)
+        : colorToCSS(Colors.menu_background, 0.55);
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = selected
+        ? colorToCSS(Colors.radar_friendly_status, 0.95)
+        : colorToCSS(Colors.radar_gridlines, 0.45);
+      ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+      ctx.fillStyle = state.resources >= cost
+        ? colorToCSS(Colors.general_building, selected ? 1.0 : 0.82)
+        : colorToCSS(Colors.alert1, 0.7);
+      ctx.fillText(label, x + 8, y + h * 0.5);
+      ctx.textAlign = 'right';
+      ctx.fillText(`$${cost}`, x + w - 8, y + h * 0.5);
+      ctx.textAlign = 'left';
+    }
+    ctx.restore();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // ActionMenu — public façade, same shape as the original so game.ts is minimal
 // ---------------------------------------------------------------------------
@@ -526,7 +761,7 @@ export class ActionMenu {
   private buildMenu    = new HoldMenu('z', buildBuildRoot,    '[Z] Build');
   private researchMenu = new HoldMenu('x', buildResearchRoot, '[X] Research');
   private commandMenu  = new HoldMenu('c', buildCommandRoot,  '[C] Command');
-  private paintMenu    = new PaintMenu();
+  private paintMenu    = new QuickBuildMenu();
 
   /** True when any of the four hold menus / paint mode is currently open. */
   open = false;
@@ -550,7 +785,8 @@ export class ActionMenu {
 
   update(state: GameState, camera: Camera): MenuResult {
     // Paint mode runs first so it consumes mouse-down before radial menus see it.
-    const paintOpen = this.paintMenu.update(state, camera);
+    const paintResult = this.paintMenu.update(state, camera);
+    const paintOpen = this.paintMenu.open;
 
     // --- Pending building placement mode ---
     // When a build type was selected from the Z menu, wait for the player to
@@ -611,6 +847,7 @@ export class ActionMenu {
       this.commandMenu.open ||
       this.pendingBuildType !== null;
 
+    if (paintResult.action !== 'none') return paintResult;
     if (br.action !== 'none') return br;
     if (rr.action !== 'none') return rr;
     if (cr.action !== 'none') return cr;
@@ -642,13 +879,14 @@ export class ActionMenu {
 
     const worldPos = camera.screenToWorld(Input.mousePos);
     const cell = worldToCell(worldPos);
-    const center = cellCenter(cell.cx, cell.cy);
-    const screen = camera.worldToScreen(center);
-    const cellPx = GRID_CELL_SIZE * camera.zoom;
-
     const def = getBuildDef(this.pendingBuildType);
+    const center = def
+      ? footprintCenter(cell.cx, cell.cy, def.footprintCells)
+      : cellCenter(cell.cx, cell.cy);
+    const screen = camera.worldToScreen(center);
+    const cellPx = (def?.footprintCells ?? 1) * GRID_CELL_SIZE * camera.zoom;
     const status = def
-      ? state.getPlacementStatus(def, center, Team.Player)
+      ? state.getPlacementStatus(def, cell.cx, cell.cy, Team.Player)
       : { valid: true, reason: 'OK' };
     const cursorColor = status.valid
       ? colorToCSS(Colors.radar_friendly_status, 0.9)
