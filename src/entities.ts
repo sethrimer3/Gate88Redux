@@ -12,10 +12,9 @@ export enum Team {
 /**
  * Tactical orders that can be issued to fighter groups via the Command menu.
  *
- * AttackTarget and Dock map to existing fighter AI orders immediately.
- * DefendArea, EscortPlayer, and HarassPower are placeholders backed by the
- * existing attack/dock/settarget plumbing for now; PR 6 will wire them to the
- * full tactical-mode dispatcher.
+ * AttackTarget uses the cursor position, DefendArea holds a cursor location,
+ * EscortPlayer tracks the player ship, HarassPower prefers enemy generators,
+ * and Dock returns ships to their home yard.
  */
 export enum TacticalOrder {
   AttackTarget = 'attack',

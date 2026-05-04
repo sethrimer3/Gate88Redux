@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "C:\\Progra~1\\nodejs\\node.exe node_modules/typescript/bin/tsc && C:\\Progra~1\\nodejs\\node.exe node_modules/vite/bin/vite.js build",
     "preview": "vite preview"
   },
   "devDependencies": {

@@ -4,6 +4,7 @@ import { Vec2 } from './math.js';
 import { Entity, Team, EntityType } from './entities.js';
 import { PlayerShip } from './ship.js';
 import { BuildingBase, CommandPost } from './building.js';
+import { Shipyard } from './building.js';
 import { TurretBase } from './turret.js';
 import { ProjectileBase, RegenBullet } from './projectile.js';
 import { FighterShip } from './fighter.js';
@@ -14,6 +15,8 @@ import { Audio } from './audio.js';
 import { WorldGrid, GRID_CELL_SIZE, cellKey } from './grid.js';
 import { PowerGraph } from './power.js';
 import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN } from './constants.js';
+import { WORLD_WIDTH, WORLD_HEIGHT } from './constants.js';
+import type { BuildDef } from './builddefs.js';
 
 export interface ResearchProgress {
   item: string | null;
@@ -473,6 +476,14 @@ export class GameState {
     this.researchProgress.progress += dt;
     if (this.researchProgress.progress >= this.researchProgress.timeNeeded) {
       this.researchedItems.add(this.researchProgress.item);
+      if (this.researchProgress.item === 'advancedFighters') {
+        for (const b of this.buildings) {
+          if (b.alive && b.team === Team.Player && b instanceof Shipyard) {
+            b.shipCapacity = 7;
+            b.buildInterval = 4;
+          }
+        }
+      }
       this.researchProgress = { item: null, progress: 0, timeNeeded: 0 };
       Audio.playSound('researchcomplete');
     }
@@ -552,5 +563,48 @@ export class GameState {
     const groupFighters = this.getFightersByGroup(team, group);
     const docked = groupFighters.filter((f) => f.docked).length;
     return { docked, total: groupFighters.length };
+  }
+
+  getPlacementStatus(def: BuildDef, pos: Vec2, team: Team): { valid: boolean; reason: string } {
+    if (this.resources < def.cost && team === Team.Player) {
+      return { valid: false, reason: 'Not enough resources' };
+    }
+    if (
+      pos.x < GRID_CELL_SIZE * 0.5 ||
+      pos.y < GRID_CELL_SIZE * 0.5 ||
+      pos.x > WORLD_WIDTH - GRID_CELL_SIZE * 0.5 ||
+      pos.y > WORLD_HEIGHT - GRID_CELL_SIZE * 0.5
+    ) {
+      return { valid: false, reason: 'Outside world' };
+    }
+    const cell = { cx: Math.floor(pos.x / GRID_CELL_SIZE), cy: Math.floor(pos.y / GRID_CELL_SIZE) };
+    for (const b of this.buildings) {
+      if (!b.alive) continue;
+      const bc = { cx: Math.floor(b.position.x / GRID_CELL_SIZE), cy: Math.floor(b.position.y / GRID_CELL_SIZE) };
+      if (bc.cx === cell.cx && bc.cy === cell.cy) {
+        return { valid: false, reason: 'Cell occupied' };
+      }
+    }
+    if (def.key === 'commandpost') return { valid: true, reason: 'OK' };
+    if (this.isNearPowerNetwork(cell.cx, cell.cy, team)) return { valid: true, reason: 'OK' };
+    return { valid: false, reason: 'Build near command post, generator, or powered conduit' };
+  }
+
+  private isNearPowerNetwork(cx: number, cy: number, team: Team): boolean {
+    const candidates = [
+      [cx, cy], [cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1],
+    ];
+    for (const [px, py] of candidates) {
+      if (this.power.isCellEnergized(team, px, py)) return true;
+      if (this.grid.conduitTeam(px, py) === team || this.grid.hasPendingConduit(px, py)) return true;
+    }
+    for (const b of this.buildings) {
+      if (!b.alive || b.team !== team) continue;
+      if (b.type !== EntityType.CommandPost && b.type !== EntityType.PowerGenerator) continue;
+      const bx = Math.floor(b.position.x / GRID_CELL_SIZE);
+      const by = Math.floor(b.position.y / GRID_CELL_SIZE);
+      if (Math.abs(cx - bx) + Math.abs(cy - by) <= 1) return true;
+    }
+    return false;
   }
 }

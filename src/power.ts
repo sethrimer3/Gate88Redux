@@ -1,5 +1,5 @@
 /**
- * Graph-based power network for Gate88 (PR5).
+ * Graph-based power network for Gate88.
  *
  * Replaces the previous radius-based power check (`updateBuildingPower`) with
  * a connected-component walk over the conduit graph plus the buildings that

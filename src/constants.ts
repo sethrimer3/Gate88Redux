@@ -75,6 +75,15 @@ export const RESEARCH_TIME = {
   advancedFighters: 780,
 } as const;
 
+export const ACTIVE_RESEARCH_ITEMS = [
+  'missileturret',
+  'exciterturret',
+  'massdriverturret',
+  'regenturret',
+  'bomberyard',
+  'advancedFighters',
+] as const;
+
 // Weapon stats
 export const WEAPON_STATS = {
   fire: {

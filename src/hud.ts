@@ -197,4 +197,24 @@ export class HUD {
         : `${unpoweredCount} buildings unpowered`;
     ctx.fillText(`⚠ ${label}`, x, y);
   }
+
+  drawResearchStatus(
+    ctx: CanvasRenderingContext2D,
+    current: { item: string | null; progress: number; timeNeeded: number },
+    completedCount: number,
+    screenH: number,
+  ): void {
+    const x = 10;
+    const y = screenH - 88;
+    ctx.font = '10px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+    ctx.fillStyle = colorToCSS(Colors.researchlab_detail, 0.75);
+    if (current.item) {
+      const pct = Math.floor((current.progress / Math.max(1, current.timeNeeded)) * 100);
+      ctx.fillText(`Research: ${current.item} ${pct}%`, x, y);
+    } else if (completedCount > 0) {
+      ctx.fillText(`Research complete: ${completedCount}`, x, y);
+    }
+  }
 }

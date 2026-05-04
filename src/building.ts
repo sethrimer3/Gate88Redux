@@ -17,6 +17,7 @@ import {
 export abstract class BuildingBase extends Entity {
   powered: boolean = false;
   buildProgress: number = 1;
+  buildDurationSeconds: number = 0;
 
   constructor(
     type: EntityType,
@@ -32,7 +33,11 @@ export abstract class BuildingBase extends Entity {
   update(dt: number): void {
     if (!this.alive) return;
     if (this.buildProgress < 1) {
-      this.buildProgress = Math.min(1, this.buildProgress + dt * 0.5);
+      if (this.buildDurationSeconds <= 0) {
+        this.buildProgress = 1;
+      } else {
+        this.buildProgress = Math.min(1, this.buildProgress + dt / this.buildDurationSeconds);
+      }
     }
   }
 
@@ -43,7 +48,7 @@ export abstract class BuildingBase extends Entity {
     r: number,
     color: string,
   ): void {
-    // PR7: under-construction visual — corner brackets + sweeping scanline.
+    // Under-construction visual: corner brackets + sweeping scanline.
     // The opacity ramp on the body is preserved (via globalAlpha) so the
     // underlying shape still fades in, but the brackets clearly read as
     // "blueprint, not yet active".

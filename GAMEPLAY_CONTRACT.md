@@ -1,0 +1,60 @@
+# Gameplay Contract
+
+This build targets a small playable Gate 88 loop: direct ship control, grid-snapped base construction, conduits, research unlocks, shipyards, turrets, and command post destruction.
+
+## Controls
+
+- WASD moves the player ship. Mouse aims. Left mouse fires the primary weapon.
+- Right mouse fires the equipped special; the only exposed special is Homing Missile.
+- Hold Z for the build menu, choose a building, then left click a valid cell to place it. Right mouse or Escape cancels placement.
+- Hold Q to paint conduits. Left mouse queues player conduits, right mouse erases player conduits.
+- Hold X for research. Hold C for fighter group orders. Hold Tab for radar. F3 toggles the debug overlay. Escape pauses.
+
+## Win And Loss
+
+- Tutorial has no enemies and no win/loss.
+- Practice and Vs. AI are won by destroying the enemy Command Post.
+- Practice/Vs. AI defeat depends on setup, but the default is losing the player Command Post.
+- The player ship can respawn after destruction if the match is not otherwise lost.
+
+## Resources
+
+- The player gains a small baseline income over time.
+- Finished, powered Factories add bonus income.
+- Buildings, conduits, and research spend resources only when the action succeeds.
+
+## Building Placement
+
+- Buildings snap to grid cell centers.
+- Placement requires enough resources, an empty cell, world bounds, and adjacency to the player power network.
+- The player power network means a Command Post, Power Generator, powered conduit, existing conduit, or pending conduit next to the target cell.
+- Command Post rebuild is hidden until the player has no Command Post.
+- Invalid placement shows a red cursor and does not spend resources or fire weapons.
+
+## Power
+
+- This port intentionally uses conduit-graph power rather than pure radius power.
+- Command Posts and completed Power Generators are power sources.
+- Same-team conduits carry power by 4-way adjacency from a source.
+- Non-source buildings are powered when their cell or a neighboring cell is energized.
+- Powered conduits are brighter; pending conduits are dashed. Unpowered player buildings show a HUD warning.
+- Shipyards, factories, labs, and turrets require construction completion and power for their active behavior.
+
+## Fighters And Shipyards
+
+- Fighter Yards produce fighters. Bomber Yards produce bombers after Bomber Yard research.
+- Shipyards only produce while finished, powered, and below capacity.
+- Advanced Fighters research raises player shipyard capacity and speeds player ship production.
+- C-menu orders are active: Attack Target uses the cursor location, Defend Area holds the cursor location, Escort Player follows the player, Harass Power targets enemy Power Generators, and Dock returns ships to their home yard.
+
+## Research
+
+- Research requires at least one powered, finished Research Lab to progress.
+- One active research item can run at a time.
+- Active research items are turret unlocks, Bomber Yard, and Advanced Fighters.
+- Completed research is hidden from the research menu and summarized on the HUD.
+
+## Hidden Or Not Implemented
+
+- Time Bomb, Signal Station, Jump Gate, Cloak, and Vs. Player are intentionally hidden from active menus because they do not have complete coherent gameplay.
+- Constants or entity enum entries for hidden items may remain for compatibility, but they are not part of the playable contract.

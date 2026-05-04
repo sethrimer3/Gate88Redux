@@ -1,13 +1,13 @@
 /**
- * Universal world grid for Gate88 (PR3).
+ * Universal world grid for Gate88.
  *
  * The grid is a coarse Cartesian decomposition of the world into square cells.
  * It backs:
  *
  *   - The conduit-paint system (Q-hold paint mode in actionmenu.ts).
- *   - Snap-to-grid building placement (PR4 reads cell centers via cellCenter()).
- *   - Future power-network propagation (PR5 will walk the conduit graph).
- *   - Future enemy-base migration (PR6 will paint enemy conduits).
+ *   - Snap-to-grid building placement.
+ *   - Power-network propagation.
+ *   - Enemy-base conduit construction.
  *
  * Conduits are stored as a sparse `Set<string>` keyed by `cellKey(cx, cy)`.
  * Each cell remembers which team painted it so player and enemy networks

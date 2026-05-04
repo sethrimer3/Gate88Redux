@@ -8,8 +8,7 @@
  *
  * Menu states:
  *   title          – top-level
- *   play           – Play submenu (Vs. AI / Vs. Player)
- *   vs_player      – "coming soon" placeholder
+ *   play           - Play submenu (Vs. AI only until multiplayer is implemented)
  *   vs_ai_setup    – Vs. AI setup screen
  *   practice_setup – Practice setup screen
  *   pause          – in-game pause overlay
@@ -44,7 +43,6 @@ import {
 export type MenuState =
   | 'title'
   | 'play'
-  | 'vs_player'
   | 'vs_ai_setup'
   | 'practice_setup'
   | 'pause'
@@ -220,7 +218,7 @@ export class MainMenu {
   }
 
   /**
-   * For simple list-style menus (title / play / pause / vs_player) we
+   * For simple list-style menus (title / play / pause) we
    * support Up/Down/Enter from the keyboard. Setup menus handle all
    * input internally during draw.
    */
@@ -249,7 +247,6 @@ export class MainMenu {
     if (
       Input.wasPressed('Escape') &&
       (this.state === 'play' ||
-        this.state === 'vs_player' ||
         this.state === 'vs_ai_setup' ||
         this.state === 'practice_setup')
     ) {
@@ -275,7 +272,7 @@ export class MainMenu {
       case 'title':
         return [
           { label: 'Play',     action: () => this.setState('play'),
-            description: 'Vs. AI or Vs. Player' },
+            description: 'Vs. AI skirmish' },
           { label: 'Practice', action: () => this.setState('practice_setup'),
             description: 'Configurable skirmish against a growing enemy base' },
           { label: 'Tutorial', action: () => { this.pendingAction = 'tutorial'; },
@@ -283,15 +280,9 @@ export class MainMenu {
         ];
       case 'play':
         return [
-          { label: 'Vs. AI',     action: () => this.setState('vs_ai_setup'),
+          { label: 'Vs. AI', action: () => this.setState('vs_ai_setup'),
             description: 'Match against an AI opponent with its own main ship' },
-          { label: 'Vs. Player', action: () => this.setState('vs_player'),
-            description: 'Online / LAN multiplayer (coming soon)' },
-          { label: 'Back',       action: () => this.setState('title') },
-        ];
-      case 'vs_player':
-        return [
-          { label: 'Back', action: () => this.setState('play') },
+          { label: 'Back', action: () => this.setState('title') },
         ];
       case 'pause':
         return [
@@ -319,7 +310,6 @@ export class MainMenu {
     switch (this.state) {
       case 'title':           this.drawTitleScreen(ctx, screenW, screenH); break;
       case 'play':            this.drawPlayMenu(ctx, screenW, screenH); break;
-      case 'vs_player':       this.drawVsPlayerPlaceholder(ctx, screenW, screenH); break;
       case 'vs_ai_setup':     this.drawVsAISetup(ctx, screenW, screenH); break;
       case 'practice_setup':  this.drawPracticeSetup(ctx, screenW, screenH); break;
       case 'pause':           this.drawPauseMenu(ctx, screenW, screenH); break;
@@ -450,37 +440,6 @@ export class MainMenu {
 
     const opts = this.currentSimpleOptions()!;
     this.drawClickableOptions(ctx, cx, h * 0.45, opts);
-  }
-
-  // -------------------------------------------------------------------
-  // Vs. Player placeholder
-  // -------------------------------------------------------------------
-
-  private drawVsPlayerPlaceholder(ctx: CanvasRenderingContext2D, w: number, h: number): void {
-    this.drawBackground(ctx, w, h);
-    this.drawBuildBadge(ctx, w);
-
-    const cx = w * 0.5;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    ctx.font = 'bold 30px "Courier New", monospace';
-    ctx.fillStyle = colorToCSS(TextColors.title);
-    ctx.fillText('VS. PLAYER', cx, h * 0.30);
-
-    ctx.font = '16px "Courier New", monospace';
-    ctx.fillStyle = colorToCSS(TextColors.normal, 0.85);
-    ctx.fillText('Vs. Player multiplayer is coming soon.', cx, h * 0.45);
-
-    ctx.font = '12px "Courier New", monospace';
-    ctx.fillStyle = colorToCSS(TextColors.shadow, 0.7);
-    ctx.fillText(
-      'LAN / online play is on the roadmap. Until then, try Vs. AI or Practice.',
-      cx, h * 0.50,
-    );
-
-    const opts = this.currentSimpleOptions()!;
-    this.drawClickableOptions(ctx, cx, h * 0.65, opts);
   }
 
   // -------------------------------------------------------------------

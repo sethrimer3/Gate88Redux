@@ -18,7 +18,7 @@ import { Input } from './input.js';
 import { Audio } from './audio.js';
 import { GameState } from './gamestate.js';
 import { ShipGroup, TacticalOrder, Team } from './entities.js';
-import { RESEARCH_COST, CONDUIT_COST } from './constants.js';
+import { RESEARCH_COST, CONDUIT_COST, ACTIVE_RESEARCH_ITEMS } from './constants.js';
 import { worldToCell, cellKey, cellCenter, GRID_CELL_SIZE } from './grid.js';
 import { defsByTier, BuildDef, getBuildDef } from './builddefs.js';
 
@@ -116,6 +116,10 @@ function defToRadialItem(def: BuildDef, state: GameState): RadialItem {
   };
 }
 
+function isBuildDefAvailable(def: BuildDef, state: GameState): boolean {
+  return !def.researchKey || state.researchedItems.has(def.researchKey);
+}
+
 function buildGeneralItems(state: GameState): RadialItem[] {
   const items: RadialItem[] = [];
   for (const def of defsByTier('general')) {
@@ -127,13 +131,15 @@ function buildGeneralItems(state: GameState): RadialItem[] {
       }
       continue;
     }
-    items.push(defToRadialItem(def, state));
+    if (isBuildDefAvailable(def, state)) items.push(defToRadialItem(def, state));
   }
   return items;
 }
 
 function buildTurretItems(state: GameState): RadialItem[] {
-  return defsByTier('turret').map((d) => defToRadialItem(d, state));
+  return defsByTier('turret')
+    .filter((d) => isBuildDefAvailable(d, state))
+    .map((d) => defToRadialItem(d, state));
 }
 
 function buildBuildRoot(state: GameState): RadialItem[] {
@@ -145,7 +151,7 @@ function buildBuildRoot(state: GameState): RadialItem[] {
 
 function buildResearchRoot(state: GameState): RadialItem[] {
   const items: RadialItem[] = [];
-  const keys = Object.keys(RESEARCH_COST) as Array<keyof typeof RESEARCH_COST>;
+  const keys = ACTIVE_RESEARCH_ITEMS;
   for (const key of keys) {
     if (state.researchedItems.has(key)) continue;
     items.push({
@@ -641,8 +647,10 @@ export class ActionMenu {
     const cellPx = GRID_CELL_SIZE * camera.zoom;
 
     const def = getBuildDef(this.pendingBuildType);
-    const canAfford = def ? state.resources >= def.cost : true;
-    const cursorColor = canAfford
+    const status = def
+      ? state.getPlacementStatus(def, center, Team.Player)
+      : { valid: true, reason: 'OK' };
+    const cursorColor = status.valid
       ? colorToCSS(Colors.radar_friendly_status, 0.9)
       : colorToCSS(Colors.alert1, 0.9);
 
@@ -654,19 +662,22 @@ export class ActionMenu {
     ctx.setLineDash([]);
 
     // Ghost dot at center
-    ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.35);
+    ctx.fillStyle = status.valid
+      ? colorToCSS(Colors.radar_friendly_status, 0.35)
+      : colorToCSS(Colors.alert1, 0.2);
     ctx.beginPath();
     ctx.arc(screen.x, screen.y, cellPx * 0.2, 0, Math.PI * 2);
     ctx.fill();
 
     // Top-of-screen hint banner
     const label = def ? `${def.label}  $${def.cost}` : this.pendingBuildType;
+    const suffix = status.valid ? '' : ` - ${status.reason}`;
     ctx.font = '12px "Courier New", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillStyle = cursorColor;
     ctx.fillText(
-      `[Placing: ${label}]  •  LMB to place  •  RMB / Esc to cancel`,
+      `[Placing: ${label}] - LMB to place - RMB / Esc to cancel${suffix}`,
       screenW * 0.5,
       24,
     );

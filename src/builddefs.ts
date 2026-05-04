@@ -1,5 +1,5 @@
 /**
- * Central building definitions for Gate88 (PR4).
+ * Central building definitions for Gate88.
  *
  * Single source of truth for everything the menu, HUD, placement, and AI
  * need to know about each placeable building type. Replaces the scattered
@@ -13,9 +13,7 @@
  *     const ent = def.factory(worldPos, Team.Player);
  *
  * `tier` lets the action-menu radial group buildings into "general" vs
- * "turret" submenus without hard-coding a list. PR5 will add a `power`
- * entry so the power-graph code can identify suppliers/consumers from the
- * same table.
+ * "turret" submenus without hard-coding a list.
  */
 
 import { Vec2 } from './math.js';
@@ -35,6 +33,7 @@ import {
   RegenTurret,
 } from './turret.js';
 import { BUILDING_COST, BUILD_TIME } from './constants.js';
+import { TICK_RATE } from './constants.js';
 
 export type BuildTier = 'general' | 'turret';
 
@@ -61,8 +60,21 @@ export interface BuildDef {
    * shown when the player has none).
    */
   hidden?: boolean;
+  /** Research item required before this build menu entry is exposed. */
+  researchKey?: string;
   /** Construct the concrete building entity at `pos` for `team`. */
   factory: (pos: Vec2, team: Team) => BuildingBase;
+}
+
+export function buildTicksToSeconds(buildTimeTicks: number): number {
+  return Math.max(0, buildTimeTicks) / TICK_RATE;
+}
+
+export function createBuildingFromDef(def: BuildDef, pos: Vec2, team: Team): BuildingBase {
+  const building = def.factory(pos, team);
+  building.buildDurationSeconds = buildTicksToSeconds(def.buildTime);
+  building.buildProgress = def.buildTime <= 0 ? 1 : 0;
+  return building;
 }
 
 /**
@@ -109,6 +121,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     buildTime: BUILD_TIME.bomberyard,
     tier: 'general',
     radialLabel: 'Bomber\nYard',
+    researchKey: 'bomberyard',
     factory: (pos, team) => new Shipyard(EntityType.BomberYard, pos, team),
   },
   researchlab: {
@@ -135,6 +148,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     buildTime: BUILD_TIME.missileturret,
     tier: 'turret',
     radialLabel: 'Missile\nTurret',
+    researchKey: 'missileturret',
     factory: (pos, team) => new MissileTurret(pos, team),
   },
   exciterturret: {
@@ -144,6 +158,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     buildTime: BUILD_TIME.exciterturret,
     tier: 'turret',
     radialLabel: 'Exciter\nTurret',
+    researchKey: 'exciterturret',
     factory: (pos, team) => new ExciterTurret(pos, team),
   },
   massdriverturret: {
@@ -153,6 +168,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     buildTime: BUILD_TIME.massdriverturret,
     tier: 'turret',
     radialLabel: 'Mass\nDriver',
+    researchKey: 'massdriverturret',
     factory: (pos, team) => new MassDriverTurret(pos, team),
   },
   regenturret: {
@@ -162,6 +178,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     buildTime: BUILD_TIME.regenturret,
     tier: 'turret',
     radialLabel: 'Regen\nTurret',
+    researchKey: 'regenturret',
     factory: (pos, team) => new RegenTurret(pos, team),
   },
 };

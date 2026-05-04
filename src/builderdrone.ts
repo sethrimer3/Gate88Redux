@@ -25,7 +25,7 @@ import { FighterShip } from './fighter.js';
 import { Colors, colorToCSS } from './colors.js';
 import { GRID_CELL_SIZE, cellCenter } from './grid.js';
 import { GameState } from './gamestate.js';
-import { BuildDef } from './builddefs.js';
+import { BuildDef, createBuildingFromDef } from './builddefs.js';
 import { BuildingBase } from './building.js';
 
 export type BuilderMode = 'build' | 'repair';
@@ -178,9 +178,9 @@ export class BuilderDrone extends FighterShip {
     const order = this.buildOrder;
     this.buildOrder = null;
     const pos = cellCenter(order.cx, order.cy);
-    const ent = order.def.factory(pos, this.team);
-    // Newly-placed enemy buildings finish in-progress so the player sees them grow in.
-    ent.buildProgress = 0.05;
+    const ent = createBuildingFromDef(order.def, pos, this.team);
+    // Newly placed enemy buildings start slightly visible so the player sees them grow in.
+    if (ent.buildProgress < 1) ent.buildProgress = 0.05;
     return { ent, cx: order.cx, cy: order.cy, layConduit: order.layConduitFirst };
   }
 

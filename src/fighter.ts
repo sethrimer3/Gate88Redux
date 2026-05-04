@@ -8,7 +8,7 @@ import { Shipyard } from './building.js';
 import { Colors, colorToCSS, Color } from './colors.js';
 import { ENTITY_RADIUS, SHIP_STATS } from './constants.js';
 
-export type FighterOrder = 'idle' | 'attack' | 'dock';
+export type FighterOrder = 'idle' | 'attack' | 'dock' | 'defend' | 'escort' | 'harass';
 
 const GROUP_COLORS: Record<ShipGroup, Color> = {
   [ShipGroup.Red]: Colors.redgroup,
@@ -74,6 +74,9 @@ export class FighterShip extends Entity {
   protected runAI(dt: number): void {
     switch (this.order) {
       case 'attack':
+      case 'defend':
+      case 'escort':
+      case 'harass':
         this.aiAttack(dt);
         break;
       case 'dock':

@@ -13,8 +13,8 @@ import { HUD } from './hud.js';
 import { MainMenu, MenuAction } from './menu.js';
 import { Colors, colorToCSS } from './colors.js';
 import { Team, EntityType, ShipGroup } from './entities.js';
-import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS } from './constants.js';
-import { CommandPost } from './building.js';
+import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS, ACTIVE_RESEARCH_ITEMS } from './constants.js';
+import { BuildingBase, CommandPost } from './building.js';
 import { Shipyard } from './building.js';
 import { FighterShip, BomberShip } from './fighter.js';
 import { Bullet } from './projectile.js';
@@ -23,7 +23,7 @@ import { cloneDefaultPracticeConfig } from './practiceconfig.js';
 import { TutorialMode } from './tutorial.js';
 import { AIShip, VsAIDirector } from './vsaibot.js';
 import { tryFireSpecial } from './special.js';
-import { getBuildDef } from './builddefs.js';
+import { createBuildingFromDef, getBuildDef } from './builddefs.js';
 import { worldToCell, cellCenter, GRID_CELL_SIZE } from './grid.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
@@ -51,6 +51,8 @@ export class Game {
   private lastTimestamp: number = 0;
   private accumulator: number = 0;
   private running: boolean = false;
+  private debugOverlay = false;
+  private lastFrameMs = 0;
 
   /** Respawn timer: counts down after the player ship dies. */
   private playerRespawnTimer: number = 0;
@@ -111,6 +113,7 @@ export class Game {
     const rawDt = (timestamp - this.lastTimestamp) / 1000;
     // Clamp to avoid spiral of death on tab-away
     const frameDt = Math.min(rawDt, 0.25);
+    this.lastFrameMs = frameDt * 1000;
     this.lastTimestamp = timestamp;
 
     this.accumulator += frameDt;
@@ -193,6 +196,10 @@ export class Game {
       return;
     }
 
+    if (Input.wasPressed('F3')) {
+      this.debugOverlay = !this.debugOverlay;
+    }
+
     // Action menu is processed FIRST so it can consume arrow keys before the
     // player ship's handleInput sees them.
     const menuResult = this.actionMenu.update(this.state, this.camera);
@@ -204,6 +211,8 @@ export class Game {
       const aimWorld = this.camera.screenToWorld(Input.mousePos);
       this.state.player.setAimPoint(aimWorld);
     }
+
+    this.updatePlayerFighterOrderTargets();
 
     // Update core game state (entities, collision, power, resources, research, particles)
     this.state.update(DT);
@@ -363,9 +372,8 @@ export class Game {
       Audio.playSound('fire');
     }
 
-    // Special ability: right mouse button. Routed through the SpecialAbility
-    // registry so future abilities (cloak, dash, time bomb, ...) drop in
-    // without further changes here.
+    // Special ability: right mouse button. The only exposed ability for now
+    // is the homing missile; hidden ability ids are ignored by menus/research.
     if (Input.mouse2Down) {
       tryFireSpecial(this.state, this.state.player, aimWorld);
     }
@@ -375,6 +383,10 @@ export class Game {
     for (const b of this.state.buildings) {
       if (!b.alive || b.team !== Team.Player) continue;
       if (!(b instanceof Shipyard)) continue;
+      if (this.state.researchedItems.has('advancedFighters')) {
+        b.shipCapacity = 7;
+        b.buildInterval = 4;
+      }
 
       if (b.shouldSpawnShip()) {
         const isBomber = b.type === EntityType.BomberYard;
@@ -408,21 +420,18 @@ export class Game {
     const def = getBuildDef(type);
     if (!def) return;
 
-    if (this.state.resources < def.cost) {
-      this.hud.showMessage('Not enough resources!', Colors.alert1, 3);
-      return;
-    }
-
     // Snap placement to the grid cell nearest the cursor.
     const aimWorld = this.camera.screenToWorld(Input.mousePos);
     const cell = worldToCell(aimWorld);
     const worldPos = cellCenter(cell.cx, cell.cy);
 
-    const building = def.factory(worldPos, Team.Player);
-    if (def.buildTime > 0) {
-      building.buildProgress = 0;
+    const status = this.state.getPlacementStatus(def, worldPos, Team.Player);
+    if (!status.valid) {
+      this.hud.showMessage(status.reason, Colors.alert1, 3);
+      return;
     }
 
+    const building = createBuildingFromDef(def, worldPos, Team.Player);
     this.state.resources -= def.cost;
     this.state.addEntity(building);
     this.state.selectedBuildType = type;
@@ -435,12 +444,10 @@ export class Game {
 
     switch (order) {
       case 'attack': {
-        // Set target to nearest enemy building or enemy CP
-        const enemyCP = this.state.getEnemyCommandPost();
-        const target = enemyCP?.position ?? null;
+        const target = this.camera.screenToWorld(Input.mousePos);
         for (const f of fighters) {
           f.order = 'attack';
-          f.targetPos = target?.clone() ?? null;
+          f.targetPos = target.clone();
           if (f.docked) f.launch();
         }
         this.hud.showMessage(`${ShipGroup[group]} group: Attack!`, Colors.general_building, 2);
@@ -452,48 +459,30 @@ export class Game {
         }
         this.hud.showMessage(`${ShipGroup[group]} group: Dock`, Colors.general_building, 2);
         break;
-      case 'settarget': {
-        // Set target to current camera center position
-        const targetPos = this.camera.screenToWorld(
-          new Vec2(this.screenW * 0.5, this.screenH * 0.5),
-        );
-        for (const f of fighters) {
-          f.targetPos = targetPos.clone();
-          f.order = 'attack';
-          if (f.docked) f.launch();
-        }
-        this.hud.showMessage(`${ShipGroup[group]} group: Target set`, Colors.general_building, 2);
-        break;
-      }
-      // --- Phase-2 tactical orders (PR 6 will expand these with full AI) ---
       case 'defend': {
-        // Placeholder: defend by attacking the enemy command post.
-        const enemyCP = this.state.getEnemyCommandPost();
+        const defendPos = this.camera.screenToWorld(Input.mousePos);
         for (const f of fighters) {
-          f.order = 'attack';
-          f.targetPos = enemyCP?.position.clone() ?? null;
+          f.order = 'defend';
+          f.targetPos = defendPos.clone();
           if (f.docked) f.launch();
         }
         this.hud.showMessage(`${ShipGroup[group]} group: Defend Area`, Colors.general_building, 2);
         break;
       }
       case 'escort': {
-        // Placeholder: escort by docking (stays near the shipyard / player area).
         for (const f of fighters) {
-          f.order = 'dock';
+          f.order = 'escort';
+          f.targetPos = this.state.player.position.clone();
+          if (f.docked) f.launch();
         }
         this.hud.showMessage(`${ShipGroup[group]} group: Escort Player`, Colors.general_building, 2);
         break;
       }
       case 'harass': {
-        // Placeholder: harass enemy power by targeting the nearest enemy generator,
-        // falling back to the enemy CP if no generator exists.
-        const enemyGen = this.state.buildings.find(
-          (b) => b.alive && b.type === EntityType.PowerGenerator && b.team === Team.Enemy,
-        );
+        const enemyGen = this.findNearestEnemyBuildingOfType(EntityType.PowerGenerator);
         const harassTarget = (enemyGen ?? this.state.getEnemyCommandPost())?.position ?? null;
         for (const f of fighters) {
-          f.order = 'attack';
+          f.order = 'harass';
           f.targetPos = harassTarget?.clone() ?? null;
           if (f.docked) f.launch();
         }
@@ -522,6 +511,7 @@ export class Game {
     const time = RESEARCH_TIME[timeKey];
 
     if (cost === undefined || time === undefined) return;
+    if (!(ACTIVE_RESEARCH_ITEMS as readonly string[]).includes(item)) return;
 
     if (this.state.resources < cost) {
       this.hud.showMessage('Not enough resources for research!', Colors.alert1, 3);
@@ -535,6 +525,33 @@ export class Game {
       timeNeeded: time / TICK_RATE,
     };
     this.hud.showMessage(`Researching: ${item}`, Colors.researchlab_detail, 3);
+  }
+
+  private findNearestEnemyBuildingOfType(type: EntityType): BuildingBase | null {
+    let best: BuildingBase | null = null;
+    let bestDist = Infinity;
+    for (const b of this.state.buildings) {
+      if (!b.alive || b.team !== Team.Enemy || b.type !== type) continue;
+      const d = b.position.distanceTo(this.state.player.position);
+      if (d < bestDist) {
+        bestDist = d;
+        best = b;
+      }
+    }
+    return best;
+  }
+
+  private updatePlayerFighterOrderTargets(): void {
+    const enemyPower = this.findNearestEnemyBuildingOfType(EntityType.PowerGenerator);
+    const enemyFallback = enemyPower ?? this.state.getEnemyCommandPost();
+    for (const f of this.state.fighters) {
+      if (!f.alive || f.team !== Team.Player || f.docked) continue;
+      if (f.order === 'escort') {
+        f.targetPos = this.state.player.position.clone();
+      } else if (f.order === 'harass') {
+        f.targetPos = enemyFallback?.position.clone() ?? f.targetPos;
+      }
+    }
   }
 
   private startGame(mode: 'tutorial' | 'practice' | 'vs_ai'): void {
@@ -640,7 +657,7 @@ export class Game {
     if (level === 'none') return;
     const basicTurrets = ['missileturret', 'exciterturret'];
     const allTurrets = ['missileturret', 'exciterturret', 'massdriverturret', 'regenturret'];
-    const fullTech = [...allTurrets, 'timebomb', 'bomberyard', 'cloak', 'advancedFighters'];
+    const fullTech = [...allTurrets, 'bomberyard', 'advancedFighters'];
     const list = level === 'basic_turrets' ? basicTurrets
       : level === 'all_turrets' ? allTurrets
       : fullTech;
@@ -698,16 +715,15 @@ export class Game {
     if (this.state.player.alive) {
       this.hud.drawSelectedBuild(ctx, this.state.selectedBuildType, this.state.resources, w, h);
       this.hud.drawPlayerEnergy(ctx, this.state.player.battery, this.state.player.maxBattery, w, h);
-      // Count unpowered player buildings (excluding sources / shipyards which are always powered).
+      this.hud.drawResearchStatus(ctx, this.state.researchProgress, this.state.researchedItems.size, h);
+      // Count unpowered player buildings, excluding only power sources.
       let unpowered = 0;
       for (const b of this.state.buildings) {
         if (!b.alive || b.team !== Team.Player) continue;
         if (b.buildProgress < 1) continue;
         if (
           b.type === EntityType.CommandPost ||
-          b.type === EntityType.PowerGenerator ||
-          b.type === EntityType.FighterYard ||
-          b.type === EntityType.BomberYard
+          b.type === EntityType.PowerGenerator
         ) continue;
         if (!b.powered) unpowered++;
       }
@@ -718,6 +734,10 @@ export class Game {
     if ((this.state.gameMode === 'practice' || this.state.gameMode === 'vs_ai')
         && !this.practiceMode.gameOver) {
       this.drawPracticeHUD(ctx, w, h);
+    }
+
+    if (this.debugOverlay) {
+      this.drawDebugOverlay(ctx, w);
     }
 
     // Pause overlay
@@ -735,6 +755,50 @@ export class Game {
       `Bases destroyed: ${this.practiceMode.score.basesDestroyed} | Time: ${Math.floor(this.practiceMode.score.timeSurvived)}s`,
       10, 10,
     );
+  }
+
+  private drawDebugOverlay(ctx: CanvasRenderingContext2D, screenW: number): void {
+    const playerBuildings = this.state.buildings.filter((b) => b.alive && b.team === Team.Player);
+    const enemyBuildings = this.state.buildings.filter((b) => b.alive && b.team === Team.Enemy);
+    const powered = playerBuildings.filter((b) => b.buildProgress >= 1 && b.powered).length;
+    const unpowered = playerBuildings.filter((b) => b.buildProgress >= 1 && !b.powered).length;
+    const research = this.state.researchProgress.item
+      ? `${this.state.researchProgress.item} ${Math.floor(
+          (this.state.researchProgress.progress / Math.max(1, this.state.researchProgress.timeNeeded)) * 100,
+        )}%`
+      : 'none';
+    const groups = [ShipGroup.Red, ShipGroup.Green, ShipGroup.Blue]
+      .map((g) => `${ShipGroup[g]} ${this.state.getFighterGroupCounts(Team.Player, g).total}`)
+      .join(' / ');
+
+    const lines = [
+      `mode ${this.state.gameMode}  frame ${this.lastFrameMs.toFixed(1)}ms`,
+      `resources ${Math.floor(this.state.resources)}  build ${this.state.selectedBuildType ?? 'none'}`,
+      `ship hp ${Math.ceil(this.state.player.health)}/${this.state.player.maxHealth}  battery ${Math.floor(this.state.player.battery)}/${this.state.player.maxBattery}`,
+      `buildings player ${playerBuildings.length} enemy ${enemyBuildings.length}`,
+      `conduits ${this.state.grid.conduitCount()} pending ${this.state.grid.pendingConduitCount()}`,
+      `power player ${powered} powered / ${unpowered} unpowered`,
+      `research ${research}`,
+      `fighters ${groups}`,
+    ];
+
+    ctx.save();
+    ctx.font = '11px "Courier New", monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    const width = 310;
+    const height = lines.length * 15 + 12;
+    const x = screenW - width - 10;
+    const y = 10;
+    ctx.fillStyle = 'rgba(0,0,0,0.62)';
+    ctx.fillRect(x, y, width, height);
+    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.55);
+    ctx.strokeRect(x + 0.5, y + 0.5, width - 1, height - 1);
+    ctx.fillStyle = colorToCSS(Colors.general_building, 0.9);
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], x + 8, y + 7 + i * 15);
+    }
+    ctx.restore();
   }
 
   /**
