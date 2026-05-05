@@ -2,7 +2,7 @@
  * Phase-2 hold-to-open radial menus for Gate88.
  *
  * Three menus, each opened by holding a key:
- *   Z → Build       (general buildings + turrets)
+ *   Z -> Ship       (ship stats, upgrades, and weapon selection)
  *   X → Research    (all non-researched items from RESEARCH_COST table)
  *   C → Command     (issue tactical orders to Red / Green / Blue fighter groups)
  *
@@ -19,6 +19,7 @@ import { Audio } from './audio.js';
 import { GameState } from './gamestate.js';
 import { ShipGroup, TacticalOrder, Team } from './entities.js';
 import { RESEARCH_COST, CONDUIT_COST, ACTIVE_RESEARCH_ITEMS } from './constants.js';
+import { SHIP_WEAPON_OPTIONS, type ShipWeaponId } from './ship.js';
 import { worldToCell, cellKey, cellCenter, footprintCenter, footprintOrigin, GRID_CELL_SIZE } from './grid.js';
 import { defsByTier, BuildDef, getBuildDef } from './builddefs.js';
 
@@ -68,9 +69,26 @@ interface RadialItem {
   tacticalOrder?: TacticalOrder;
   /** Leaf: start researching this item. */
   researchItem?: string;
+  /** Informational disabled entry that never emits a menu result. */
+  infoOnly?: boolean;
   /** Hide from the live-filtered item list when false. */
   condition?: (state: GameState) => boolean;
 }
+
+const RESEARCH_LABELS: Record<string, string> = {
+  shipHp: 'HP',
+  shipSpeedEnergy: 'Speed +\nEnergy Regen',
+  shipFireSpeed: 'Fire\nSpeed',
+  shipShield: 'Shield',
+  weaponGatling: 'Gatling',
+  weaponLaser: 'Laser',
+  missileturret: 'Missile\nTurret',
+  exciterturret: 'Exciter\nTurret',
+  massdriverturret: 'Mass Driver\nTurret',
+  regenturret: 'Regen\nTurret',
+  bomberyard: 'Bomber\nYard',
+  advancedFighters: 'Advanced\nFighters',
+};
 
 // ---------------------------------------------------------------------------
 // Angle helpers
@@ -169,18 +187,32 @@ function buildBuildRoot(state: GameState): RadialItem[] {
 }
 
 function buildResearchRoot(state: GameState): RadialItem[] {
-  const items: RadialItem[] = [];
-  const keys = ACTIVE_RESEARCH_ITEMS;
-  for (const key of keys) {
-    if (state.researchedItems.has(key)) continue;
-    items.push({
-      label: String(key),
-      sublabel: `$${RESEARCH_COST[key]}`,
-      researchItem: String(key),
-      disabled: state.resources < RESEARCH_COST[key],
-    });
-  }
-  return items;
+  const makeResearchItem = (key: string): RadialItem | null => {
+    if (state.researchedItems.has(key)) return null;
+    if (!(ACTIVE_RESEARCH_ITEMS as readonly string[]).includes(key)) return null;
+    const researchKey = key as keyof typeof RESEARCH_COST;
+    return {
+      label: RESEARCH_LABELS[key] ?? key,
+      sublabel: `$${RESEARCH_COST[researchKey]}`,
+      researchItem: key,
+      disabled: state.resources < RESEARCH_COST[researchKey],
+    };
+  };
+  const category = (label: string, keys: string[], extras: RadialItem[] = []): RadialItem => ({
+    label,
+    children: [
+      ...extras,
+      ...keys.map((key) => makeResearchItem(key)).filter((item): item is RadialItem => item !== null),
+    ],
+  });
+  return [
+    category('Structures', ['missileturret', 'exciterturret', 'massdriverturret', 'regenturret', 'bomberyard']),
+    category('Ship', ['shipHp', 'shipSpeedEnergy', 'shipFireSpeed', 'shipShield']),
+    category('Fighters', ['advancedFighters']),
+    category('Weapons', ['weaponGatling', 'weaponLaser'], [
+      { label: 'Cannon', sublabel: 'Ready', disabled: true, infoOnly: true },
+    ]),
+  ];
 }
 
 function buildGroupOrders(group: ShipGroup): RadialItem[] {
@@ -546,6 +578,145 @@ class PaintMenu {
   }
 }
 
+class ShipMenu {
+  open = false;
+  private readonly weaponRects: Array<{ id: ShipWeaponId; x: number; y: number; w: number; h: number }> = [];
+
+  update(state: GameState): boolean {
+    const keyDown = Input.isDown('z');
+    if (keyDown && !this.open) {
+      this.open = true;
+      Audio.playSound('menucursor');
+    } else if (!keyDown && this.open) {
+      this.open = false;
+      return false;
+    }
+    if (!this.open) return false;
+
+    if (Input.wheelDelta !== 0) {
+      state.player.cyclePrimaryWeapon(Input.wheelDelta > 0 ? 1 : -1, (id) => this.weaponUnlocked(state, id));
+      Audio.playSound('menucursor');
+    }
+
+    if (Input.mousePressed) {
+      for (const rect of this.weaponRects) {
+        if (
+          Input.mousePos.x >= rect.x && Input.mousePos.x <= rect.x + rect.w &&
+          Input.mousePos.y >= rect.y && Input.mousePos.y <= rect.y + rect.h
+        ) {
+          if (this.weaponUnlocked(state, rect.id)) {
+            state.player.selectPrimaryWeapon(rect.id);
+            Audio.playSound('menuselection');
+          } else {
+            Audio.playSound('menucursor');
+          }
+          Input.consumeMouseButton(0);
+          break;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  draw(ctx: CanvasRenderingContext2D, state: GameState, screenW: number, screenH: number): void {
+    if (!this.open) return;
+    this.weaponRects.length = 0;
+    const panelW = 260;
+    const x = 12;
+    const y = Math.max(72, screenH * 0.5 - 190);
+    ctx.save();
+    ctx.fillStyle = colorToCSS(Colors.menu_background, 0.78);
+    ctx.fillRect(x, y, panelW, 380);
+    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.55);
+    ctx.strokeRect(x + 0.5, y + 0.5, panelW - 1, 379);
+
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.font = '14px "Courier New", monospace';
+    ctx.fillStyle = colorToCSS(Colors.general_building, 0.95);
+    ctx.fillText('[Z] Ship', x + 12, y + 12);
+
+    const ship = state.player;
+    const statsY = y + 40;
+    const shieldText = ship.shieldUnlocked
+      ? `${Math.ceil(ship.shield)}/${ship.maxShield}`
+      : 'locked';
+    const stats = [
+      `HP ${Math.ceil(ship.health)}/${ship.maxHealth}`,
+      `Shield ${shieldText}`,
+      `Speed ${Math.round(ship.maxSpeed)}`,
+      `Energy ${Math.floor(ship.battery)}/${ship.maxBattery}`,
+      `Energy Regen ${ship.baseBatteryRegenRate.toFixed(1)}/s`,
+      `Fire Speed x${(1 / ship.fireCooldownMultiplier).toFixed(2)}`,
+      `Resources $${Math.floor(state.resources)}`,
+    ];
+    ctx.font = '11px "Courier New", monospace';
+    for (let i = 0; i < stats.length; i++) {
+      ctx.fillStyle = colorToCSS(Colors.general_building, 0.78);
+      ctx.fillText(stats[i], x + 12, statsY + i * 16);
+    }
+
+    const upgradeY = statsY + stats.length * 16 + 18;
+    ctx.font = '12px "Courier New", monospace';
+    ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
+    ctx.fillText('Upgrades', x + 12, upgradeY);
+    const upgrades = [
+      ['HP', 'shipHp'],
+      ['Speed + Energy Regen', 'shipSpeedEnergy'],
+      ['Fire Speed', 'shipFireSpeed'],
+      ['Shield Aura', 'shipShield'],
+    ] as const;
+    ctx.font = '10px "Courier New", monospace';
+    for (let i = 0; i < upgrades.length; i++) {
+      const [label, key] = upgrades[i];
+      const done = state.researchedItems.has(key);
+      ctx.fillStyle = done ? colorToCSS(Colors.radar_friendly_status, 0.82) : colorToCSS(Colors.radar_gridlines, 0.56);
+      ctx.fillText(`${done ? 'ONLINE' : 'LOCKED'}  ${label}`, x + 12, upgradeY + 20 + i * 14);
+    }
+
+    const weaponsY = upgradeY + 88;
+    ctx.font = '12px "Courier New", monospace';
+    ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
+    ctx.fillText('Weapons', x + 12, weaponsY);
+    ctx.font = '10px "Courier New", monospace';
+    const rowH = 38;
+    for (let i = 0; i < SHIP_WEAPON_OPTIONS.length; i++) {
+      const weapon = SHIP_WEAPON_OPTIONS[i];
+      const wy = weaponsY + 20 + i * (rowH + 6);
+      const selected = ship.primaryWeaponId === weapon.id;
+      const unlocked = this.weaponUnlocked(state, weapon.id);
+      this.weaponRects.push({ id: weapon.id, x: x + 10, y: wy, w: panelW - 20, h: rowH });
+      ctx.fillStyle = selected
+        ? colorToCSS(Colors.radar_friendly_status, 0.25)
+        : colorToCSS(Colors.friendly_background, 0.45);
+      ctx.fillRect(x + 10, wy, panelW - 20, rowH);
+      ctx.strokeStyle = selected
+        ? colorToCSS(Colors.radar_friendly_status, 0.9)
+        : colorToCSS(Colors.radar_gridlines, unlocked ? 0.42 : 0.22);
+      ctx.strokeRect(x + 10.5, wy + 0.5, panelW - 21, rowH - 1);
+      ctx.fillStyle = unlocked ? colorToCSS(Colors.general_building, 0.9) : colorToCSS(Colors.radar_gridlines, 0.42);
+      ctx.fillText(weapon.label, x + 20, wy + 6);
+      ctx.fillStyle = unlocked ? colorToCSS(Colors.radar_gridlines, 0.62) : colorToCSS(Colors.alert1, 0.62);
+      ctx.fillText(unlocked ? weapon.description : 'Research required', x + 20, wy + 21);
+    }
+
+    ctx.font = '10px "Courier New", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.7);
+    ctx.fillText('click or mouse wheel changes weapon', x + panelW * 0.5, y + 362);
+    if (screenW < x + panelW + 20) {
+      ctx.fillText('release Z to close', x + panelW * 0.5, y + 348);
+    }
+    ctx.restore();
+  }
+
+  private weaponUnlocked(state: GameState, id: ShipWeaponId): boolean {
+    const weapon = SHIP_WEAPON_OPTIONS.find((item) => item.id === id);
+    return !weapon?.researchKey || state.researchedItems.has(weapon.researchKey);
+  }
+}
+
 type QuickPaletteItem =
   | { type: 'header'; label: string }
   | { type: 'conduit'; label: string; cost: number }
@@ -892,7 +1063,7 @@ class QuickBuildMenu {
 // ---------------------------------------------------------------------------
 
 export class ActionMenu {
-  private buildMenu    = new HoldMenu('z', buildBuildRoot,    '[Z] Build');
+  private shipMenu     = new ShipMenu();
   private researchMenu = new HoldMenu('x', buildResearchRoot, '[X] Research');
   private commandMenu  = new HoldMenu('c', buildCommandRoot,  '[C] Command');
   private paintMenu    = new QuickBuildMenu();
@@ -910,79 +1081,32 @@ export class ActionMenu {
   placementMode = false;
   placementType: string | null = null;
 
-  /**
-   * When the player selects a building type from the Z menu, it is stored
-   * here until they click a valid location to confirm placement. While set,
-   * `placementMode` is true and `open` is true so weapon fire is suppressed.
-   */
-  private pendingBuildType: string | null = null;
-
   update(state: GameState, camera: Camera): MenuResult {
     // Paint mode runs first so it consumes mouse-down before radial menus see it.
     const paintResult = this.paintMenu.update(state, camera);
     const paintOpen = this.paintMenu.open;
 
-    // --- Pending building placement mode ---
-    // When a build type was selected from the Z menu, wait for the player to
-    // click a valid cell before finalising the placement.
-    if (this.pendingBuildType !== null) {
-      this.placementMode = true;
-      this.placementType = this.pendingBuildType;
-      this.open = true;
-
-      // ESC or RMB cancels placement.
-      if (Input.wasPressed('Escape') || Input.mouse2Pressed) {
-        if (Input.mouse2Pressed) Input.consumeMouseButton(2);
-        this.pendingBuildType = null;
-        this.placementMode = false;
-        this.placementType = null;
-        this.open = false;
-        return { action: 'none' };
-      }
-
-      // LMB confirms placement at the cell under the cursor.
-      if (Input.mousePressed) {
-        Input.consumeMouseButton(0);
-        const type = this.pendingBuildType;
-        this.pendingBuildType = null;
-        this.placementMode = false;
-        this.placementType = null;
-        this.open = false;
-        return { action: 'build', buildingType: type };
-      }
-
-      return { action: 'none' };
-    }
-
     this.placementMode = paintOpen;
     this.placementType = paintOpen ? 'conduit' : null;
 
     // Radial menus are mutually exclusive with paint mode.
-    let br: MenuResult = { action: 'none' };
     let rr: MenuResult = { action: 'none' };
     let cr: MenuResult = { action: 'none' };
+    let shipOpen = false;
     if (!paintOpen) {
-      br = this.buildMenu.update(state, camera);
+      shipOpen = this.shipMenu.update(state);
       rr = this.researchMenu.update(state, camera);
       cr = this.commandMenu.update(state, camera);
     }
 
     // Intercept build results — enter placement mode instead of placing immediately.
-    if (br.action === 'build') {
-      this.pendingBuildType = br.buildingType;
-      Audio.playSound('menucursor');
-      br = { action: 'none' };
-    }
-
     this.open =
       paintOpen ||
-      this.buildMenu.open ||
+      shipOpen ||
       this.researchMenu.open ||
-      this.commandMenu.open ||
-      this.pendingBuildType !== null;
+      this.commandMenu.open;
 
     if (paintResult.action !== 'none') return paintResult;
-    if (br.action !== 'none') return br;
     if (rr.action !== 'none') return rr;
     if (cr.action !== 'none') return cr;
     return { action: 'none' };
@@ -995,63 +1119,10 @@ export class ActionMenu {
     screenW: number,
     screenH: number,
   ): void {
-    this.buildMenu.draw(ctx, state);
+    this.shipMenu.draw(ctx, state, screenW, screenH);
     this.researchMenu.draw(ctx, state);
     this.commandMenu.draw(ctx, state);
     this.paintMenu.draw(ctx, state, camera, screenW, screenH);
-    this.drawPlacementCursor(ctx, state, camera, screenW);
   }
 
-  /** Draw placement preview when the player is choosing a build location. */
-  private drawPlacementCursor(
-    ctx: CanvasRenderingContext2D,
-    state: GameState,
-    camera: Camera,
-    screenW: number,
-  ): void {
-    if (this.pendingBuildType === null) return;
-
-    const worldPos = camera.screenToWorld(Input.mousePos);
-    const cell = worldToCell(worldPos);
-    const def = getBuildDef(this.pendingBuildType);
-    const center = def
-      ? footprintCenter(cell.cx, cell.cy, def.footprintCells)
-      : cellCenter(cell.cx, cell.cy);
-    const screen = camera.worldToScreen(center);
-    const cellPx = (def?.footprintCells ?? 1) * GRID_CELL_SIZE * camera.zoom;
-    const status = def
-      ? state.getPlacementStatus(def, cell.cx, cell.cy, Team.Player)
-      : { valid: true, reason: 'OK' };
-    const cursorColor = status.valid
-      ? colorToCSS(Colors.radar_friendly_status, 0.9)
-      : colorToCSS(Colors.alert1, 0.9);
-
-    // Cell highlight
-    ctx.strokeStyle = cursorColor;
-    ctx.lineWidth = 2;
-    ctx.setLineDash([4, 3]);
-    ctx.strokeRect(screen.x - cellPx / 2, screen.y - cellPx / 2, cellPx, cellPx);
-    ctx.setLineDash([]);
-
-    // Ghost dot at center
-    ctx.fillStyle = status.valid
-      ? colorToCSS(Colors.radar_friendly_status, 0.35)
-      : colorToCSS(Colors.alert1, 0.2);
-    ctx.beginPath();
-    ctx.arc(screen.x, screen.y, cellPx * 0.2, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Top-of-screen hint banner
-    const label = def ? `${def.label}  $${def.cost}` : this.pendingBuildType;
-    const suffix = status.valid ? '' : ` - ${status.reason}`;
-    ctx.font = '12px "Courier New", monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = cursorColor;
-    ctx.fillText(
-      `[Placing: ${label}] - LMB to place - RMB / Esc to cancel${suffix}`,
-      screenW * 0.5,
-      24,
-    );
-  }
 }

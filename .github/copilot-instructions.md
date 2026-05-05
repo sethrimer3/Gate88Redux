@@ -36,3 +36,8 @@ When in doubt: one PR → one bump.
   bot with its own main ship.
 * All new menus and submenus must be operable with the mouse alone.
   Keyboard shortcuts may also exist, but the mouse path must work.
+* Do not impose arbitrary maximum file sizes, game-size limits, or fixed line
+  counts. If a source file becomes monolithic at about 2000 or more lines,
+  notify the user with the file path and current line count, then update
+  `refactorPlan.md` with that file and practical refactor suggestions unless
+  an entry for that file already exists.

@@ -11,6 +11,21 @@ import { DEFAULT_SPECIAL_ID } from './special.js';
 const BATTERY_MAX = 100;
 const BATTERY_REGEN_RATE = 16;
 const BATTERY_FIRE_COST = 5;
+const SHIELD_MAX = 40;
+const SHIELD_REGEN_RATE = 7;
+const SHIELD_REGEN_DELAY = 2.5;
+const SHIP_WEAPON_IDS = ['cannon', 'gatling', 'laser'] as const;
+export type ShipWeaponId = typeof SHIP_WEAPON_IDS[number];
+export const SHIP_WEAPON_OPTIONS: ReadonlyArray<{
+  id: ShipWeaponId;
+  label: string;
+  researchKey?: string;
+  description: string;
+}> = [
+  { id: 'cannon', label: 'Cannon', description: 'Reliable medium-range primary weapon.' },
+  { id: 'gatling', label: 'Gatling', researchKey: 'weaponGatling', description: 'Very weak, very fast, short range.' },
+  { id: 'laser', label: 'Laser', researchKey: 'weaponLaser', description: 'Thin slow-firing beam with infinite pierce.' },
+];
 
 /** Speed multiplier when boosting (Shift held). */
 const BOOST_SPEED_MULT = 1.8;
@@ -40,9 +55,17 @@ export class PlayerShip extends Entity {
 
   battery: number = BATTERY_MAX;
   maxBattery: number = BATTERY_MAX;
+  baseBatteryRegenRate: number = BATTERY_REGEN_RATE;
 
   primaryFireTimer: number = 0;
   specialFireTimer: number = 0;
+  primaryWeaponId: ShipWeaponId = 'cannon';
+  fireCooldownMultiplier: number = 1;
+  shieldUnlocked = false;
+  shield: number = 0;
+  maxShield: number = SHIELD_MAX;
+  shieldRegenRate: number = SHIELD_REGEN_RATE;
+  private shieldRegenDelay = 0;
 
   /** Accumulated time used for visual effects like the low-battery flash. */
   drawTime: number = 0;
@@ -104,7 +127,8 @@ export class PlayerShip extends Entity {
     this.position = this.position.add(this.velocity.scale(dt));
 
     // Regenerate battery
-    this.battery = Math.min(this.maxBattery, this.battery + BATTERY_REGEN_RATE * dt);
+    this.battery = Math.min(this.maxBattery, this.battery + this.baseBatteryRegenRate * dt);
+    this.updateShield(dt);
 
     // Accumulate draw time for visual effects
     this.drawTime += dt;
@@ -123,7 +147,9 @@ export class PlayerShip extends Entity {
     this.velocity = new Vec2(0, 0);
     this.health = this.maxHealth;
     this.alive = true;
-    this.battery = BATTERY_MAX;
+    this.battery = this.maxBattery;
+    this.shield = this.shieldUnlocked ? this.maxShield : 0;
+    this.shieldRegenDelay = 0;
     this.primaryFireTimer = 0;
     this.specialFireTimer = 0;
     this.aimWorld = new Vec2(position.x + 100, position.y);
@@ -222,6 +248,66 @@ export class PlayerShip extends Entity {
   consumeSpecialFire(cooldown: number): void {
     this.specialFireTimer = cooldown;
     this.battery -= BATTERY_FIRE_COST * 2;
+  }
+
+  selectPrimaryWeapon(id: ShipWeaponId): void {
+    if (SHIP_WEAPON_IDS.includes(id)) this.primaryWeaponId = id;
+  }
+
+  cyclePrimaryWeapon(dir: number, unlocked: (id: ShipWeaponId) => boolean): void {
+    const available = SHIP_WEAPON_OPTIONS.filter((w) => unlocked(w.id)).map((w) => w.id);
+    if (available.length === 0) return;
+    const current = available.indexOf(this.primaryWeaponId);
+    const start = current >= 0 ? current : 0;
+    const next = (start + Math.sign(dir) + available.length) % available.length;
+    this.primaryWeaponId = available[next];
+  }
+
+  applyResearchUpgrade(item: string): void {
+    switch (item) {
+      case 'shipHp':
+        this.maxHealth = Math.round(this.maxHealth * 1.35);
+        this.health = this.maxHealth;
+        break;
+      case 'shipSpeedEnergy':
+        this.maxSpeed *= 1.14;
+        this.thrustPower *= 1.12;
+        this.baseBatteryRegenRate *= 1.35;
+        break;
+      case 'shipFireSpeed':
+        this.fireCooldownMultiplier = 0.78;
+        break;
+      case 'shipShield':
+        this.shieldUnlocked = true;
+        this.shield = this.maxShield;
+        this.shieldRegenDelay = 0;
+        break;
+      default:
+        break;
+    }
+  }
+
+  override takeDamage(amount: number, source?: Entity): void {
+    if (!this.alive || amount <= 0) {
+      super.takeDamage(amount, source);
+      return;
+    }
+    if (this.shieldUnlocked && this.shield > 0) {
+      const blocked = Math.min(this.shield, amount);
+      this.shield -= blocked;
+      amount -= blocked;
+      this.shieldRegenDelay = SHIELD_REGEN_DELAY;
+    }
+    if (amount > 0) super.takeDamage(amount, source);
+  }
+
+  private updateShield(dt: number): void {
+    if (!this.shieldUnlocked || !this.alive) return;
+    if (this.shieldRegenDelay > 0) {
+      this.shieldRegenDelay -= dt;
+      return;
+    }
+    this.shield = Math.min(this.maxShield, this.shield + this.shieldRegenRate * dt);
   }
 
   // --- Drawing ---
@@ -324,6 +410,18 @@ export class PlayerShip extends Entity {
         -Math.PI / 2 + Math.PI * 2 * batteryFrac,
       );
       ctx.stroke();
+    }
+
+    if (this.shieldUnlocked && this.shield > 0) {
+      const shieldFrac = this.shield / this.maxShield;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = colorToCSS(Colors.radar_allied_status, 0.18 + shieldFrac * 0.42);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r * (1.45 + shieldFrac * 0.08), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
     }
   }
 }

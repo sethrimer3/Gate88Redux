@@ -17,7 +17,7 @@ import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE,
 import { BuildingBase, CommandPost } from './building.js';
 import { Shipyard } from './building.js';
 import { FighterShip, BomberShip } from './fighter.js';
-import { Bullet } from './projectile.js';
+import { Bullet, GatlingBullet, Laser } from './projectile.js';
 import { PracticeMode } from './practicemode.js';
 import { cloneDefaultPracticeConfig } from './practiceconfig.js';
 import { TutorialMode } from './tutorial.js';
@@ -371,15 +371,7 @@ export class Game {
 
     // Primary fire: left mouse button only.
     if (Input.mouseDown && this.state.player.canFirePrimary()) {
-      this.state.player.consumePrimaryFire(PLAYER_FIRE_COOLDOWN);
-      const proj = new Bullet(
-        Team.Player,
-        this.state.player.position.clone(),
-        this.state.player.angle,
-        this.state.player,
-      );
-      this.state.addEntity(proj);
-      Audio.playSound('fire');
+      this.fireSelectedPrimary(aimWorld);
     }
 
     // Special ability: right mouse button. The only exposed ability for now
@@ -416,6 +408,67 @@ export class Game {
           fighter.targetPos = waypoint.clone();
           fighter.launch();
           b.dockedShips = Math.max(0, b.dockedShips - 1);
+        }
+      }
+    }
+  }
+
+  private fireSelectedPrimary(aimWorld: Vec2): void {
+    const weapon = this.state.player.primaryWeaponId;
+    if (weapon === 'gatling' && this.state.researchedItems.has('weaponGatling')) {
+      this.state.player.consumePrimaryFire(WEAPON_STATS.gatling.fireRate * DT * this.state.player.fireCooldownMultiplier);
+      this.state.addEntity(new GatlingBullet(
+        Team.Player,
+        this.state.player.position.clone(),
+        this.state.player.angle,
+        this.state.player,
+      ));
+      Audio.playSound('shortbullet');
+      return;
+    }
+    if (weapon === 'laser' && this.state.researchedItems.has('weaponLaser')) {
+      this.state.player.consumePrimaryFire(WEAPON_STATS.laser.fireRate * DT * this.state.player.fireCooldownMultiplier);
+      const start = this.state.player.position.clone();
+      const end = new Vec2(
+        start.x + Math.cos(this.state.player.angle) * WEAPON_STATS.laser.range,
+        start.y + Math.sin(this.state.player.angle) * WEAPON_STATS.laser.range,
+      );
+      this.state.addEntity(new Laser(Team.Player, start, end, this.state.player));
+      this.damageLaserLine(start, end, WEAPON_STATS.laser.damage);
+      Audio.playSound('laser');
+      return;
+    }
+
+    this.state.player.consumePrimaryFire(PLAYER_FIRE_COOLDOWN * this.state.player.fireCooldownMultiplier);
+    this.state.addEntity(new Bullet(
+      Team.Player,
+      this.state.player.position.clone(),
+      this.state.player.angle,
+      this.state.player,
+    ));
+    Audio.playSound('fire');
+  }
+
+  private damageLaserLine(start: Vec2, end: Vec2, damage: number): void {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq <= 0) return;
+    for (const target of this.state.allEntities()) {
+      if (!target.alive || target.team !== Team.Enemy) continue;
+      const tx = target.position.x - start.x;
+      const ty = target.position.y - start.y;
+      const t = Math.max(0, Math.min(1, (tx * dx + ty * dy) / lenSq));
+      const px = start.x + dx * t;
+      const py = start.y + dy * t;
+      const dist = Math.hypot(target.position.x - px, target.position.y - py);
+      if (dist <= target.radius + 2) {
+        target.takeDamage(damage, this.state.player);
+        this.state.recentlyDamaged.add(target.id);
+        if (!target.alive) {
+          this.state.particles.emitExplosion(target.position, target.radius);
+        } else {
+          this.state.particles.emitSpark(target.position);
         }
       }
     }
@@ -824,11 +877,24 @@ export class Game {
     if (level === 'none') return;
     const basicTurrets = ['missileturret', 'exciterturret'];
     const allTurrets = ['missileturret', 'exciterturret', 'massdriverturret', 'regenturret'];
-    const fullTech = [...allTurrets, 'bomberyard', 'advancedFighters'];
+    const fullTech = [
+      ...allTurrets,
+      'bomberyard',
+      'advancedFighters',
+      'shipHp',
+      'shipSpeedEnergy',
+      'shipFireSpeed',
+      'shipShield',
+      'weaponGatling',
+      'weaponLaser',
+    ];
     const list = level === 'basic_turrets' ? basicTurrets
       : level === 'all_turrets' ? allTurrets
       : fullTech;
-    for (const item of list) this.state.researchedItems.add(item);
+    for (const item of list) {
+      this.state.researchedItems.add(item);
+      this.state.player.applyResearchUpgrade(item);
+    }
   }
 
   // -----------------------------------------------------------------------

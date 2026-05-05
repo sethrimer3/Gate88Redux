@@ -66,7 +66,7 @@ function createTutorialSteps(): TutorialStep[] {
       duration: 8,
     },
     {
-      message: 'Hold Z to open the Build menu — aim with the mouse, left-click to select',
+      message: 'Hold Q to open the Build menu — use the left palette or mouse wheel, then build with the mouse',
       trigger: (_s, elapsed) => elapsed >= 22,
       shown: false,
       duration: 8,

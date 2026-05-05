@@ -18,6 +18,16 @@ const GROUP_COLORS: Record<ShipGroup, Color> = {
 
 const ENGAGE_RANGE = 300;
 const DOCK_DISTANCE = 30;
+const SHIELD_MAX = 18;
+const SHIELD_REGEN_RATE = 4;
+const SHIELD_REGEN_DELAY = 2.0;
+const TRAIL_LIFETIME = 0.42;
+const TRAIL_MIN_DISTANCE = 3;
+
+interface TrailPoint {
+  pos: Vec2;
+  age: number;
+}
 
 // ---------------------------------------------------------------------------
 // FighterShip
@@ -44,6 +54,12 @@ export class FighterShip extends Entity {
   private readonly orbitRadius: number;
   private readonly orbitDrift: number;
   private avoidVelocity: Vec2 = new Vec2(0, 0);
+  private trail: TrailPoint[] = [];
+  shieldUnlocked = false;
+  shield: number = 0;
+  maxShield: number = SHIELD_MAX;
+  shieldRegenRate: number = SHIELD_REGEN_RATE;
+  private shieldRegenDelay = 0;
 
   constructor(
     position: Vec2,
@@ -71,10 +87,15 @@ export class FighterShip extends Entity {
 
   update(dt: number): void {
     if (!this.alive) return;
-    if (this.docked) return;
+    if (this.docked) {
+      this.trail.length = 0;
+      return;
+    }
 
     this.runAI(dt);
     this.applyPhysics(dt);
+    this.updateTrail(dt);
+    this.updateShield(dt);
 
     if (this.fireTimer > 0) this.fireTimer -= dt;
   }
@@ -202,6 +223,7 @@ export class FighterShip extends Entity {
     this.velocity = new Vec2(Math.cos(this.angle), Math.sin(this.angle)).scale(
       this.maxSpeed * 0.3,
     );
+    this.trail = [{ pos: this.position.clone(), age: 0 }];
   }
 
   destroy(): void {
@@ -211,12 +233,76 @@ export class FighterShip extends Entity {
     }
   }
 
+  enableShield(): void {
+    this.shieldUnlocked = true;
+    this.shield = Math.max(this.shield, this.maxShield);
+    this.shieldRegenDelay = 0;
+  }
+
+  override takeDamage(amount: number, source?: Entity): void {
+    if (!this.alive || amount <= 0) {
+      super.takeDamage(amount, source);
+      return;
+    }
+    if (this.shieldUnlocked && this.shield > 0) {
+      const blocked = Math.min(this.shield, amount);
+      this.shield -= blocked;
+      amount -= blocked;
+      this.shieldRegenDelay = SHIELD_REGEN_DELAY;
+    }
+    if (amount > 0) super.takeDamage(amount, source);
+  }
+
+  private updateShield(dt: number): void {
+    if (!this.shieldUnlocked) return;
+    if (this.shieldRegenDelay > 0) {
+      this.shieldRegenDelay -= dt;
+      return;
+    }
+    this.shield = Math.min(this.maxShield, this.shield + this.shieldRegenRate * dt);
+  }
+
+  private updateTrail(dt: number): void {
+    for (const point of this.trail) point.age += dt;
+    this.trail = this.trail.filter((point) => point.age <= TRAIL_LIFETIME);
+    const last = this.trail[this.trail.length - 1];
+    if (!last || last.pos.distanceTo(this.position) >= TRAIL_MIN_DISTANCE) {
+      this.trail.push({ pos: this.position.clone(), age: 0 });
+    }
+    if (this.trail.length > 20) this.trail.shift();
+  }
+
+  protected drawMotionTrail(ctx: CanvasRenderingContext2D, camera: Camera, color: Color): void {
+    if (this.trail.length < 2) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 5;
+    for (let i = 1; i < this.trail.length; i++) {
+      const a = this.trail[i - 1];
+      const b = this.trail[i];
+      const fade = 1 - Math.max(a.age, b.age) / TRAIL_LIFETIME;
+      if (fade <= 0) continue;
+      const from = camera.worldToScreen(a.pos);
+      const to = camera.worldToScreen(b.pos);
+      ctx.strokeStyle = colorToCSS(color, 0.08 + fade * 0.28);
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   // --- Drawing ---
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     if (!this.alive || this.docked) return;
     const screen = camera.worldToScreen(this.position);
     const r = this.radius * camera.zoom;
+    const coreColor = this.team === Team.Player ? Colors.mainguy : Colors.enemy_status;
+    this.drawMotionTrail(ctx, camera, coreColor);
 
     ctx.save();
     ctx.translate(screen.x, screen.y);
@@ -237,7 +323,6 @@ export class FighterShip extends Entity {
     ctx.restore();
 
     const coreTime = performance.now() * 0.001 + this.orbitPhase;
-    const coreColor = this.team === Team.Player ? Colors.mainguy : Colors.enemy_status;
     const groupColor = GROUP_COLORS[this.group];
     const pulse = 0.5 + 0.5 * Math.sin(coreTime * 2.8);
     const glint = 0.5 + 0.5 * Math.sin(coreTime * 5.3 + 1.2);
@@ -262,6 +347,18 @@ export class FighterShip extends Entity {
     ctx.beginPath();
     ctx.arc(screen.x - r * 0.09, screen.y - r * 0.09, r * 0.14, 0, Math.PI * 2);
     ctx.fill();
+
+    if (this.shieldUnlocked && this.shield > 0) {
+      const shieldFrac = this.shield / this.maxShield;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = colorToCSS(Colors.radar_allied_status, 0.16 + shieldFrac * 0.34);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r * (1.55 + shieldFrac * 0.08), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 
   applySeparationFrom(other: FighterShip, dt: number): void {
@@ -315,6 +412,8 @@ export class BomberShip extends FighterShip {
     if (!this.alive || this.docked) return;
     const screen = camera.worldToScreen(this.position);
     const r = this.radius * camera.zoom;
+    const coreColor = this.team === Team.Player ? Colors.mainguy : Colors.enemy_status;
+    this.drawMotionTrail(ctx, camera, coreColor);
 
     ctx.save();
     ctx.translate(screen.x, screen.y);
@@ -335,7 +434,6 @@ export class BomberShip extends FighterShip {
     ctx.restore();
 
     const coreTime = performance.now() * 0.001;
-    const coreColor = this.team === Team.Player ? Colors.mainguy : Colors.enemy_status;
     const groupColor = GROUP_COLORS[this.group];
     const pulse = 0.5 + 0.5 * Math.sin(coreTime * 2.3 + this.id);
     ctx.save();
@@ -359,5 +457,17 @@ export class BomberShip extends FighterShip {
     ctx.beginPath();
     ctx.arc(screen.x - r * 0.1, screen.y - r * 0.1, r * 0.14, 0, Math.PI * 2);
     ctx.fill();
+
+    if (this.shieldUnlocked && this.shield > 0) {
+      const shieldFrac = this.shield / this.maxShield;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = colorToCSS(Colors.radar_allied_status, 0.16 + shieldFrac * 0.34);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r * (1.35 + shieldFrac * 0.08), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 }

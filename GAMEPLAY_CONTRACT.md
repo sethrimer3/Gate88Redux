@@ -6,7 +6,8 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 
 - WASD moves the player ship. Mouse aims. Left mouse fires the primary weapon.
 - Right mouse fires the equipped special; the only exposed special is Homing Missile.
-- Hold Z for the build menu, choose a building, then left click a valid footprint to place it. Right mouse or Escape cancels placement.
+- Hold Q for the build menu, choose a building from the left palette, then left click or drag over valid footprints to place it. Right mouse deletes player buildings.
+- Hold Z for the ship menu, view ship stats/upgrades, and select the active primary weapon by clicking or using the mouse wheel.
 - Hold Q for the quick-build palette. Conduit is first; mouse wheel or clicking a left-side palette icon selects what to place. With Conduit selected, left mouse queues player conduits with a 2x2 brush and right mouse erases with the same brush. With a building selected, left mouse places that building.
 - Hold X for research. Hold C for ship commands for groups 1, 2, 3, or ALL. Hold 1, 2, or 3 and click a shipyard to assign that number; hold a number and click elsewhere to set that group's waypoint; hold a number and right click to dock that group. Hold Tab for radar. F3 toggles the debug overlay. Escape pauses.
 

@@ -66,9 +66,8 @@ export class GameState {
   aiPlayerShip: PlayerShip | null = null;
 
   /**
-   * The most recently selected building type from the Z-Build menu.
-   * Displayed in the HUD near the energy bar. PR 3's Q-hold grid paint mode
-   * will use this as the "active" building to lay down along conduit paths.
+   * The most recently selected building type from the Q build menu.
+   * Displayed in the HUD near the energy bar.
    */
   selectedBuildType: string | null = null;
 
@@ -186,6 +185,7 @@ export class GameState {
 
     // Update player
     this.player.update(dt);
+    this.updatePlayerShieldAura();
     // Vs. AI bot ship — same physics tick path.
     if (this.aiPlayerShip && this.aiPlayerShip.alive) {
       this.aiPlayerShip.update(dt);
@@ -463,6 +463,17 @@ export class GameState {
     }
   }
 
+  private updatePlayerShieldAura(): void {
+    if (!this.player.shieldUnlocked || !this.player.alive || this.player.shield <= 0) return;
+    const radius = 260;
+    for (const f of this.fighters) {
+      if (!f.alive || f.docked || f.team !== Team.Player) continue;
+      if (f.position.distanceTo(this.player.position) <= radius) {
+        f.enableShield();
+      }
+    }
+  }
+
   // -----------------------------------------------------------------------
   // Pending conduit build queue (0.5 s per cell, BFS frontier outward)
   // -----------------------------------------------------------------------
@@ -686,12 +697,20 @@ export class GameState {
 
     this.researchProgress.progress += dt;
     if (this.researchProgress.progress >= this.researchProgress.timeNeeded) {
-      this.researchedItems.add(this.researchProgress.item);
-      if (this.researchProgress.item === 'advancedFighters') {
+      const completed = this.researchProgress.item;
+      this.researchedItems.add(completed);
+      this.player.applyResearchUpgrade(completed);
+      if (completed === 'advancedFighters') {
         for (const b of this.buildings) {
           if (b.alive && b.team === Team.Player && b instanceof Shipyard) {
             b.shipCapacity = 7;
             b.buildInterval = 4;
+          }
+        }
+      } else if (completed === 'shipShield') {
+        for (const f of this.fighters) {
+          if (f.alive && f.team === Team.Player && !f.docked && f.position.distanceTo(this.player.position) <= 260) {
+            f.enableShield();
           }
         }
       }

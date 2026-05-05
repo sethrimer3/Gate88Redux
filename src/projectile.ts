@@ -6,6 +6,14 @@ import { Entity, EntityType, Team } from './entities.js';
 import { Colors, colorToCSS } from './colors.js';
 import { ENTITY_RADIUS, WEAPON_STATS } from './constants.js';
 
+const BULLET_TRAIL_LIFETIME = 0.18;
+const BULLET_TRAIL_MIN_DISTANCE = 2;
+
+interface TrailPoint {
+  pos: Vec2;
+  age: number;
+}
+
 // ---------------------------------------------------------------------------
 // Base projectile
 // ---------------------------------------------------------------------------
@@ -27,6 +35,7 @@ export abstract class ProjectileBase extends Entity {
   lifetime: number;
   maxLifetime: number;
   source: Entity | null;
+  protected trail: TrailPoint[] = [];
 
   constructor(opts: ProjectileOptions) {
     super(opts.type, opts.team, opts.position, 1, ENTITY_RADIUS.bullet);
@@ -42,15 +51,51 @@ export abstract class ProjectileBase extends Entity {
       Math.cos(opts.angle) * opts.speed,
       Math.sin(opts.angle) * opts.speed,
     );
+    this.trail.push({ pos: this.position.clone(), age: 0 });
   }
 
   update(dt: number): void {
     if (!this.alive) return;
     this.position = this.position.add(this.velocity.scale(dt));
+    this.updateTrail(dt);
     this.lifetime -= dt;
     if (this.lifetime <= 0) {
       this.destroy();
     }
+  }
+
+  protected updateTrail(dt: number): void {
+    for (const point of this.trail) point.age += dt;
+    this.trail = this.trail.filter((point) => point.age <= BULLET_TRAIL_LIFETIME);
+    const last = this.trail[this.trail.length - 1];
+    if (!last || last.pos.distanceTo(this.position) >= BULLET_TRAIL_MIN_DISTANCE) {
+      this.trail.push({ pos: this.position.clone(), age: 0 });
+    }
+    if (this.trail.length > 10) this.trail.shift();
+  }
+
+  protected drawTrail(ctx: CanvasRenderingContext2D, camera: Camera, color: string): void {
+    if (this.trail.length < 2) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 3;
+    for (let i = 1; i < this.trail.length; i++) {
+      const a = this.trail[i - 1];
+      const b = this.trail[i];
+      const fade = 1 - Math.max(a.age, b.age) / BULLET_TRAIL_LIFETIME;
+      if (fade <= 0) continue;
+      const from = camera.worldToScreen(a.pos);
+      const to = camera.worldToScreen(b.pos);
+      ctx.globalAlpha = 0.12 + fade * 0.38;
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 }
 
@@ -84,6 +129,7 @@ export class Bullet extends ProjectileBase {
       this.team === Team.Player
         ? colorToCSS(Colors.friendlyfire)
         : colorToCSS(Colors.enemyfire);
+    this.drawTrail(ctx, camera, fireColor);
 
     // Small bright dot with short tail
     const tail = this.velocity.normalize().scale(-4 * camera.zoom);
@@ -97,6 +143,41 @@ export class Bullet extends ProjectileBase {
     ctx.fillStyle = fireColor;
     ctx.beginPath();
     ctx.arc(screen.x, screen.y, 2 * camera.zoom, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+export class GatlingBullet extends ProjectileBase {
+  constructor(
+    team: Team,
+    position: Vec2,
+    angle: number,
+    source: Entity | null = null,
+  ) {
+    super({
+      type: EntityType.Bullet,
+      team,
+      position,
+      angle,
+      damage: WEAPON_STATS.gatling.damage,
+      speed: WEAPON_STATS.gatling.speed,
+      lifetime: WEAPON_STATS.gatling.range / WEAPON_STATS.gatling.speed,
+      source,
+    });
+    this.radius = ENTITY_RADIUS.bullet * 0.75;
+  }
+
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive) return;
+    const screen = camera.worldToScreen(this.position);
+    const fireColor =
+      this.team === Team.Player
+        ? colorToCSS(Colors.friendlyfire, 0.82)
+        : colorToCSS(Colors.enemyfire, 0.82);
+    this.drawTrail(ctx, camera, fireColor);
+    ctx.fillStyle = fireColor;
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, 1.5 * camera.zoom, 0, Math.PI * 2);
     ctx.fill();
   }
 }
@@ -160,6 +241,7 @@ export class Missile extends ProjectileBase {
       this.team === Team.Player
         ? colorToCSS(Colors.friendlyfire)
         : colorToCSS(Colors.enemyfire);
+    this.drawTrail(ctx, camera, fireColor);
 
     ctx.save();
     ctx.translate(screen.x, screen.y);
@@ -270,6 +352,7 @@ export class ExciterBullet extends ProjectileBase {
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     if (!this.alive) return;
     const screen = camera.worldToScreen(this.position);
+    this.drawTrail(ctx, camera, colorToCSS(Colors.exciterturret_detail, 0.9));
     ctx.fillStyle = colorToCSS(Colors.exciterturret_detail);
     ctx.beginPath();
     ctx.arc(screen.x, screen.y, 1.5 * camera.zoom, 0, Math.PI * 2);
@@ -351,6 +434,7 @@ export class MassDriverBullet extends ProjectileBase {
     if (!this.alive) return;
     const screen = camera.worldToScreen(this.position);
     const r = 3 * camera.zoom;
+    this.drawTrail(ctx, camera, colorToCSS(Colors.massdriverturret_detail, 0.85));
     ctx.fillStyle = colorToCSS(Colors.massdriverturret_detail);
     ctx.beginPath();
     ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
@@ -390,6 +474,7 @@ export class RegenBullet extends ProjectileBase {
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     if (!this.alive) return;
     const screen = camera.worldToScreen(this.position);
+    this.drawTrail(ctx, camera, colorToCSS(Colors.particles_healing, 0.85));
     ctx.fillStyle = colorToCSS(Colors.particles_healing, 0.9);
     ctx.beginPath();
     ctx.arc(screen.x, screen.y, 2 * camera.zoom, 0, Math.PI * 2);

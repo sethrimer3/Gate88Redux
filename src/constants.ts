@@ -55,6 +55,13 @@ export const BUILD_TIME = {
 
 // Research costs
 export const RESEARCH_COST = {
+  shipHp: 220,
+  shipSpeedEnergy: 260,
+  shipFireSpeed: 240,
+  shipShield: 300,
+  weaponCannon: 0,
+  weaponGatling: 180,
+  weaponLaser: 320,
   missileturret: 200,
   exciterturret: 250,
   massdriverturret: 220,
@@ -67,6 +74,13 @@ export const RESEARCH_COST = {
 
 // Research times (in ticks)
 export const RESEARCH_TIME = {
+  shipHp: 540,
+  shipSpeedEnergy: 600,
+  shipFireSpeed: 560,
+  shipShield: 720,
+  weaponCannon: 1,
+  weaponGatling: 420,
+  weaponLaser: 780,
   missileturret: 600,
   exciterturret: 720,
   massdriverturret: 660,
@@ -80,6 +94,12 @@ export const RESEARCH_TIME = {
 export const PLAYER_SHIP_SCALE = 1.75;
 
 export const ACTIVE_RESEARCH_ITEMS = [
+  'shipHp',
+  'shipSpeedEnergy',
+  'shipFireSpeed',
+  'shipShield',
+  'weaponGatling',
+  'weaponLaser',
   'missileturret',
   'exciterturret',
   'massdriverturret',
@@ -96,11 +116,17 @@ export const WEAPON_STATS = {
     fireRate: 10,   // ticks between shots
     range: 500,
   },
+  gatling: {
+    damage: 1,
+    speed: 520,
+    fireRate: 3,
+    range: 260,
+  },
   laser: {
-    damage: 8,
-    speed: 600,
-    fireRate: 15,
-    range: 600,
+    damage: 7,
+    speed: 0,
+    fireRate: 32,
+    range: 900,
   },
   missile: {
     damage: 20,
