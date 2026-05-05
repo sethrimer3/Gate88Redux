@@ -28,6 +28,7 @@ import { GATLING_BATTERY_FIRE_COST, GUIDED_MISSILE_CONTROL_BATTERY_DRAIN, GUIDED
 import { createBuildingFromDef, getBuildDef } from './builddefs.js';
 import { worldToCell, footprintCenter, GRID_CELL_SIZE } from './grid.js';
 import { gameFont } from './fonts.js';
+import { createSpaceFluid, SpaceFluid } from './spacefluid.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 type ShipCommandGroup = ShipGroup | 'all';
@@ -65,6 +66,7 @@ export class Game {
   private lastFrameMs = 0;
   private waypointMarkers = new Map<ShipCommandGroup, WaypointMarker>();
   private activeGuidedMissile: GuidedMissile | null = null;
+  private spaceFluid: SpaceFluid;
 
   /** Respawn timer: counts down after the player ship dies. */
   private playerRespawnTimer: number = 0;
@@ -89,6 +91,10 @@ export class Game {
     this.practiceMode = new PracticeMode();
     this.tutorialMode = new TutorialMode();
 
+    this.spaceFluid = createSpaceFluid();
+    this.spaceFluid.resize(window.innerWidth, window.innerHeight);
+    this.spaceFluid.setLowGraphicsMode(false);
+
     this.resizeCanvas();
     window.addEventListener('resize', () => this.resizeCanvas());
   }
@@ -99,6 +105,7 @@ export class Game {
     this.canvas.height = window.innerHeight * dpr;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.camera.setScreenSize(window.innerWidth, window.innerHeight);
+    this.spaceFluid.resize(window.innerWidth, window.innerHeight);
   }
 
   private get screenW(): number {
@@ -301,6 +308,9 @@ export class Game {
     // Player ship fighter spawning from shipyards
     this.updatePlayerShipyards();
     this.updatePlayerFighterCombat();
+
+    // Inject fluid forces from all active entities.
+    this.injectFluidForces();
 
     // HUD
     this.hud.update(DT);
@@ -516,6 +526,8 @@ export class Game {
         this.state.recentlyDamaged.add(target.id);
         if (!target.alive) {
           this.state.particles.emitExplosion(target.position, target.radius);
+          const es = this.camera.worldToScreen(target.position);
+          this.spaceFluid.addExplosion(es.x, es.y, 1.2, 214, 134, 48); // warm orange explosion
         } else {
           this.state.particles.emitSpark(target.position);
         }
@@ -828,6 +840,77 @@ export class Game {
     return best;
   }
 
+  private injectFluidForces(): void {
+    // ── Player ship ─────────────────────────────────────────────────────────
+    if (this.state.player.alive) {
+      const ps = this.camera.worldToScreen(this.state.player.position);
+      const pv = this.state.player.velocity;
+      this.spaceFluid.addForce({
+        x: ps.x, y: ps.y,
+        vx: pv.x * this.camera.zoom,
+        vy: pv.y * this.camera.zoom,
+        r: 56, g: 132, b: 68,   // friendly green exhaust
+        strength: 1.0,
+      });
+    }
+
+    // ── AI player ship (Vs. AI mode) ─────────────────────────────────────
+    if (this.state.aiPlayerShip?.alive) {
+      const ais = this.state.aiPlayerShip;
+      const ss = this.camera.worldToScreen(ais.position);
+      const sv = ais.velocity;
+      this.spaceFluid.addForce({
+        x: ss.x, y: ss.y,
+        vx: sv.x * this.camera.zoom,
+        vy: sv.y * this.camera.zoom,
+        r: 132, g: 56, b: 68,   // enemy red
+        strength: 1.0,
+      });
+    }
+
+    // ── All live fighters (player and enemy) ─────────────────────────────
+    for (const f of this.state.fighters) {
+      if (!f.alive || f.docked) continue;
+      const fs = this.camera.worldToScreen(f.position);
+      const fv = f.velocity;
+      const isEnemy = f.team === Team.Enemy;
+      this.spaceFluid.addForce({
+        x: fs.x, y: fs.y,
+        vx: fv.x * this.camera.zoom,
+        vy: fv.y * this.camera.zoom,
+        r: isEnemy ? 132 : 56,
+        g: isEnemy ? 56 : 132,
+        b: 68,
+        strength: 0.6,
+      });
+    }
+
+    // ── Projectiles ──────────────────────────────────────────────────────
+    for (const e of this.state.allEntities()) {
+      if (!e.alive) continue;
+      // Only bullets / missiles / beams — skip ships and buildings.
+      if (
+        !(e instanceof Bullet) &&
+        !(e instanceof GatlingBullet) &&
+        !(e instanceof GuidedMissile) &&
+        !(e instanceof BomberMissile) &&
+        !(e instanceof Laser)
+      ) continue;
+      const es = this.camera.worldToScreen(e.position);
+      const ev = e.velocity;
+      const isEnemy = e.team === Team.Enemy;
+      this.spaceFluid.addForce({
+        x: es.x, y: es.y,
+        vx: ev.x * this.camera.zoom,
+        vy: ev.y * this.camera.zoom,
+        r: isEnemy ? 228 : 0,
+        g: isEnemy ? 0 : 176,
+        b: isEnemy ? 33 : 66,
+        strength: 0.5,
+      });
+    }
+  }
+
   private startGame(mode: 'tutorial' | 'practice' | 'vs_ai'): void {
     // Create fresh state
     const playerStart = new Vec2(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
@@ -848,6 +931,9 @@ export class Game {
     this.actionMenu = new ActionMenu();
     this.hud = new HUD();
     this.waypointMarkers.clear();
+
+    this.spaceFluid.reset();
+    this.spaceFluid.resize(this.screenW, this.screenH);
 
     // Create player command post near player
     const cpPos = new Vec2(playerStart.x, playerStart.y + 80);
@@ -975,6 +1061,9 @@ export class Game {
     // Draw game world
     this.nebula.draw(ctx, this.camera, w, h);
     this.starfield.draw(ctx, this.camera, w, h);
+    // Advance the fluid simulation by the frame delta and draw it under the game world.
+    this.spaceFluid.step(this.lastFrameMs);
+    this.spaceFluid.render(ctx);
     this.state.grid.draw(
       ctx,
       this.camera,
