@@ -139,7 +139,7 @@ export class FighterShip extends Entity {
     }
     const dist = this.position.distanceTo(this.targetPos);
     if (this.order === 'waypoint' || this.order === 'follow' || this.order === 'protect') {
-      const organicTarget = this.organicTarget(this.targetPos);
+      const organicTarget = this.weaveTarget(this.targetPos, 18);
       this.steerTowards(organicTarget, dt);
       this.thrustForward(dt * (dist < 55 ? 0.35 : 0.85));
       return;
@@ -153,7 +153,7 @@ export class FighterShip extends Entity {
       this.thrustForward(dt * 0.45);
       return;
     }
-    this.steerTowards(this.targetPos, dt);
+    this.steerTowards(this.weaveTarget(this.targetPos, 14), dt);
     this.thrustForward(dt);
   }
 
@@ -373,14 +373,14 @@ export class FighterShip extends Entity {
     this.avoidVelocity = this.avoidVelocity.add(new Vec2(dx / dist, dy / dist).scale(push));
   }
 
-  private organicTarget(base: Vec2): Vec2 {
+  private weaveTarget(base: Vec2, amount: number): Vec2 {
     const t = performance.now() * 0.001;
     const waveA = t * this.orbitDrift + this.orbitPhase;
     const waveB = t * (this.orbitDrift * 0.43 + 0.19) + this.orbitPhase * 1.7;
-    const radius = this.orbitRadius * (0.82 + 0.18 * Math.sin(waveB));
+    const radius = Math.min(this.orbitRadius, amount) * (0.82 + 0.18 * Math.sin(waveB));
     return new Vec2(
-      base.x + Math.cos(waveA) * radius + Math.sin(waveB * 1.31) * 18,
-      base.y + Math.sin(waveA * 0.91) * radius + Math.cos(waveB) * 18,
+      base.x + Math.cos(waveA) * radius + Math.sin(waveB * 1.31) * amount * 0.35,
+      base.y + Math.sin(waveA * 0.91) * radius + Math.cos(waveB) * amount * 0.35,
     );
   }
 }

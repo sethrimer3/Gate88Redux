@@ -41,7 +41,7 @@ const MIN_SELECT_DIST = 32;
 
 export type MenuResult =
   | { action: 'none' }
-  | { action: 'build'; buildingType: string }
+  | { action: 'build'; buildingType: string; cell?: { cx: number; cy: number } }
   | { action: 'order'; group: ShipGroup | 'all'; order: string }
   | { action: 'research'; item: string };
 
@@ -210,7 +210,7 @@ function buildResearchRoot(state: GameState): RadialItem[] {
     category('Structures', ['missileturret', 'exciterturret', 'massdriverturret', 'regenturret', 'bomberyard']),
     category('Ship', ['shipHp', 'shipSpeedEnergy', 'shipFireSpeed', 'shipShield']),
     category('Fighters', ['advancedFighters']),
-    category('Weapons', ['weaponGatling', 'weaponLaser'], [
+    category('Weapons', ['weaponGatling', 'weaponLaser', 'weaponGuidedMissile'], [
       { label: 'Cannon', sublabel: 'Ready', disabled: true, infoOnly: true },
     ]),
   ];
@@ -241,6 +241,24 @@ function buildCommandRoot(_state: GameState): RadialItem[] {
     { label: '3',   children: buildGroupOrders(ShipGroup.Blue)  },
     { label: 'ALL', children: buildAllOrders() },
   ];
+}
+
+function gridLineCells(from: { cx: number; cy: number }, to: { cx: number; cy: number }): Array<{ cx: number; cy: number }> {
+  const cells: Array<{ cx: number; cy: number }> = [];
+  const dx = to.cx - from.cx;
+  const dy = to.cy - from.cy;
+  const steps = Math.max(Math.abs(dx), Math.abs(dy), 1);
+  let lastKey = '';
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const cx = Math.round(from.cx + dx * t);
+    const cy = Math.round(from.cy + dy * t);
+    const key = cellKey(cx, cy);
+    if (key === lastKey) continue;
+    lastKey = key;
+    cells.push({ cx, cy });
+  }
+  return cells;
 }
 
 // ---------------------------------------------------------------------------
@@ -583,6 +601,202 @@ class PaintMenu {
   }
 }
 
+class LeftHoldMenu {
+  open = false;
+
+  private stack: RadialItem[][] = [];
+  private selectedIdx = 0;
+  private hoveredIdx = -1;
+  private readonly rowRects: Array<{ index: number; x: number; y: number; w: number; h: number }> = [];
+
+  constructor(
+    private readonly holdKey: string,
+    private readonly rootFactory: (state: GameState) => RadialItem[],
+    private readonly title: string,
+  ) {}
+
+  private currentItems(state: GameState): RadialItem[] {
+    const raw = this.stack[this.stack.length - 1] ?? [];
+    return raw.filter((i) => !i.condition || i.condition(state));
+  }
+
+  update(state: GameState, _camera: Camera): MenuResult {
+    const keyDown = Input.isDown(this.holdKey);
+    if (keyDown && !this.open) {
+      this.open = true;
+      this.stack = [this.rootFactory(state)];
+      this.selectedIdx = 0;
+      Audio.playSound('menucursor');
+    } else if (!keyDown && this.open) {
+      this.open = false;
+      this.stack = [];
+    }
+    if (!this.open) return { action: 'none' };
+
+    if (Input.mouse2Pressed) {
+      Input.consumeMouseButton(2);
+      if (this.stack.length > 1) {
+        this.stack.pop();
+        this.selectedIdx = 0;
+        Audio.playSound('menucursor');
+      } else {
+        this.open = false;
+        this.stack = [];
+      }
+      return { action: 'none' };
+    }
+
+    const items = this.currentItems(state);
+    this.normalizeSelectedIndex(items);
+    if (Input.wheelDelta !== 0 && items.length > 0) {
+      this.selectedIdx = this.nextSelectableIndex(items, this.selectedIdx, Input.wheelDelta > 0 ? 1 : -1);
+      Audio.playSound('menucursor');
+    }
+
+    this.hoveredIdx = -1;
+    for (const rect of this.rowRects) {
+      if (
+        Input.mousePos.x >= rect.x && Input.mousePos.x <= rect.x + rect.w &&
+        Input.mousePos.y >= rect.y && Input.mousePos.y <= rect.y + rect.h
+      ) {
+        this.hoveredIdx = rect.index;
+        this.selectedIdx = rect.index;
+        break;
+      }
+    }
+
+    if (Input.mousePressed) {
+      const index = this.hoveredIdx >= 0 ? this.hoveredIdx : this.selectedIdx;
+      const item = items[index];
+      if (item && !item.disabled) {
+        Input.consumeMouseButton(0);
+        return this.confirm(item, state);
+      }
+    }
+    return { action: 'none' };
+  }
+
+  private confirm(item: RadialItem, state: GameState): MenuResult {
+    Audio.playSound('menuselection');
+    if (item.children && item.children.length > 0) {
+      const filtered = item.children.filter((i) => !i.condition || i.condition(state));
+      if (filtered.length > 0) {
+        this.stack.push(filtered);
+        this.selectedIdx = 0;
+      }
+      return { action: 'none' };
+    }
+    this.open = false;
+    this.stack = [];
+    if (item.buildingType) return { action: 'build', buildingType: item.buildingType };
+    if (item.orderGroup !== undefined && item.tacticalOrder !== undefined) {
+      return { action: 'order', group: item.orderGroup, order: item.tacticalOrder };
+    }
+    if (item.researchItem) return { action: 'research', item: item.researchItem };
+    return { action: 'none' };
+  }
+
+  draw(ctx: CanvasRenderingContext2D, state: GameState): void {
+    if (!this.open) return;
+    const items = this.currentItems(state);
+    this.normalizeSelectedIndex(items);
+    this.rowRects.length = 0;
+
+    const x = 12;
+    const y = 96;
+    const w = 230;
+    const rowH = 34;
+    const gap = 6;
+    const headerH = 42;
+    const panelH = headerH + Math.max(1, items.length) * (rowH + gap) + 14;
+
+    ctx.save();
+    ctx.fillStyle = colorToCSS(Colors.menu_background, 0.78);
+    ctx.fillRect(x, y, w, panelH);
+    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.55);
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, panelH - 1);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.font = '14px "Courier New", monospace';
+    ctx.fillStyle = colorToCSS(Colors.general_building, 0.95);
+    ctx.fillText(this.title, x + 12, y + 12);
+    if (this.stack.length > 1) {
+      ctx.font = '10px "Courier New", monospace';
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
+      ctx.fillText('RMB back', x + w - 70, y + 15);
+    }
+
+    if (items.length === 0) {
+      ctx.font = '10px "Courier New", monospace';
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
+      ctx.fillText('(nothing available)', x + 12, y + headerH);
+      ctx.restore();
+      return;
+    }
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const rowY = y + headerH + i * (rowH + gap);
+      const active = i === this.selectedIdx || i === this.hoveredIdx;
+      this.rowRects.push({ index: i, x: x + 10, y: rowY, w: w - 20, h: rowH });
+      ctx.fillStyle = item.disabled
+        ? colorToCSS(Colors.radar_gridlines, 0.13)
+        : active
+          ? colorToCSS(Colors.radar_friendly_status, 0.27)
+          : colorToCSS(Colors.friendly_background, 0.45);
+      ctx.fillRect(x + 10, rowY, w - 20, rowH);
+      ctx.strokeStyle = item.disabled
+        ? colorToCSS(Colors.radar_gridlines, 0.22)
+        : active
+          ? colorToCSS(Colors.radar_friendly_status, 0.95)
+          : colorToCSS(Colors.radar_gridlines, 0.45);
+      ctx.strokeRect(x + 10.5, rowY + 0.5, w - 21, rowH - 1);
+      ctx.font = '10px "Courier New", monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = item.disabled
+        ? colorToCSS(Colors.radar_gridlines, 0.35)
+        : active
+          ? colorToCSS(Colors.radar_friendly_status)
+          : colorToCSS(Colors.general_building, 0.9);
+      ctx.fillText(item.label.replace(/\n/g, ' '), x + 20, rowY + rowH * 0.5);
+      ctx.textAlign = 'right';
+      if (item.sublabel) {
+        ctx.fillStyle = item.disabled
+          ? colorToCSS(Colors.radar_gridlines, 0.3)
+          : active
+            ? colorToCSS(Colors.radar_friendly_status, 0.75)
+            : colorToCSS(Colors.factory_detail, 0.9);
+        ctx.fillText(item.sublabel, x + w - 20, rowY + rowH * 0.5);
+      } else if (item.children && item.children.length > 0) {
+        ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.6);
+        ctx.fillText('>', x + w - 20, rowY + rowH * 0.5);
+      }
+    }
+    ctx.restore();
+  }
+
+  private normalizeSelectedIndex(items: RadialItem[]): void {
+    if (items.length === 0) {
+      this.selectedIdx = 0;
+      return;
+    }
+    if (this.selectedIdx >= items.length) this.selectedIdx = items.length - 1;
+    if (items[this.selectedIdx]?.disabled) {
+      this.selectedIdx = this.nextSelectableIndex(items, this.selectedIdx, 1);
+    }
+  }
+
+  private nextSelectableIndex(items: RadialItem[], start: number, dir: number): number {
+    let idx = start;
+    for (let i = 0; i < items.length; i++) {
+      idx = (idx + dir + items.length) % items.length;
+      if (!items[idx]?.disabled) return idx;
+    }
+    return start;
+  }
+}
+
 class ShipMenu {
   open = false;
   private readonly weaponRects: Array<{ id: ShipWeaponId; x: number; y: number; w: number; h: number }> = [];
@@ -733,6 +947,7 @@ class QuickBuildMenu {
   private touchedThisDrag = new Set<string>();
   private buildingDragCells = new Set<string>();
   private dragMode: 'paint' | 'erase' | null = null;
+  private lastDragCell: { cx: number; cy: number } | null = null;
   private selectedIndex = 0;
   private readonly iconRects: Array<{ index: number; x: number; y: number; w: number; h: number }> = [];
 
@@ -752,11 +967,13 @@ class QuickBuildMenu {
       this.touchedThisDrag.clear();
       this.buildingDragCells.clear();
       this.dragMode = null;
+      this.lastDragCell = null;
     } else if (!keyDown && this.open) {
       this.open = false;
       this.touchedThisDrag.clear();
       this.buildingDragCells.clear();
       this.dragMode = null;
+      this.lastDragCell = null;
       return { action: 'none' };
     }
     if (!this.open) return { action: 'none' };
@@ -797,17 +1014,21 @@ class QuickBuildMenu {
       }
       if (!Input.mouseDown) {
         this.buildingDragCells.clear();
+        this.lastDragCell = null;
         return { action: 'none' };
       }
       if (Input.mousePressed) Input.consumeMouseButton(0);
       const worldPos = camera.screenToWorld(Input.mousePos);
       const cell = worldToCell(worldPos);
-      const origin = footprintOrigin(cell.cx, cell.cy, selected.def.footprintCells);
-      const key = `${selected.def.key}:${origin.cx},${origin.cy}`;
-      if (!this.buildingDragCells.has(key)) {
+      const cells = this.lastDragCell ? gridLineCells(this.lastDragCell, cell) : [cell];
+      this.lastDragCell = cell;
+      for (const candidate of cells) {
+        const origin = footprintOrigin(candidate.cx, candidate.cy, selected.def.footprintCells);
+        const key = `${selected.def.key}:${origin.cx},${origin.cy}`;
+        if (this.buildingDragCells.has(key)) continue;
         this.buildingDragCells.add(key);
-        const status = state.getPlacementStatus(selected.def, cell.cx, cell.cy, Team.Player);
-        if (status.valid) return { action: 'build', buildingType: selected.def.key };
+        const status = state.getPlacementStatus(selected.def, candidate.cx, candidate.cy, Team.Player);
+        if (status.valid) return { action: 'build', buildingType: selected.def.key, cell: candidate };
       }
       return { action: 'none' };
     }
@@ -816,9 +1037,11 @@ class QuickBuildMenu {
       this.dragMode = 'paint';
       this.touchedThisDrag.clear();
       this.buildingDragCells.clear();
+      this.lastDragCell = null;
     } else if (Input.mouse2Pressed) {
       this.dragMode = 'erase';
       this.touchedThisDrag.clear();
+      this.lastDragCell = null;
     }
 
     if (Input.mouseDown) {
@@ -828,15 +1051,20 @@ class QuickBuildMenu {
     } else {
       this.dragMode = null;
       this.touchedThisDrag.clear();
+      this.lastDragCell = null;
     }
 
     if (this.dragMode !== null) {
       const worldPos = camera.screenToWorld(Input.mousePos);
       const { cx, cy } = worldToCell(worldPos);
-      const key = cellKey(cx, cy);
-      if (!this.touchedThisDrag.has(key)) {
+      const currentCell = { cx, cy };
+      const dragCells = this.lastDragCell ? gridLineCells(this.lastDragCell, currentCell) : [currentCell];
+      this.lastDragCell = currentCell;
+      for (const dragCell of dragCells) {
+      const key = cellKey(dragCell.cx, dragCell.cy);
+      if (this.touchedThisDrag.has(key)) continue;
         this.touchedThisDrag.add(key);
-        const brush = this.conduitBrushCells(cx, cy);
+        const brush = this.conduitBrushCells(dragCell.cx, dragCell.cy);
         if (this.dragMode === 'paint') {
           for (const cell of brush) {
             if (state.grid.hasConduit(cell.cx, cell.cy) || state.grid.hasPendingConduit(cell.cx, cell.cy)) {
@@ -1069,8 +1297,8 @@ class QuickBuildMenu {
 
 export class ActionMenu {
   private shipMenu     = new ShipMenu();
-  private researchMenu = new HoldMenu('x', buildResearchRoot, '[X] Research');
-  private commandMenu  = new HoldMenu('c', buildCommandRoot,  '[C] Command');
+  private researchMenu = new LeftHoldMenu('x', buildResearchRoot, '[X] Research');
+  private commandMenu  = new LeftHoldMenu('c', buildCommandRoot,  '[C] Command');
   private paintMenu    = new QuickBuildMenu();
 
   /** True when any of the four hold menus / paint mode is currently open. */

@@ -525,7 +525,7 @@ export class Game {
   private handleActionResult(result: MenuResult): void {
     switch (result.action) {
       case 'build':
-        this.placeBuilding(result.buildingType);
+        this.placeBuilding(result.buildingType, result.cell);
         break;
       case 'order':
         this.issueShipOrder(result.group, result.order);
@@ -538,13 +538,13 @@ export class Game {
     }
   }
 
-  private placeBuilding(type: string): void {
+  private placeBuilding(type: string, cellOverride?: { cx: number; cy: number }): void {
     const def = getBuildDef(type);
     if (!def) return;
 
     // Snap placement to the grid cell nearest the cursor.
     const aimWorld = this.camera.screenToWorld(Input.mousePos);
-    const cell = worldToCell(aimWorld);
+    const cell = cellOverride ?? worldToCell(aimWorld);
     const worldPos = footprintCenter(cell.cx, cell.cy, def.footprintCells);
 
     const status = this.state.getPlacementStatus(def, cell.cx, cell.cy, Team.Player);
