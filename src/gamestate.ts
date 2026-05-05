@@ -16,7 +16,14 @@ import { WorldGrid, GRID_CELL_SIZE, cellKey, footprintOrigin } from './grid.js';
 import { PowerGraph } from './power.js';
 import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN } from './constants.js';
 import { WORLD_WIDTH, WORLD_HEIGHT } from './constants.js';
-import { footprintForBuildingType, type BuildDef } from './builddefs.js';
+import { buildCostForBuildingType, buildDefForEntityType, createBuildingFromDef, footprintForBuildingType, type BuildDef } from './builddefs.js';
+
+export interface DestroyedBuildingRecord {
+  type: EntityType;
+  team: Team;
+  position: Vec2;
+  maxHealth: number;
+}
 
 export interface ResearchProgress {
   item: string | null;
@@ -29,6 +36,7 @@ export type GameMode = 'menu' | 'tutorial' | 'practice' | 'vs_ai' | 'playing';
 export class GameState {
   player: PlayerShip;
   buildings: BuildingBase[] = [];
+  destroyedBuildings: DestroyedBuildingRecord[] = [];
   projectiles: ProjectileBase[] = [];
   fighters: FighterShip[] = [];
   particles: ParticleSystem;
@@ -102,6 +110,33 @@ export class GameState {
     entity.alive = false;
   }
 
+  repairDestroyedBuildingInRange(source: BuildingBase, range: number): Vec2 | null {
+    let bestIndex = -1;
+    let bestDist = range;
+    for (let i = 0; i < this.destroyedBuildings.length; i++) {
+      const wreck = this.destroyedBuildings[i];
+      if (wreck.team !== source.team) continue;
+      const d = source.position.distanceTo(wreck.position);
+      if (d < bestDist) {
+        bestDist = d;
+        bestIndex = i;
+      }
+    }
+    if (bestIndex < 0) return null;
+    const wreck = this.destroyedBuildings[bestIndex];
+    const def = buildDefForEntityType(wreck.type);
+    if (!def) return null;
+    const repairCost = def.cost * 0.5;
+    if (wreck.team === Team.Player && this.resources < repairCost) return null;
+    if (wreck.team === Team.Player) this.resources -= repairCost;
+    const building = createBuildingFromDef(def, wreck.position, wreck.team);
+    building.buildProgress = 1;
+    building.health = building.maxHealth * 0.5;
+    this.destroyedBuildings.splice(bestIndex, 1);
+    this.addEntity(building);
+    return building.position.clone();
+  }
+
   /** Return all living entities across every list plus the player. */
   allEntities(): Entity[] {
     const result: Entity[] = [];
@@ -160,6 +195,8 @@ export class GameState {
     this.updateBuildingPower();
     for (const b of this.buildings) b.update(dt);
 
+    this.applyFighterSeparation(dt);
+
     // Update fighters
     for (const f of this.fighters) f.update(dt);
 
@@ -188,6 +225,8 @@ export class GameState {
     this.particles.update(dt);
     this.ringEffects.update(dt);
     this.ringEffects.prune();
+
+    this.completeBuildingDeletions();
 
     // Cleanup dead entities
     this.cleanupDead();
@@ -271,6 +310,7 @@ export class GameState {
           target.type === EntityType.ExciterTurret ||
           target.type === EntityType.MassDriverTurret ||
           target.type === EntityType.RegenTurret ||
+          target.type === EntityType.RepairTurret ||
           target.type === EntityType.PlayerShip
         ) {
           Audio.playSoundAt('explode1', playerDist);
@@ -403,8 +443,23 @@ export class GameState {
       // Only opposing-team powered conduits stop shots.
       if (conduitTeam === null || conduitTeam === proj.team) continue;
       if (!this.power.isCellEnergized(conduitTeam, cx, cy)) continue;
+      this.grid.damageConduit(cx, cy, 1);
+      this.power.markDirty();
       proj.destroy();
       this.particles.emitSpark(proj.position);
+    }
+  }
+
+  private applyFighterSeparation(dt: number): void {
+    for (let i = 0; i < this.fighters.length; i++) {
+      const a = this.fighters[i];
+      if (!a.alive || a.docked) continue;
+      for (let j = i + 1; j < this.fighters.length; j++) {
+        const b = this.fighters[j];
+        if (!b.alive || b.docked || a.team !== b.team) continue;
+        a.applySeparationFrom(b, dt);
+        b.applySeparationFrom(a, dt);
+      }
     }
   }
 
@@ -481,7 +536,7 @@ export class GameState {
     for (let y = origin.cy; y < origin.cy + size; y++) {
       for (let x = origin.cx; x < origin.cx + size; x++) {
         inside.add(cellKey(x, y));
-        placed += this.paintAutomaticConduit(x, y, building.team);
+        placed += this.planAutomaticConduit(x, y, building.team);
       }
     }
 
@@ -506,7 +561,7 @@ export class GameState {
         continue;
       }
       occupied.add(key);
-      outside += this.paintAutomaticConduit(cell.cx, cell.cy, building.team);
+      outside += this.planAutomaticConduit(cell.cx, cell.cy, building.team);
       const dirs: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
       const branchBias = this.seeded01(cell.cx, cell.cy, building.type, guard + 0x71);
       for (const [dx, dy] of dirs) {
@@ -522,9 +577,9 @@ export class GameState {
     if (placed > 0 || outside > 0) this.power.markDirty();
   }
 
-  private paintAutomaticConduit(cx: number, cy: number, team: Team): number {
-    if (this.grid.hasConduit(cx, cy)) return 0;
-    this.grid.addConduit(cx, cy, team);
+  private planAutomaticConduit(cx: number, cy: number, team: Team): number {
+    if (this.grid.hasConduit(cx, cy) || this.grid.hasPendingConduit(cx, cy)) return 0;
+    this.grid.queueConduit(cx, cy, team);
     return 1;
   }
 
@@ -574,6 +629,42 @@ export class GameState {
     return ((h ^ (h >>> 16)) >>> 0) / 0x100000000;
   }
 
+  startDeletingBuildingAt(pos: Vec2, team: Team): BuildingBase | null {
+    const px = Math.floor(pos.x / GRID_CELL_SIZE);
+    const py = Math.floor(pos.y / GRID_CELL_SIZE);
+    let best: BuildingBase | null = null;
+    let bestDist = Infinity;
+    for (const b of this.buildings) {
+      if (!b.alive || b.team !== team) continue;
+      const cx = Math.floor(b.position.x / GRID_CELL_SIZE);
+      const cy = Math.floor(b.position.y / GRID_CELL_SIZE);
+      const size = footprintForBuildingType(b.type);
+      const origin = footprintOrigin(cx, cy, size);
+      if (px < origin.cx || px >= origin.cx + size || py < origin.cy || py >= origin.cy + size) {
+        continue;
+      }
+      const d = b.position.distanceTo(pos);
+      if (d < bestDist) {
+        best = b;
+        bestDist = d;
+      }
+    }
+    if (!best) return null;
+    best.startDeleting();
+    return best;
+  }
+
+  private completeBuildingDeletions(): void {
+    for (const b of this.buildings) {
+      if (!b.alive || !b.deleting || b.deletionProgress < 1) continue;
+      if (b.team === Team.Player) {
+        this.resources += buildCostForBuildingType(b.type) * b.healthFraction;
+      }
+      b.destroy();
+      this.power.markDirty();
+    }
+  }
+
 
   // -----------------------------------------------------------------------
   // Research
@@ -615,6 +706,15 @@ export class GameState {
 
   private cleanupDead(): void {
     const beforeBuildings = this.buildings.length;
+    for (const b of this.buildings) {
+      if (b.alive || b.deleting) continue;
+      this.destroyedBuildings.push({
+        type: b.type,
+        team: b.team,
+        position: b.position.clone(),
+        maxHealth: b.maxHealth,
+      });
+    }
     this.buildings = this.buildings.filter((b) => b.alive);
     if (this.buildings.length !== beforeBuildings) {
       this.power.markDirty();

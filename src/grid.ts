@@ -88,8 +88,8 @@ function sheenBand(value: number, width: number): number {
 // ---------------------------------------------------------------------------
 
 export class WorldGrid {
-  /** All conduit cells, keyed by cellKey(); value = team that painted it. */
-  private conduits = new Map<string, Team>();
+  /** All conduit cells, keyed by cellKey(); value = owner and remaining HP. */
+  private conduits = new Map<string, { team: Team; hp: number }>();
   /**
    * Conduits queued for construction (player-painted, not yet active).
    * Built one per 0.5 s from the existing network outward.
@@ -103,11 +103,23 @@ export class WorldGrid {
   }
 
   conduitTeam(cx: number, cy: number): Team | null {
-    return this.conduits.get(cellKey(cx, cy)) ?? null;
+    return this.conduits.get(cellKey(cx, cy))?.team ?? null;
   }
 
   addConduit(cx: number, cy: number, team: Team): void {
-    this.conduits.set(cellKey(cx, cy), team);
+    this.conduits.set(cellKey(cx, cy), { team, hp: 2 });
+  }
+
+  damageConduit(cx: number, cy: number, amount: number = 1): boolean {
+    const key = cellKey(cx, cy);
+    const entry = this.conduits.get(key);
+    if (!entry) return false;
+    entry.hp -= amount;
+    if (entry.hp <= 0) {
+      this.conduits.delete(key);
+      return true;
+    }
+    return false;
   }
 
   removeConduit(cx: number, cy: number): void {
@@ -123,9 +135,9 @@ export class WorldGrid {
 
   /** Iterate every (coord, team) pair. */
   *eachConduit(): IterableIterator<{ cx: number; cy: number; team: Team }> {
-    for (const [k, team] of this.conduits) {
+    for (const [k, entry] of this.conduits) {
       const [sx, sy] = k.split(',');
-      yield { cx: parseInt(sx, 10), cy: parseInt(sy, 10), team };
+      yield { cx: parseInt(sx, 10), cy: parseInt(sy, 10), team: entry.team };
     }
   }
 
@@ -159,7 +171,7 @@ export class WorldGrid {
     const entry = this.pendingConduits.get(key);
     if (!entry) return false;
     this.pendingConduits.delete(key);
-    this.conduits.set(key, entry.team);
+    this.conduits.set(key, { team: entry.team, hp: 2 });
     return true;
   }
 
@@ -175,7 +187,7 @@ export class WorldGrid {
     const probe = (kx: number, ky: number): boolean => {
       const owner = this.conduits.get(cellKey(kx, ky));
       if (owner === undefined) return false;
-      return team === undefined || owner === team;
+      return team === undefined || owner.team === team;
     };
     return (
       probe(cx, cy) ||
@@ -220,14 +232,14 @@ export class WorldGrid {
     // every visible cell is too expensive now that cells are much smaller.
     const cellPx = GRID_CELL_SIZE * camera.zoom;
     const pulse = 0.5 + 0.5 * Math.sin(time * 2);
-    for (const [key, team] of this.conduits) {
+    for (const [key, entry] of this.conduits) {
         const comma = key.indexOf(',');
         const cx = Number(key.slice(0, comma));
         const cy = Number(key.slice(comma + 1));
         if (cx < cxMin || cx > cxMax || cy < cyMin || cy > cyMax) continue;
         const c = camera.worldToScreen(cellCenter(cx, cy));
-        const energized = isEnergized ? isEnergized(cx, cy, team) : true;
-        this.drawConduitPanel(ctx, c.x, c.y, cellPx, cx, cy, team, energized, time, pulse);
+        const energized = isEnergized ? isEnergized(cx, cy, entry.team) : true;
+        this.drawConduitPanel(ctx, c.x, c.y, cellPx, cx, cy, entry.team, energized, time, pulse);
 
         // Inner glow square for friendly conduits — only for energized
     }

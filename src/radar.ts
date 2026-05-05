@@ -338,7 +338,7 @@ export function drawRadarOverlay(
     ctx.fill();
   }
 
-  // Friendly fighters – colored by group
+  // Friendly fighters - use the player's color so red group never reads as hostile.
   for (const f of state.fighters) {
     if (!f.alive || f.docked || f.team !== Team.Player) continue;
     const dx = (f.position.x - playerPos.x) * scale;
@@ -347,7 +347,7 @@ export function drawRadarOverlay(
     const ry = centerY + dy;
     if (rx < 0 || rx > screenW || ry < 0 || ry > screenH) continue;
 
-    ctx.fillStyle = colorToCSS(GROUP_COLORS[f.group], 0.8);
+    ctx.fillStyle = colorToCSS(Colors.mainguy, 0.9);
     ctx.beginPath();
     ctx.arc(rx, ry, 2, 0, Math.PI * 2);
     ctx.fill();

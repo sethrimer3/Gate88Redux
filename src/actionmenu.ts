@@ -122,11 +122,11 @@ function isBuildDefAvailable(def: BuildDef, state: GameState): boolean {
 
 function buildGeneralItems(state: GameState): RadialItem[] {
   const items: RadialItem[] = [];
-  for (const def of defsByTier('general')) {
+  for (const def of defsByTier('structure')) {
     // Hidden defs (e.g. command post) are only revealed when the player has
     // no command post — they own that placement slot.
     if (def.hidden) {
-      if (def.key === 'commandpost' && !state.getPlayerCommandPost()) {
+      if (def.key === 'commandpost' && !state.getPlayerCommandPost() && state.player.alive) {
         items.push(defToRadialItem(def, state));
       }
       continue;
@@ -142,12 +142,19 @@ function buildTurretItems(state: GameState): RadialItem[] {
     .map((d) => defToRadialItem(d, state));
 }
 
+function buildYardItems(state: GameState): RadialItem[] {
+  return defsByTier('yard')
+    .filter((d) => isBuildDefAvailable(d, state))
+    .map((d) => defToRadialItem(d, state));
+}
+
 function availableBuildDefs(state: GameState): BuildDef[] {
   return [
-    ...defsByTier('general'),
+    ...defsByTier('structure'),
     ...defsByTier('turret'),
+    ...defsByTier('yard'),
   ].filter((def) => {
-    if (def.hidden) return def.key === 'commandpost' && !state.getPlayerCommandPost();
+    if (def.hidden) return def.key === 'commandpost' && !state.getPlayerCommandPost() && state.player.alive;
     if (def.tier === 'turret') return true;
     return isBuildDefAvailable(def, state);
   });
@@ -155,8 +162,9 @@ function availableBuildDefs(state: GameState): BuildDef[] {
 
 function buildBuildRoot(state: GameState): RadialItem[] {
   return [
-    { label: 'General\nBuildings', children: buildGeneralItems(state) },
+    { label: 'Structures', children: buildGeneralItems(state) },
     { label: 'Turrets',            children: buildTurretItems(state)   },
+    { label: 'Yards',              children: buildYardItems(state)     },
   ];
 }
 
@@ -538,10 +546,16 @@ class PaintMenu {
   }
 }
 
+type QuickPaletteItem =
+  | { type: 'header'; label: string }
+  | { type: 'conduit'; label: string; cost: number }
+  | { type: 'building'; def: BuildDef };
+
 class QuickBuildMenu {
   open = false;
 
   private touchedThisDrag = new Set<string>();
+  private buildingDragCells = new Set<string>();
   private dragMode: 'paint' | 'erase' | null = null;
   private selectedIndex = 0;
   private readonly iconRects: Array<{ index: number; x: number; y: number; w: number; h: number }> = [];
@@ -560,20 +574,22 @@ class QuickBuildMenu {
     if (keyDown && !this.open) {
       this.open = true;
       this.touchedThisDrag.clear();
+      this.buildingDragCells.clear();
       this.dragMode = null;
     } else if (!keyDown && this.open) {
       this.open = false;
       this.touchedThisDrag.clear();
+      this.buildingDragCells.clear();
       this.dragMode = null;
       return { action: 'none' };
     }
     if (!this.open) return { action: 'none' };
 
     const palette = this.paletteItems(state);
-    if (this.selectedIndex >= palette.length) this.selectedIndex = Math.max(0, palette.length - 1);
+    this.normalizeSelectedIndex(palette);
     if (Input.wheelDelta !== 0 && palette.length > 0) {
       const dir = Input.wheelDelta > 0 ? 1 : -1;
-      this.selectedIndex = (this.selectedIndex + dir + palette.length) % palette.length;
+      this.selectedIndex = this.nextSelectableIndex(palette, this.selectedIndex, dir);
       Audio.playSound('menucursor');
     }
 
@@ -583,7 +599,7 @@ class QuickBuildMenu {
           Input.mousePos.x >= r.x && Input.mousePos.x <= r.x + r.w &&
           Input.mousePos.y >= r.y && Input.mousePos.y <= r.y + r.h
         ) {
-          this.selectedIndex = r.index;
+          if (palette[r.index]?.type !== 'header') this.selectedIndex = r.index;
           Input.consumeMouseButton(0);
           Audio.playSound('menucursor');
           return { action: 'none' };
@@ -595,9 +611,27 @@ class QuickBuildMenu {
     if (selected?.type === 'building') {
       this.dragMode = null;
       this.touchedThisDrag.clear();
-      if (Input.mousePressed) {
-        Input.consumeMouseButton(0);
-        return { action: 'build', buildingType: selected.def.key };
+      if (Input.mouse2Pressed) {
+        Input.consumeMouseButton(2);
+        this.buildingDragCells.clear();
+        const worldPos = camera.screenToWorld(Input.mousePos);
+        const deleting = state.startDeletingBuildingAt(worldPos, Team.Player);
+        if (deleting) Audio.playSound('menucursor');
+        return { action: 'none' };
+      }
+      if (!Input.mouseDown) {
+        this.buildingDragCells.clear();
+        return { action: 'none' };
+      }
+      if (Input.mousePressed) Input.consumeMouseButton(0);
+      const worldPos = camera.screenToWorld(Input.mousePos);
+      const cell = worldToCell(worldPos);
+      const origin = footprintOrigin(cell.cx, cell.cy, selected.def.footprintCells);
+      const key = `${selected.def.key}:${origin.cx},${origin.cy}`;
+      if (!this.buildingDragCells.has(key)) {
+        this.buildingDragCells.add(key);
+        const status = state.getPlacementStatus(selected.def, cell.cx, cell.cy, Team.Player);
+        if (status.valid) return { action: 'build', buildingType: selected.def.key };
       }
       return { action: 'none' };
     }
@@ -605,6 +639,7 @@ class QuickBuildMenu {
     if (Input.mousePressed) {
       this.dragMode = 'paint';
       this.touchedThisDrag.clear();
+      this.buildingDragCells.clear();
     } else if (Input.mouse2Pressed) {
       this.dragMode = 'erase';
       this.touchedThisDrag.clear();
@@ -653,11 +688,53 @@ class QuickBuildMenu {
     return { action: 'none' };
   }
 
-  private paletteItems(state: GameState): Array<{ type: 'conduit'; label: string; cost: number } | { type: 'building'; def: BuildDef }> {
-    return [
-      { type: 'conduit', label: 'Conduit', cost: CONDUIT_COST },
-      ...availableBuildDefs(state).map((def) => ({ type: 'building' as const, def })),
-    ];
+  private paletteItems(state: GameState): QuickPaletteItem[] {
+    const defs = availableBuildDefs(state);
+    const byKey = new Map(defs.map((def) => [def.key, def]));
+    const items: QuickPaletteItem[] = [];
+    const addBuilding = (key: string) => {
+      const def = byKey.get(key);
+      if (def) items.push({ type: 'building', def });
+    };
+
+    items.push({ type: 'header', label: 'Structures' });
+    addBuilding('commandpost');
+    items.push({ type: 'conduit', label: 'Conduit', cost: CONDUIT_COST });
+    addBuilding('powergenerator');
+    addBuilding('factory');
+    addBuilding('researchlab');
+
+    items.push({ type: 'header', label: 'Turrets' });
+    for (const def of defs.filter((def) => def.tier === 'turret')) {
+      items.push({ type: 'building', def });
+    }
+
+    items.push({ type: 'header', label: 'Yards' });
+    for (const def of defs.filter((def) => def.tier === 'yard')) {
+      items.push({ type: 'building', def });
+    }
+    return items;
+  }
+
+  private normalizeSelectedIndex(palette: QuickPaletteItem[]): void {
+    if (palette.length === 0) {
+      this.selectedIndex = 0;
+      return;
+    }
+    if (this.selectedIndex >= palette.length) this.selectedIndex = palette.length - 1;
+    if (palette[this.selectedIndex]?.type === 'header') {
+      this.selectedIndex = this.nextSelectableIndex(palette, this.selectedIndex, 1);
+    }
+  }
+
+  private nextSelectableIndex(palette: QuickPaletteItem[], start: number, dir: number): number {
+    if (palette.length === 0) return 0;
+    let idx = start;
+    for (let i = 0; i < palette.length; i++) {
+      idx = (idx + dir + palette.length) % palette.length;
+      if (palette[idx]?.type !== 'header') return idx;
+    }
+    return start;
   }
 
   draw(
@@ -669,7 +746,7 @@ class QuickBuildMenu {
   ): void {
     if (!this.open) return;
     const palette = this.paletteItems(state);
-    if (this.selectedIndex >= palette.length) this.selectedIndex = Math.max(0, palette.length - 1);
+    this.normalizeSelectedIndex(palette);
     const worldPos = camera.screenToWorld(Input.mousePos);
     const cell = worldToCell(worldPos);
     const selected = palette[this.selectedIndex];
@@ -688,7 +765,7 @@ class QuickBuildMenu {
     ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.85);
     ctx.fillText(
       selected?.type === 'building'
-        ? '[Q] Quick Build - wheel/click selects - LMB places - release Q to exit'
+        ? '[Q] Quick Build - wheel/click selects - LMB places - RMB deletes building - release Q to exit'
         : `[Q] Quick Build - Conduit 2x2 brush $${CONDUIT_COST}/cell - LMB paint - RMB erase - wheel/click selects`,
       screenW * 0.5,
       24,
@@ -764,7 +841,7 @@ class QuickBuildMenu {
   private drawPalette(
     ctx: CanvasRenderingContext2D,
     state: GameState,
-    palette: Array<{ type: 'conduit'; label: string; cost: number } | { type: 'building'; def: BuildDef }>,
+    palette: QuickPaletteItem[],
   ): void {
     this.iconRects.length = 0;
     const x = 12;
@@ -779,6 +856,11 @@ class QuickBuildMenu {
     for (let i = 0; i < palette.length; i++) {
       const y = y0 + i * (h + gap);
       const item = palette[i];
+      if (item.type === 'header') {
+        ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
+        ctx.fillText(item.label, x + 8, y + h * 0.55);
+        continue;
+      }
       const selected = i === this.selectedIndex;
       const cost = item.type === 'conduit' ? item.cost : item.def.cost;
       const label = item.type === 'conduit'

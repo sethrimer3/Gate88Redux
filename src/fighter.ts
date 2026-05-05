@@ -43,6 +43,7 @@ export class FighterShip extends Entity {
   private readonly orbitPhase: number;
   private readonly orbitRadius: number;
   private readonly orbitDrift: number;
+  private avoidVelocity: Vec2 = new Vec2(0, 0);
 
   constructor(
     position: Vec2,
@@ -103,10 +104,11 @@ export class FighterShip extends Entity {
   // --- AI states ---
 
   private aiIdle(dt: number): void {
-    // Drift slowly; slight random wander
-    this.angularVel += randomRange(-0.5, 0.5) * dt;
+    const t = performance.now() * 0.001;
+    this.angularVel += (Math.sin(t * this.orbitDrift + this.orbitPhase) * 0.7 + randomRange(-0.18, 0.18)) * dt;
     this.angle = wrapAngle(this.angle + this.angularVel * dt);
     this.angularVel *= 0.95;
+    this.thrustForward(dt * 0.12);
   }
 
   private aiAttack(dt: number): void {
@@ -115,15 +117,8 @@ export class FighterShip extends Entity {
       return;
     }
     const dist = this.position.distanceTo(this.targetPos);
-    if (this.order === 'waypoint') {
-      const t = performance.now() * 0.001;
-      const waveA = t * this.orbitDrift + this.orbitPhase;
-      const waveB = t * (this.orbitDrift * 0.43 + 0.19) + this.orbitPhase * 1.7;
-      const radius = this.orbitRadius * (0.82 + 0.18 * Math.sin(waveB));
-      const organicTarget = new Vec2(
-        this.targetPos.x + Math.cos(waveA) * radius + Math.sin(waveB * 1.31) * 18,
-        this.targetPos.y + Math.sin(waveA * 0.91) * radius + Math.cos(waveB) * 18,
-      );
+    if (this.order === 'waypoint' || this.order === 'follow' || this.order === 'protect') {
+      const organicTarget = this.organicTarget(this.targetPos);
       this.steerTowards(organicTarget, dt);
       this.thrustForward(dt * (dist < 55 ? 0.35 : 0.85));
       return;
@@ -177,6 +172,8 @@ export class FighterShip extends Entity {
   }
 
   protected applyPhysics(dt: number): void {
+    this.velocity = this.velocity.add(this.avoidVelocity.scale(dt));
+    this.avoidVelocity = this.avoidVelocity.scale(0.65);
     this.velocity = this.velocity.scale(1 / (1 + this.friction * dt));
     const speed = this.velocity.length();
     if (speed > this.maxSpeed) {
@@ -265,6 +262,29 @@ export class FighterShip extends Entity {
     ctx.beginPath();
     ctx.arc(screen.x - r * 0.09, screen.y - r * 0.09, r * 0.14, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  applySeparationFrom(other: FighterShip, dt: number): void {
+    if (!this.alive || this.docked || !other.alive || other.docked || other === this) return;
+    const dx = this.position.x - other.position.x;
+    const dy = this.position.y - other.position.y;
+    const distSq = dx * dx + dy * dy;
+    const desired = Math.max(20, this.radius + other.radius + 18);
+    if (distSq <= 0.0001 || distSq > desired * desired) return;
+    const dist = Math.sqrt(distSq);
+    const push = (1 - dist / desired) * 210 * dt;
+    this.avoidVelocity = this.avoidVelocity.add(new Vec2(dx / dist, dy / dist).scale(push));
+  }
+
+  private organicTarget(base: Vec2): Vec2 {
+    const t = performance.now() * 0.001;
+    const waveA = t * this.orbitDrift + this.orbitPhase;
+    const waveB = t * (this.orbitDrift * 0.43 + 0.19) + this.orbitPhase * 1.7;
+    const radius = this.orbitRadius * (0.82 + 0.18 * Math.sin(waveB));
+    return new Vec2(
+      base.x + Math.cos(waveA) * radius + Math.sin(waveB * 1.31) * 18,
+      base.y + Math.sin(waveA * 0.91) * radius + Math.cos(waveB) * 18,
+    );
   }
 }
 

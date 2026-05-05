@@ -17,6 +17,8 @@ export abstract class TurretBase extends BuildingBase {
   fireRate: number; // ticks between shots
   range: number;
   turretAngle: number = 0;
+  beamTargetPos: Vec2 | null = null;
+  beamTimer: number = 0;
 
   constructor(
     type: EntityType,
@@ -53,6 +55,10 @@ export abstract class TurretBase extends BuildingBase {
     if (this.fireTimer > 0) {
       this.fireTimer -= dt;
     }
+    if (this.beamTimer > 0) {
+      this.beamTimer -= dt;
+      if (this.beamTimer <= 0) this.beamTargetPos = null;
+    }
   }
 
   /** Check if the turret can fire at its current target. */
@@ -67,6 +73,11 @@ export abstract class TurretBase extends BuildingBase {
   /** Consume a shot, resetting the fire timer. */
   consumeShot(): void {
     this.fireTimer = this.fireRate * DT;
+  }
+
+  showBeam(target: Vec2, duration: number = 0.18): void {
+    this.beamTargetPos = target.clone();
+    this.beamTimer = duration;
   }
 
   /**
@@ -93,6 +104,7 @@ export abstract class TurretBase extends BuildingBase {
     screen: Vec2,
     r: number,
     detailColor: string,
+    camera?: Camera,
   ): void {
     this.drawBuildingBase(ctx, screen, r, detailColor);
 
@@ -106,6 +118,28 @@ export abstract class TurretBase extends BuildingBase {
       screen.y + Math.sin(this.turretAngle) * r * 1.1,
     );
     ctx.stroke();
+
+  }
+
+  protected drawBeam(ctx: CanvasRenderingContext2D, camera: Camera, screen: Vec2): void {
+    if (!this.beamTargetPos || this.beamTimer <= 0) return;
+    const target = camera.worldToScreen(this.beamTargetPos);
+    const a = Math.min(1, this.beamTimer / 0.18);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = colorToCSS(Colors.particles_healing, 0.25 + a * 0.45);
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(screen.x, screen.y);
+    ctx.lineTo(target.x, target.y);
+    ctx.stroke();
+    ctx.strokeStyle = colorToCSS(Colors.particles_switch, 0.45 + a * 0.35);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(screen.x, screen.y);
+    ctx.lineTo(target.x, target.y);
+    ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -233,12 +267,13 @@ export class RegenTurret extends TurretBase {
     );
   }
 
-  /** Override: targets the nearest damaged friendly entity. */
+  /** Override: targets the nearest damaged friendly building. */
   acquireTarget(entities: Entity[]): void {
     let best: Entity | null = null;
     let bestDist = this.range;
     for (const e of entities) {
       if (!e.alive || e.team !== this.team) continue;
+      if (!(e instanceof BuildingBase)) continue;
       if (e.health >= e.maxHealth) continue;
       if (e === (this as Entity)) continue;
       const d = this.position.distanceTo(e.position);
@@ -256,6 +291,7 @@ export class RegenTurret extends TurretBase {
     const r = this.radius * camera.zoom;
     const detail = colorToCSS(Colors.regenturret_detail);
     this.drawTurretBase(ctx, screen, r, detail);
+    this.drawBeam(ctx, camera, screen);
 
     // Plus / cross symbol
     ctx.strokeStyle = colorToCSS(Colors.particles_healing);
@@ -266,6 +302,51 @@ export class RegenTurret extends TurretBase {
     ctx.lineTo(screen.x + s, screen.y);
     ctx.moveTo(screen.x, screen.y - s);
     ctx.lineTo(screen.x, screen.y + s);
+    ctx.stroke();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// RepairTurret - restores destroyed friendly buildings at partial strength
+// ---------------------------------------------------------------------------
+
+export class RepairTurret extends TurretBase {
+  constructor(position: Vec2, team: Team) {
+    super(
+      EntityType.RepairTurret,
+      team,
+      position,
+      85,
+      WEAPON_STATS.regenbullet.fireRate * 2,
+      260,
+    );
+  }
+
+  acquireTarget(_entities: Entity[]): void {
+    this.targetEntity = null;
+  }
+
+  canFire(): boolean {
+    return this.fireTimer <= 0;
+  }
+
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive) return;
+    const screen = camera.worldToScreen(this.position);
+    const r = this.radius * camera.zoom;
+    const detail = colorToCSS(Colors.researchlab_detail);
+    this.drawTurretBase(ctx, screen, r, detail);
+    this.drawBeam(ctx, camera, screen);
+
+    ctx.strokeStyle = colorToCSS(Colors.particles_healing);
+    ctx.lineWidth = 1.5;
+    const s = r * 0.42;
+    ctx.beginPath();
+    ctx.rect(screen.x - s * 0.5, screen.y - s * 0.5, s, s);
+    ctx.moveTo(screen.x, screen.y - s * 0.85);
+    ctx.lineTo(screen.x, screen.y + s * 0.85);
+    ctx.moveTo(screen.x - s * 0.85, screen.y);
+    ctx.lineTo(screen.x + s * 0.85, screen.y);
     ctx.stroke();
   }
 }

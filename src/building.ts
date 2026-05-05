@@ -18,6 +18,9 @@ export abstract class BuildingBase extends Entity {
   powered: boolean = false;
   buildProgress: number = 1;
   buildDurationSeconds: number = 0;
+  deletionProgress: number = 0;
+  deletionDurationSeconds: number = 3;
+  deleting: boolean = false;
 
   constructor(
     type: EntityType,
@@ -39,6 +42,15 @@ export abstract class BuildingBase extends Entity {
         this.buildProgress = Math.min(1, this.buildProgress + dt / this.buildDurationSeconds);
       }
     }
+    if (this.deleting) {
+      this.deletionProgress = Math.min(1, this.deletionProgress + dt / this.deletionDurationSeconds);
+    }
+  }
+
+  startDeleting(): void {
+    if (this.deleting) return;
+    this.deleting = true;
+    this.deletionProgress = 0;
   }
 
   /** Draw common building ring that indicates health and power status. */
@@ -240,6 +252,10 @@ export class Shipyard extends BuildingBase {
   /** Seconds per ship. */
   buildInterval: number = 5;
   assignedGroup: ShipGroup = ShipGroup.Red;
+  /** Player-issued dock command holds newly built ships in the bay. */
+  holdDocked: boolean = false;
+  /** Ships physically in the bay; used for the silhouette pips. */
+  dockedShips: number = 0;
 
   constructor(
     type: EntityType.FighterYard | EntityType.BomberYard,
@@ -289,7 +305,7 @@ export class Shipyard extends BuildingBase {
     ctx.strokeStyle = detailColor;
     ctx.lineWidth = 1;
     const silSize = r * 0.3;
-    for (let i = 0; i < Math.min(this.activeShips, this.shipCapacity); i++) {
+    for (let i = 0; i < Math.min(this.dockedShips, this.shipCapacity); i++) {
       const ang = (Math.PI * 2 * i) / this.shipCapacity - Math.PI / 2;
       const sx = Math.cos(ang) * r * 0.5;
       const sy = Math.sin(ang) * r * 0.5;
@@ -307,6 +323,20 @@ export class Shipyard extends BuildingBase {
         ctx.lineTo(sx, sy + silSize * 0.6);
       }
       ctx.closePath();
+      ctx.stroke();
+    }
+
+    if (this.deleting) {
+      const t = this.deletionProgress;
+      const sq = r * (1.25 + t * 0.45);
+      ctx.strokeStyle = colorToCSS(Colors.alert2, 0.75);
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 4]);
+      ctx.strokeRect(screen.x - sq, screen.y - sq, sq * 2, sq * 2);
+      ctx.setLineDash([]);
+      ctx.strokeStyle = colorToCSS(Colors.alert1, 0.85);
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r * 1.08, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * t);
       ctx.stroke();
     }
 

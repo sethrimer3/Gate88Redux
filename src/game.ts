@@ -397,6 +397,9 @@ export class Game {
         b.shipCapacity = 7;
         b.buildInterval = 4;
       }
+      b.dockedShips = this.state.fighters.filter(
+        (f) => f.alive && f.homeYard === b && f.docked,
+      ).length;
 
       if (b.shouldSpawnShip()) {
         const isBomber = b.type === EntityType.BomberYard;
@@ -406,6 +409,14 @@ export class Game {
           : new FighterShip(b.position.clone(), Team.Player, group, b);
         b.activeShips++;
         this.state.addEntity(fighter);
+        b.dockedShips++;
+        const waypoint = this.getWaypointForGroup(group);
+        if (waypoint && !b.holdDocked) {
+          fighter.order = 'waypoint';
+          fighter.targetPos = waypoint.clone();
+          fighter.launch();
+          b.dockedShips = Math.max(0, b.dockedShips - 1);
+        }
       }
     }
   }
@@ -457,6 +468,9 @@ export class Game {
       case 'waypoint': {
         const target = this.camera.screenToWorld(Input.mousePos);
         this.recordWaypointMarker(group, target);
+        for (const yard of this.playerShipyardsForCommand(group)) {
+          yard.holdDocked = false;
+        }
         for (const f of fighters) {
           f.order = 'waypoint';
           f.targetPos = target.clone();
@@ -467,6 +481,9 @@ export class Game {
       }
       case 'dock':
         this.clearWaypointMarker(group);
+        for (const yard of this.playerShipyardsForCommand(group)) {
+          yard.holdDocked = true;
+        }
         for (const f of fighters) {
           f.order = 'dock';
         }
@@ -578,6 +595,9 @@ export class Game {
 
     const fighters = this.state.getFightersByGroup(Team.Player, group);
     this.recordWaypointMarker(group, aimWorld);
+    for (const yard of this.playerShipyardsForCommand(group)) {
+      yard.holdDocked = false;
+    }
     for (const f of fighters) {
       f.order = 'waypoint';
       f.targetPos = aimWorld.clone();
@@ -603,6 +623,22 @@ export class Game {
     }
     this.waypointMarkers.delete(group);
     this.waypointMarkers.delete('all');
+  }
+
+  private getWaypointForGroup(group: ShipGroup): Vec2 | null {
+    return this.waypointMarkers.get(group)?.pos.clone()
+      ?? this.waypointMarkers.get('all')?.pos.clone()
+      ?? null;
+  }
+
+  private playerShipyardsForCommand(group: ShipCommandGroup): Shipyard[] {
+    return this.state.buildings.filter(
+      (b): b is Shipyard =>
+        b.alive &&
+        b.team === Team.Player &&
+        b instanceof Shipyard &&
+        (group === 'all' || b.assignedGroup === group),
+    );
   }
 
   private findPlayerShipyardAt(pos: Vec2): Shipyard | null {

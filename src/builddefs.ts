@@ -31,11 +31,12 @@ import {
   ExciterTurret,
   MassDriverTurret,
   RegenTurret,
+  RepairTurret,
 } from './turret.js';
 import { BUILDING_COST, BUILD_TIME } from './constants.js';
 import { TICK_RATE } from './constants.js';
 
-export type BuildTier = 'general' | 'turret';
+export type BuildTier = 'structure' | 'turret' | 'yard';
 
 export interface BuildDef {
   /** Unique key — what `selectedBuildType`, menus, and placement use. */
@@ -94,7 +95,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     cost: COMMANDPOST_REBUILD_COST,
     footprintCells: 6,
     buildTime: COMMANDPOST_REBUILD_TIME,
-    tier: 'general',
+    tier: 'structure',
     radialLabel: 'Command\nPost',
     hidden: true, // shown by menu only when no player CP exists
     factory: (pos, team) => new CommandPost(pos, team),
@@ -105,7 +106,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     cost: BUILDING_COST.powergenerator,
     footprintCells: 3,
     buildTime: BUILD_TIME.powergenerator,
-    tier: 'general',
+    tier: 'structure',
     radialLabel: 'Power\nGenerator',
     factory: (pos, team) => new PowerGenerator(pos, team),
   },
@@ -115,7 +116,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     cost: BUILDING_COST.fighteryard,
     footprintCells: 3,
     buildTime: BUILD_TIME.fighteryard,
-    tier: 'general',
+    tier: 'yard',
     radialLabel: 'Fighter\nYard',
     factory: (pos, team) => new Shipyard(EntityType.FighterYard, pos, team),
   },
@@ -125,7 +126,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     cost: BUILDING_COST.bomberyard,
     footprintCells: 3,
     buildTime: BUILD_TIME.bomberyard,
-    tier: 'general',
+    tier: 'yard',
     radialLabel: 'Bomber\nYard',
     researchKey: 'bomberyard',
     factory: (pos, team) => new Shipyard(EntityType.BomberYard, pos, team),
@@ -136,7 +137,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     cost: BUILDING_COST.researchlab,
     footprintCells: 4,
     buildTime: BUILD_TIME.researchlab,
-    tier: 'general',
+    tier: 'structure',
     radialLabel: 'Research\nLab',
     factory: (pos, team) => new ResearchLab(pos, team),
   },
@@ -146,7 +147,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     cost: BUILDING_COST.factory,
     footprintCells: 4,
     buildTime: BUILD_TIME.factory,
-    tier: 'general',
+    tier: 'structure',
     factory: (pos, team) => new Factory(pos, team),
   },
   missileturret: {
@@ -193,6 +194,16 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     researchKey: 'regenturret',
     factory: (pos, team) => new RegenTurret(pos, team),
   },
+  repairturret: {
+    key: 'repairturret',
+    label: 'Repair Turret',
+    cost: BUILDING_COST.repairturret,
+    footprintCells: 3,
+    buildTime: BUILD_TIME.repairturret,
+    tier: 'turret',
+    radialLabel: 'Repair\nTurret',
+    factory: (pos, team) => new RepairTurret(pos, team),
+  },
 };
 
 export function footprintForBuildingType(type: EntityType): number {
@@ -204,6 +215,64 @@ export function footprintForBuildingType(type: EntityType): number {
       return 4;
     default:
       return 3;
+  }
+}
+
+export function buildCostForBuildingType(type: EntityType): number {
+  switch (type) {
+    case EntityType.CommandPost:
+      return COMMANDPOST_REBUILD_COST;
+    case EntityType.PowerGenerator:
+      return BUILDING_COST.powergenerator;
+    case EntityType.FighterYard:
+      return BUILDING_COST.fighteryard;
+    case EntityType.BomberYard:
+      return BUILDING_COST.bomberyard;
+    case EntityType.ResearchLab:
+      return BUILDING_COST.researchlab;
+    case EntityType.Factory:
+      return BUILDING_COST.factory;
+    case EntityType.MissileTurret:
+      return BUILDING_COST.missileturret;
+    case EntityType.ExciterTurret:
+      return BUILDING_COST.exciterturret;
+    case EntityType.MassDriverTurret:
+      return BUILDING_COST.massdriverturret;
+    case EntityType.RegenTurret:
+      return BUILDING_COST.regenturret;
+    case EntityType.RepairTurret:
+      return BUILDING_COST.repairturret;
+    default:
+      return 0;
+  }
+}
+
+export function buildDefForEntityType(type: EntityType): BuildDef | undefined {
+  switch (type) {
+    case EntityType.CommandPost:
+      return BUILD_DEFS.commandpost;
+    case EntityType.PowerGenerator:
+      return BUILD_DEFS.powergenerator;
+    case EntityType.FighterYard:
+      return BUILD_DEFS.fighteryard;
+    case EntityType.BomberYard:
+      return BUILD_DEFS.bomberyard;
+    case EntityType.ResearchLab:
+      return BUILD_DEFS.researchlab;
+    case EntityType.Factory:
+      return BUILD_DEFS.factory;
+    case EntityType.MissileTurret:
+      return BUILD_DEFS.missileturret;
+    case EntityType.ExciterTurret:
+      return BUILD_DEFS.exciterturret;
+    case EntityType.MassDriverTurret:
+      return BUILD_DEFS.massdriverturret;
+    case EntityType.RegenTurret:
+      return BUILD_DEFS.regenturret;
+    case EntityType.RepairTurret:
+      return BUILD_DEFS.repairturret;
+    default:
+      return undefined;
   }
 }
 

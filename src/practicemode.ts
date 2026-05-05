@@ -3,8 +3,8 @@
 import { Vec2, randomRange } from './math.js';
 import { Team, EntityType, ShipGroup } from './entities.js';
 import { GameState } from './gamestate.js';
-import { CommandPost, Shipyard } from './building.js';
-import { TurretBase } from './turret.js';
+import { BuildingBase, CommandPost, Shipyard } from './building.js';
+import { RepairTurret, TurretBase } from './turret.js';
 import { FighterShip } from './fighter.js';
 import { Bullet, Missile } from './projectile.js';
 import { HUD } from './hud.js';
@@ -188,13 +188,38 @@ export class PracticeMode {
       if (b.buildProgress < 1) continue;
       if (!b.canFire()) continue;
 
+      const playerDist = state.player.position.distanceTo(b.position);
+      if (b.type === EntityType.RepairTurret && b instanceof RepairTurret) {
+        const repairedPos = state.repairDestroyedBuildingInRange(b, b.range);
+        if (repairedPos) {
+          b.consumeShot();
+          b.showBeam(repairedPos);
+          Audio.playSoundAt('regenbullet', playerDist);
+        }
+        continue;
+      }
+
       const target = b.targetEntity;
       if (!target) continue;
-
       b.consumeShot();
-      const playerDist = state.player.position.distanceTo(b.position);
 
-      if (b.type === EntityType.MissileTurret) {
+      if (b.type === EntityType.RegenTurret) {
+        let beamTarget = target.position;
+        for (const friendly of state.buildings) {
+          if (
+            friendly instanceof BuildingBase &&
+            friendly.alive &&
+            friendly.team === b.team &&
+            friendly.health < friendly.maxHealth &&
+            friendly.position.distanceTo(b.position) <= b.range
+          ) {
+            friendly.takeDamage(-10, b);
+            beamTarget = friendly.position;
+          }
+        }
+        b.showBeam(beamTarget);
+        Audio.playSoundAt('regenbullet', playerDist);
+      } else if (b.type === EntityType.MissileTurret) {
         state.addEntity(new Missile(b.team, b.position.clone(), b.turretAngle, b, target));
         Audio.playSoundAt('missile', playerDist);
       } else if (b.type === EntityType.ExciterTurret) {
@@ -203,9 +228,6 @@ export class PracticeMode {
       } else if (b.type === EntityType.MassDriverTurret) {
         state.addEntity(new Bullet(b.team, b.position.clone(), b.turretAngle, b));
         Audio.playSoundAt('massdriverbullet', playerDist);
-      } else if (b.type === EntityType.RegenTurret) {
-        state.addEntity(new Bullet(b.team, b.position.clone(), b.turretAngle, b));
-        Audio.playSoundAt('regenbullet', playerDist);
       } else {
         state.addEntity(new Bullet(b.team, b.position.clone(), b.turretAngle, b));
         Audio.playSoundAt('fire', playerDist);
