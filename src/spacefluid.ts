@@ -498,9 +498,9 @@ export function createSpaceFluid(): SpaceFluid {
     // Recycled particles increment the target cell so consecutive respawns scatter.
     _occupancy.fill(0);
     for (let i = 0; i < particles.length; i++) {
-      const oc   = _clamp(Math.floor(particles[i].x / _sparseCellW), 0, SPARSE_RESPAWN_COLS - 1);
+      const oCol = _clamp(Math.floor(particles[i].x / _sparseCellW), 0, SPARSE_RESPAWN_COLS - 1);
       const oRow = _clamp(Math.floor(particles[i].y / _sparseCellH), 0, SPARSE_RESPAWN_ROWS - 1);
-      _occupancy[oRow * SPARSE_RESPAWN_COLS + oc]++;
+      _occupancy[oRow * SPARSE_RESPAWN_COLS + oCol]++;
     }
 
     for (let i = 0; i < particles.length; i++) {
