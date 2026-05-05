@@ -93,6 +93,7 @@ export class GameState {
       this.fighters.push(entity);
     } else if (entity instanceof BuildingBase) {
       this.buildings.push(entity);
+      this.addAutomaticBuildingConduits(entity);
       this.power.markDirty();
     }
   }
@@ -177,7 +178,7 @@ export class GameState {
     // intangible (pass-through for ships and shots alike).
     this.applyConduitInteraction(dt);
 
-    // Tick the player's pending conduit queue (0.5 s per cell, BFS outward).
+    // Tick pending conduit fronts. Every eligible frontier cell builds together.
     this.tickPendingConduits(dt);
 
     // Research progress
@@ -413,8 +414,8 @@ export class GameState {
 
   /**
    * Each tick, count down toward the next conduit build event. When the
-   * timer fires, promote the first pending conduit that sits on the build
-   * frontier (adjacent to an existing conduit or a power-source building).
+   * timer fires, promote every pending conduit orthogonal to the powered
+   * network or a finished powered building; placement order does not matter.
    */
   private tickPendingConduits(dt: number): void {
     if (this.grid.pendingConduitCount() === 0) return;
@@ -422,36 +423,155 @@ export class GameState {
     if (this.conduitBuildTimer > 0) return;
     this.conduitBuildTimer = 0.5;
 
+    const ready: Array<{ cx: number; cy: number; team: Team }> = [];
     for (const { cx, cy, team } of this.grid.eachPendingConduit()) {
       if (this.isAtConduitFrontier(cx, cy, team)) {
-        this.grid.promotePendingConduit(cx, cy);
-        this.power.markDirty();
-        Audio.playSound('build');
-        break; // one per 0.5 s
+        ready.push({ cx, cy, team });
       }
     }
+    if (ready.length === 0) return;
+    for (const { cx, cy } of ready) this.grid.promotePendingConduit(cx, cy);
+    this.power.markDirty();
+    Audio.playSound('build');
   }
 
   /**
-   * True when (cx, cy) is adjacent to an existing conduit of the same team
-   * or adjacent to a Command Post / Power Generator cell of the same team.
+   * True when (cx, cy) is orthogonally adjacent to an energized conduit of
+   * the same team or to the footprint of a finished powered same-team building.
    */
   private isAtConduitFrontier(cx: number, cy: number, team: Team): boolean {
     const dirs: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
     for (const [dx, dy] of dirs) {
       const nx = cx + dx;
       const ny = cy + dy;
-      if (this.grid.hasConduit(nx, ny) && this.grid.conduitTeam(nx, ny) === team) return true;
+      if (
+        this.grid.hasConduit(nx, ny) &&
+        this.grid.conduitTeam(nx, ny) === team &&
+        this.power.isCellEnergized(team, nx, ny)
+      ) {
+        return true;
+      }
     }
-    // Also count cells adjacent to a power-source building.
     for (const b of this.buildings) {
       if (!b.alive || b.team !== team) continue;
-      if (b.type !== EntityType.CommandPost && b.type !== EntityType.PowerGenerator) continue;
+      if (b.buildProgress < 1 || !b.powered) continue;
       const bx = Math.floor(b.position.x / GRID_CELL_SIZE);
       const by = Math.floor(b.position.y / GRID_CELL_SIZE);
-      if (Math.abs(cx - bx) + Math.abs(cy - by) <= 1) return true;
+      const size = footprintForBuildingType(b.type);
+      const origin = footprintOrigin(bx, by, size);
+      const endCx = origin.cx + size - 1;
+      const endCy = origin.cy + size - 1;
+      const orthogonal =
+        (cy >= origin.cy && cy <= endCy && (cx === origin.cx - 1 || cx === endCx + 1)) ||
+        (cx >= origin.cx && cx <= endCx && (cy === origin.cy - 1 || cy === endCy + 1));
+      if (orthogonal) return true;
     }
     return false;
+  }
+
+  private addAutomaticBuildingConduits(building: BuildingBase): void {
+    if (!building.alive || building.team === Team.Neutral) return;
+    const centerCx = Math.floor(building.position.x / GRID_CELL_SIZE);
+    const centerCy = Math.floor(building.position.y / GRID_CELL_SIZE);
+    const size = footprintForBuildingType(building.type);
+    const origin = footprintOrigin(centerCx, centerCy, size);
+    const inside = new Set<string>();
+    let placed = 0;
+
+    for (let y = origin.cy; y < origin.cy + size; y++) {
+      for (let x = origin.cx; x < origin.cx + size; x++) {
+        inside.add(cellKey(x, y));
+        placed += this.paintAutomaticConduit(x, y, building.team);
+      }
+    }
+
+    const targetOutside = size * size;
+    const occupied = this.occupiedBuildingCells();
+    for (const key of inside) occupied.add(key);
+    let outside = 0;
+    let frontier = this.seedBranchFrontier(origin.cx, origin.cy, size, building.type, building.team);
+    let guard = 0;
+    while (outside < targetOutside && frontier.length > 0 && guard < targetOutside * 80) {
+      guard++;
+      const pick = Math.floor(this.seeded01(centerCx, centerCy, building.type, guard) * frontier.length);
+      const cell = frontier.splice(pick, 1)[0];
+      const key = cellKey(cell.cx, cell.cy);
+      if (inside.has(key) || occupied.has(key)) continue;
+      if (
+        cell.cx < 0 ||
+        cell.cy < 0 ||
+        (cell.cx + 1) * GRID_CELL_SIZE > WORLD_WIDTH ||
+        (cell.cy + 1) * GRID_CELL_SIZE > WORLD_HEIGHT
+      ) {
+        continue;
+      }
+      occupied.add(key);
+      outside += this.paintAutomaticConduit(cell.cx, cell.cy, building.team);
+      const dirs: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+      const branchBias = this.seeded01(cell.cx, cell.cy, building.type, guard + 0x71);
+      for (const [dx, dy] of dirs) {
+        if (this.seeded01(cell.cx + dx, cell.cy + dy, building.type, guard + 0x1337) > 0.58 + branchBias * 0.16) {
+          frontier.push({ cx: cell.cx + dx, cy: cell.cy + dy });
+        }
+      }
+      if (frontier.length < 3) {
+        frontier = frontier.concat(this.seedBranchFrontier(origin.cx, origin.cy, size, building.type, building.team));
+      }
+    }
+
+    if (placed > 0 || outside > 0) this.power.markDirty();
+  }
+
+  private paintAutomaticConduit(cx: number, cy: number, team: Team): number {
+    if (this.grid.hasConduit(cx, cy)) return 0;
+    this.grid.addConduit(cx, cy, team);
+    return 1;
+  }
+
+  private seedBranchFrontier(
+    originCx: number,
+    originCy: number,
+    size: number,
+    type: EntityType,
+    team: Team,
+  ): Array<{ cx: number; cy: number }> {
+    const cells: Array<{ cx: number; cy: number }> = [];
+    for (let i = 0; i < size; i++) {
+      cells.push({ cx: originCx + i, cy: originCy - 1 });
+      cells.push({ cx: originCx + i, cy: originCy + size });
+      cells.push({ cx: originCx - 1, cy: originCy + i });
+      cells.push({ cx: originCx + size, cy: originCy + i });
+    }
+    return cells.sort((a, b) => {
+      const ah = this.seeded01(a.cx, a.cy, type, team * 7919);
+      const bh = this.seeded01(b.cx, b.cy, type, team * 7919);
+      return ah - bh;
+    });
+  }
+
+  private occupiedBuildingCells(): Set<string> {
+    const occupied = new Set<string>();
+    for (const b of this.buildings) {
+      if (!b.alive) continue;
+      const cx = Math.floor(b.position.x / GRID_CELL_SIZE);
+      const cy = Math.floor(b.position.y / GRID_CELL_SIZE);
+      const size = footprintForBuildingType(b.type);
+      const origin = footprintOrigin(cx, cy, size);
+      for (let y = origin.cy; y < origin.cy + size; y++) {
+        for (let x = origin.cx; x < origin.cx + size; x++) {
+          occupied.add(cellKey(x, y));
+        }
+      }
+    }
+    return occupied;
+  }
+
+  private seeded01(cx: number, cy: number, type: EntityType, salt: number): number {
+    let h = Math.imul(cx | 0, 374761393) ^ Math.imul(cy | 0, 668265263);
+    h ^= Math.imul((type + 17) | 0, 2246822519) ^ salt;
+    h = (h ^ (h >>> 13)) >>> 0;
+    h = Math.imul(h, 1274126177) >>> 0;
+    return ((h ^ (h >>> 16)) >>> 0) / 0x100000000;
   }
 
 

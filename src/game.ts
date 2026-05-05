@@ -11,7 +11,7 @@ import { drawEdgeIndicators, drawRadarOverlay } from './radar.js';
 import { ActionMenu, MenuResult } from './actionmenu.js';
 import { HUD } from './hud.js';
 import { MainMenu, MenuAction } from './menu.js';
-import { Colors, colorToCSS } from './colors.js';
+import { Colors, colorToCSS, type Color } from './colors.js';
 import { Team, EntityType, ShipGroup } from './entities.js';
 import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS, ACTIVE_RESEARCH_ITEMS } from './constants.js';
 import { BuildingBase, CommandPost } from './building.js';
@@ -28,8 +28,14 @@ import { worldToCell, footprintCenter, GRID_CELL_SIZE } from './grid.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 type ShipCommandGroup = ShipGroup | 'all';
+type WaypointMarker = { pos: Vec2; issuedAt: number };
 
 const PLAYER_FIRE_COOLDOWN = WEAPON_STATS.fire.fireRate * DT;
+const GROUP_COLORS: Record<ShipGroup, Color> = {
+  [ShipGroup.Red]: Colors.redgroup,
+  [ShipGroup.Green]: Colors.greengroup,
+  [ShipGroup.Blue]: Colors.bluegroup,
+};
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -54,6 +60,7 @@ export class Game {
   private running: boolean = false;
   private debugOverlay = false;
   private lastFrameMs = 0;
+  private waypointMarkers = new Map<ShipCommandGroup, WaypointMarker>();
 
   /** Respawn timer: counts down after the player ship dies. */
   private playerRespawnTimer: number = 0;
@@ -449,6 +456,7 @@ export class Game {
     switch (order) {
       case 'waypoint': {
         const target = this.camera.screenToWorld(Input.mousePos);
+        this.recordWaypointMarker(group, target);
         for (const f of fighters) {
           f.order = 'waypoint';
           f.targetPos = target.clone();
@@ -458,12 +466,14 @@ export class Game {
         break;
       }
       case 'dock':
+        this.clearWaypointMarker(group);
         for (const f of fighters) {
           f.order = 'dock';
         }
         this.hud.showMessage(`${label}: Dock`, Colors.general_building, 2);
         break;
       case 'protect': {
+        this.clearWaypointMarker(group);
         const cp = this.state.getPlayerCommandPost();
         const protectPos = cp?.position ?? this.state.player.position;
         for (const f of fighters) {
@@ -475,6 +485,7 @@ export class Game {
         break;
       }
       case 'follow': {
+        this.clearWaypointMarker(group);
         for (const f of fighters) {
           f.order = 'follow';
           f.targetPos = this.state.player.position.clone();
@@ -566,12 +577,32 @@ export class Game {
     }
 
     const fighters = this.state.getFightersByGroup(Team.Player, group);
+    this.recordWaypointMarker(group, aimWorld);
     for (const f of fighters) {
       f.order = 'waypoint';
       f.targetPos = aimWorld.clone();
       if (f.docked) f.launch();
     }
     this.hud.showMessage(`Group ${group + 1}: Waypoint`, Colors.general_building, 2);
+  }
+
+  private recordWaypointMarker(group: ShipCommandGroup, pos: Vec2): void {
+    if (group === 'all') {
+      this.waypointMarkers.clear();
+      this.waypointMarkers.set('all', { pos: pos.clone(), issuedAt: this.state.gameTime });
+      return;
+    }
+    this.waypointMarkers.delete('all');
+    this.waypointMarkers.set(group, { pos: pos.clone(), issuedAt: this.state.gameTime });
+  }
+
+  private clearWaypointMarker(group: ShipCommandGroup): void {
+    if (group === 'all') {
+      this.waypointMarkers.clear();
+      return;
+    }
+    this.waypointMarkers.delete(group);
+    this.waypointMarkers.delete('all');
   }
 
   private findPlayerShipyardAt(pos: Vec2): Shipyard | null {
@@ -671,6 +702,7 @@ export class Game {
     this.camera.position = playerStart.clone();
     this.actionMenu = new ActionMenu();
     this.hud = new HUD();
+    this.waypointMarkers.clear();
 
     // Create player command post near player
     const cpPos = new Vec2(playerStart.x, playerStart.y + 80);
@@ -793,6 +825,7 @@ export class Game {
       (cx, cy, team) => this.state.power.isCellEnergized(team, cx, cy),
     );
     this.state.drawEntities(ctx, this.camera);
+    this.drawWaypointMarkers(ctx);
 
     // Edge indicators (always)
     drawEdgeIndicators(ctx, this.camera, this.state, w, h);
@@ -854,6 +887,64 @@ export class Game {
       `Bases destroyed: ${this.practiceMode.score.basesDestroyed} | Time: ${Math.floor(this.practiceMode.score.timeSurvived)}s`,
       10, 10,
     );
+  }
+
+  private drawWaypointMarkers(ctx: CanvasRenderingContext2D): void {
+    const drawOrder: ShipCommandGroup[] = [ShipGroup.Red, ShipGroup.Green, ShipGroup.Blue, 'all'];
+    for (const group of drawOrder) {
+      const marker = this.waypointMarkers.get(group);
+      if (!marker) continue;
+      const screen = this.camera.worldToScreen(marker.pos);
+      const color = group === 'all' ? Colors.mainguy : GROUP_COLORS[group];
+      const label = group === 'all' ? 'ALL' : `${group + 1}`;
+      const t = this.state.gameTime - marker.issuedAt;
+      const phase = this.state.gameTime * 3.2 + (group === 'all' ? 1.8 : group);
+      const pulse = 0.5 + 0.5 * Math.sin(phase);
+      const ring = (18 + pulse * 6) * this.camera.zoom;
+      const lift = Math.sin(this.state.gameTime * 1.7 + t) * 3 * this.camera.zoom;
+
+      ctx.save();
+      ctx.translate(screen.x, screen.y + lift);
+      ctx.globalCompositeOperation = 'lighter';
+
+      const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, ring * 1.8);
+      grad.addColorStop(0, colorToCSS(color, 0.26));
+      grad.addColorStop(0.42, colorToCSS(color, 0.10));
+      grad.addColorStop(1, colorToCSS(color, 0));
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(0, 0, ring * 1.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      for (let i = 0; i < 3; i++) {
+        ctx.save();
+        ctx.rotate(this.state.gameTime * (0.9 + i * 0.23) + i * Math.PI * 0.66);
+        ctx.strokeStyle = colorToCSS(color, 0.45 - i * 0.08);
+        ctx.lineWidth = Math.max(1, 1.4 * this.camera.zoom);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, ring * (1 + i * 0.26), ring * (0.42 + i * 0.12), 0, 0.18, Math.PI * 1.72);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      ctx.strokeStyle = colorToCSS(color, 0.76);
+      ctx.lineWidth = Math.max(1, 1.2 * this.camera.zoom);
+      ctx.beginPath();
+      ctx.moveTo(0, -ring * 0.9);
+      ctx.lineTo(ring * 0.7, 0);
+      ctx.lineTo(0, ring * 0.9);
+      ctx.lineTo(-ring * 0.7, 0);
+      ctx.closePath();
+      ctx.stroke();
+
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.font = `bold ${Math.max(9, 12 * this.camera.zoom)}px "Courier New", monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = colorToCSS(Colors.particles_switch, 0.92);
+      ctx.fillText(label, 0, 0);
+      ctx.restore();
+    }
   }
 
   private drawDebugOverlay(ctx: CanvasRenderingContext2D, screenW: number): void {

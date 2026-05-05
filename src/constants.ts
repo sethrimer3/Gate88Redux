@@ -9,7 +9,7 @@ export const WORLD_HEIGHT = 6000;
 
 // Entity radii
 export const ENTITY_RADIUS = {
-  fighter: 5,
+  fighter: 3.5,
   bomber: 8,
   mainguy: 7,
   bullet: 3,
@@ -188,7 +188,7 @@ export const SHIP_STATS = {
 } as const;
 
 // Resource gain rate (per second per factory, as bonus)
-export const RESOURCE_GAIN_RATE = 0.5;
+export const RESOURCE_GAIN_RATE = 1.0;
 
 // Baseline resource gain per second (player auto-gains resources over time)
 export const BASELINE_RESOURCE_GAIN = 2.0;

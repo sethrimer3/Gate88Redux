@@ -39,6 +39,10 @@ export class FighterShip extends Entity {
   fireTimer: number = 0;
   fireRate: number = 10; // ticks between shots
   weaponRange: number = 250;
+  private readonly swarmSeed: number;
+  private readonly orbitPhase: number;
+  private readonly orbitRadius: number;
+  private readonly orbitDrift: number;
 
   constructor(
     position: Vec2,
@@ -58,6 +62,10 @@ export class FighterShip extends Entity {
     this.turnRate = SHIP_STATS.fighter.turnRate;
     this.thrustPower = SHIP_STATS.fighter.speed;
     this.maxSpeed = SHIP_STATS.fighter.speed;
+    this.swarmSeed = Math.abs(Math.imul(this.id, 2654435761));
+    this.orbitPhase = (this.swarmSeed % 6283) / 1000;
+    this.orbitRadius = 34 + ((this.swarmSeed >>> 8) % 52);
+    this.orbitDrift = 0.7 + ((this.swarmSeed >>> 16) % 70) / 100;
   }
 
   update(dt: number): void {
@@ -107,6 +115,19 @@ export class FighterShip extends Entity {
       return;
     }
     const dist = this.position.distanceTo(this.targetPos);
+    if (this.order === 'waypoint') {
+      const t = performance.now() * 0.001;
+      const waveA = t * this.orbitDrift + this.orbitPhase;
+      const waveB = t * (this.orbitDrift * 0.43 + 0.19) + this.orbitPhase * 1.7;
+      const radius = this.orbitRadius * (0.82 + 0.18 * Math.sin(waveB));
+      const organicTarget = new Vec2(
+        this.targetPos.x + Math.cos(waveA) * radius + Math.sin(waveB * 1.31) * 18,
+        this.targetPos.y + Math.sin(waveA * 0.91) * radius + Math.cos(waveB) * 18,
+      );
+      this.steerTowards(organicTarget, dt);
+      this.thrustForward(dt * (dist < 55 ? 0.35 : 0.85));
+      return;
+    }
     if (dist < 90) {
       const orbit = new Vec2(
         this.targetPos.x - (this.position.y - this.targetPos.y),
@@ -218,11 +239,31 @@ export class FighterShip extends Entity {
 
     ctx.restore();
 
-    // Group-colored center circle
-    const groupCol = colorToCSS(GROUP_COLORS[this.group], 0.6 + 0.4 * this.healthFraction);
-    ctx.fillStyle = groupCol;
+    const coreTime = performance.now() * 0.001 + this.orbitPhase;
+    const coreColor = this.team === Team.Player ? Colors.mainguy : Colors.enemy_status;
+    const groupColor = GROUP_COLORS[this.group];
+    const pulse = 0.5 + 0.5 * Math.sin(coreTime * 2.8);
+    const glint = 0.5 + 0.5 * Math.sin(coreTime * 5.3 + 1.2);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = colorToCSS(coreColor, 0.10 + pulse * 0.12);
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, r * 1.05, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = colorToCSS(groupColor, 0.18 + pulse * 0.12);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, r * (0.62 + pulse * 0.08), coreTime, coreTime + Math.PI * 1.35);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = colorToCSS(coreColor, 0.72 + 0.28 * this.healthFraction);
     ctx.beginPath();
     ctx.arc(screen.x, screen.y, r * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = colorToCSS(Colors.particles_switch, 0.25 + glint * 0.18);
+    ctx.beginPath();
+    ctx.arc(screen.x - r * 0.09, screen.y - r * 0.09, r * 0.14, 0, Math.PI * 2);
     ctx.fill();
   }
 }
@@ -273,11 +314,30 @@ export class BomberShip extends FighterShip {
 
     ctx.restore();
 
-    // Group-colored center circle
-    const groupCol = colorToCSS(GROUP_COLORS[this.group], 0.6 + 0.4 * this.healthFraction);
-    ctx.fillStyle = groupCol;
+    const coreTime = performance.now() * 0.001;
+    const coreColor = this.team === Team.Player ? Colors.mainguy : Colors.enemy_status;
+    const groupColor = GROUP_COLORS[this.group];
+    const pulse = 0.5 + 0.5 * Math.sin(coreTime * 2.3 + this.id);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = colorToCSS(coreColor, 0.10 + pulse * 0.12);
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, r * 0.95, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = colorToCSS(groupColor, 0.18 + pulse * 0.12);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, r * (0.65 + pulse * 0.08), -coreTime, -coreTime + Math.PI * 1.35);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = colorToCSS(coreColor, 0.72 + 0.28 * this.healthFraction);
     ctx.beginPath();
     ctx.arc(screen.x, screen.y, r * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = colorToCSS(Colors.particles_switch, 0.28);
+    ctx.beginPath();
+    ctx.arc(screen.x - r * 0.1, screen.y - r * 0.1, r * 0.14, 0, Math.PI * 2);
     ctx.fill();
   }
 }

@@ -269,14 +269,35 @@ export class PlayerShip extends Entity {
 
     ctx.restore();
 
-    // Center circle showing team
-    const teamColor =
-      this.team === Team.Player
-        ? colorToCSS(Colors.friendly_status, 0.5 + 0.5 * this.healthFraction)
-        : colorToCSS(Colors.enemy_status, 0.5 + 0.5 * this.healthFraction);
-    ctx.fillStyle = teamColor;
+    const coreColor = this.team === Team.Player ? Colors.mainguy : Colors.enemy_status;
+    const corePulse = 0.5 + 0.5 * Math.sin(this.drawTime * 3.4);
+    const coreGlint = 0.5 + 0.5 * Math.sin(this.drawTime * 6.1 + 0.8);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = colorToCSS(coreColor, 0.10 + corePulse * 0.12);
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, r * 1.05, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = colorToCSS(coreColor, 0.22 + corePulse * 0.16);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(
+      screen.x,
+      screen.y,
+      r * (0.62 + corePulse * 0.08),
+      this.drawTime * 1.6,
+      this.drawTime * 1.6 + Math.PI * 1.45,
+    );
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.fillStyle = colorToCSS(coreColor, 0.72 + 0.28 * this.healthFraction);
     ctx.beginPath();
     ctx.arc(screen.x, screen.y, r * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = colorToCSS(Colors.particles_switch, 0.25 + coreGlint * 0.2);
+    ctx.beginPath();
+    ctx.arc(screen.x - r * 0.1, screen.y - r * 0.1, r * 0.13, 0, Math.PI * 2);
     ctx.fill();
 
     // Battery ring — color shifts green→yellow→red; flashes when critical
