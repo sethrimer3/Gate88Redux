@@ -1,6 +1,6 @@
 /** Projectile types for Gate88 */
 
-import { Vec2 } from './math.js';
+import { Vec2, wrapAngle } from './math.js';
 import { Camera } from './camera.js';
 import { Entity, EntityType, Team } from './entities.js';
 import { Colors, colorToCSS } from './colors.js';
@@ -8,6 +8,7 @@ import { ENTITY_RADIUS, WEAPON_STATS } from './constants.js';
 
 const BULLET_TRAIL_LIFETIME = 0.18;
 const BULLET_TRAIL_MIN_DISTANCE = 2;
+const GATLING_TRAIL_LIFETIME = 0.055;
 
 interface TrailPoint {
   pos: Vec2;
@@ -74,17 +75,23 @@ export abstract class ProjectileBase extends Entity {
     if (this.trail.length > 10) this.trail.shift();
   }
 
-  protected drawTrail(ctx: CanvasRenderingContext2D, camera: Camera, color: string): void {
+  protected drawTrail(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    color: string,
+    lifetime: number = BULLET_TRAIL_LIFETIME,
+    width: number = 3,
+  ): void {
     if (this.trail.length < 2) return;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.lineWidth = 3;
+    ctx.lineWidth = width;
     for (let i = 1; i < this.trail.length; i++) {
       const a = this.trail[i - 1];
       const b = this.trail[i];
-      const fade = 1 - Math.max(a.age, b.age) / BULLET_TRAIL_LIFETIME;
+      const fade = 1 - Math.max(a.age, b.age) / lifetime;
       if (fade <= 0) continue;
       const from = camera.worldToScreen(a.pos);
       const to = camera.worldToScreen(b.pos);
@@ -167,6 +174,16 @@ export class GatlingBullet extends ProjectileBase {
     this.radius = ENTITY_RADIUS.bullet * 0.75;
   }
 
+  protected override updateTrail(dt: number): void {
+    for (const point of this.trail) point.age += dt;
+    this.trail = this.trail.filter((point) => point.age <= GATLING_TRAIL_LIFETIME);
+    const last = this.trail[this.trail.length - 1];
+    if (!last || last.pos.distanceTo(this.position) >= 5) {
+      this.trail.push({ pos: this.position.clone(), age: 0 });
+    }
+    if (this.trail.length > 3) this.trail.shift();
+  }
+
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     if (!this.alive) return;
     const screen = camera.worldToScreen(this.position);
@@ -174,7 +191,7 @@ export class GatlingBullet extends ProjectileBase {
       this.team === Team.Player
         ? colorToCSS(Colors.friendlyfire, 0.82)
         : colorToCSS(Colors.enemyfire, 0.82);
-    this.drawTrail(ctx, camera, fireColor);
+    this.drawTrail(ctx, camera, fireColor, GATLING_TRAIL_LIFETIME, 1.25);
     ctx.fillStyle = fireColor;
     ctx.beginPath();
     ctx.arc(screen.x, screen.y, 1.5 * camera.zoom, 0, Math.PI * 2);
@@ -262,6 +279,130 @@ export class Missile extends ProjectileBase {
     ctx.arc(-r * 0.8, 0, r * 0.3, 0, Math.PI * 2);
     ctx.fill();
 
+    ctx.restore();
+  }
+}
+
+export class GuidedMissile extends ProjectileBase {
+  readonly blastRadius: number = 110;
+  readonly releaseLifetime: number = 0.75;
+  private readonly minSpeed: number = 110;
+  private readonly maxSpeed: number = WEAPON_STATS.guidedmissile.speed;
+  private readonly acceleration: number = 520;
+  private readonly turnRate: number = 6.5;
+  private guided = true;
+
+  constructor(
+    team: Team,
+    position: Vec2,
+    angle: number,
+    source: Entity | null = null,
+  ) {
+    super({
+      type: EntityType.Missile,
+      team,
+      position,
+      angle,
+      damage: WEAPON_STATS.guidedmissile.damage,
+      speed: 110,
+      lifetime: WEAPON_STATS.guidedmissile.range / WEAPON_STATS.guidedmissile.speed + 1.1,
+      source,
+    });
+    this.radius = ENTITY_RADIUS.missile * 1.7;
+  }
+
+  steerToward(target: Vec2): void {
+    if (!this.guided || !this.alive) return;
+    const desired = this.position.angleTo(target);
+    const diff = wrapAngle(desired - this.angle);
+    const maxStep = this.turnRate / 60;
+    this.angle = wrapAngle(this.angle + Math.sign(diff) * Math.min(Math.abs(diff), maxStep));
+  }
+
+  release(): void {
+    if (!this.guided) return;
+    this.guided = false;
+    this.lifetime = Math.min(this.lifetime, this.releaseLifetime);
+  }
+
+  update(dt: number): void {
+    if (!this.alive) return;
+    this.speed = Math.min(this.maxSpeed, Math.max(this.minSpeed, this.speed + this.acceleration * dt));
+    this.velocity = new Vec2(Math.cos(this.angle) * this.speed, Math.sin(this.angle) * this.speed);
+    super.update(dt);
+  }
+
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive) return;
+    const screen = camera.worldToScreen(this.position);
+    const r = this.radius * camera.zoom;
+    this.drawTrail(ctx, camera, colorToCSS(Colors.alert2, 0.9), 0.28, 4);
+    ctx.save();
+    ctx.translate(screen.x, screen.y);
+    ctx.rotate(this.angle);
+    ctx.globalCompositeOperation = 'lighter';
+    const glow = ctx.createRadialGradient(0, 0, r * 0.2, 0, 0, r * 2.2);
+    glow.addColorStop(0, 'rgba(255,255,255,0.65)');
+    glow.addColorStop(0.35, colorToCSS(Colors.alert2, 0.36));
+    glow.addColorStop(1, colorToCSS(Colors.explosion, 0));
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 2.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.fillStyle = colorToCSS(Colors.friendlyfire);
+    ctx.beginPath();
+    ctx.moveTo(r * 1.45, 0);
+    ctx.lineTo(-r * 0.85, -r * 0.55);
+    ctx.lineTo(-r * 0.45, 0);
+    ctx.lineTo(-r * 0.85, r * 0.55);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = colorToCSS(Colors.particles_neutral_exhaust, 0.75);
+    ctx.beginPath();
+    ctx.arc(-r, 0, r * 0.35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+export class BomberMissile extends ProjectileBase {
+  readonly blastRadius: number = 48;
+
+  constructor(
+    team: Team,
+    position: Vec2,
+    angle: number,
+    source: Entity | null = null,
+  ) {
+    super({
+      type: EntityType.Missile,
+      team,
+      position,
+      angle,
+      damage: WEAPON_STATS.bigmissile.damage,
+      speed: WEAPON_STATS.bigmissile.speed,
+      lifetime: WEAPON_STATS.bigmissile.range / WEAPON_STATS.bigmissile.speed,
+      source,
+    });
+    this.radius = ENTITY_RADIUS.missile * 1.25;
+  }
+
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive) return;
+    const screen = camera.worldToScreen(this.position);
+    const r = this.radius * camera.zoom;
+    this.drawTrail(ctx, camera, colorToCSS(Colors.explosion, 0.75), 0.28, 2.5);
+    ctx.save();
+    ctx.translate(screen.x, screen.y);
+    ctx.rotate(this.angle);
+    ctx.fillStyle = this.team === Team.Player ? colorToCSS(Colors.friendlyfire) : colorToCSS(Colors.enemyfire);
+    ctx.beginPath();
+    ctx.moveTo(r * 1.2, 0);
+    ctx.lineTo(-r * 0.7, -r * 0.55);
+    ctx.lineTo(-r * 0.7, r * 0.55);
+    ctx.closePath();
+    ctx.fill();
     ctx.restore();
   }
 }

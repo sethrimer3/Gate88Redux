@@ -139,6 +139,35 @@ export abstract class BuildingBase extends Entity {
     }
 
     ctx.globalAlpha = 1;
+
+    if (this.deleting) {
+      const t = this.deletionProgress;
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.018);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = colorToCSS(Colors.alert2, 0.55 + pulse * 0.25);
+      ctx.lineWidth = 1.4;
+      ctx.setLineDash([5, 4]);
+      const box = r * (1.2 + t * 0.55);
+      ctx.strokeRect(screen.x - box, screen.y - box, box * 2, box * 2);
+      ctx.setLineDash([]);
+      ctx.strokeStyle = colorToCSS(Colors.alert1, 0.82);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r * (0.95 + t * 0.18), -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * t);
+      ctx.stroke();
+      for (let i = 0; i < 4; i++) {
+        const a = t * Math.PI * 2 + i * Math.PI / 2;
+        const inner = r * 0.35;
+        const outer = r * (1.35 + t * 0.45);
+        ctx.strokeStyle = colorToCSS(Colors.particles_switch, 0.18 + (1 - t) * 0.28);
+        ctx.beginPath();
+        ctx.moveTo(screen.x + Math.cos(a) * inner, screen.y + Math.sin(a) * inner);
+        ctx.lineTo(screen.x + Math.cos(a) * outer, screen.y + Math.sin(a) * outer);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
   }
 }
 

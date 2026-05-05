@@ -11,10 +11,13 @@ import { DEFAULT_SPECIAL_ID } from './special.js';
 const BATTERY_MAX = 100;
 const BATTERY_REGEN_RATE = 16;
 const BATTERY_FIRE_COST = 5;
+export const GATLING_BATTERY_FIRE_COST = BATTERY_FIRE_COST / 3;
+export const GUIDED_MISSILE_INITIAL_BATTERY_COST = 14;
+export const GUIDED_MISSILE_CONTROL_BATTERY_DRAIN = 8;
 const SHIELD_MAX = 40;
 const SHIELD_REGEN_RATE = 7;
 const SHIELD_REGEN_DELAY = 2.5;
-const SHIP_WEAPON_IDS = ['cannon', 'gatling', 'laser'] as const;
+const SHIP_WEAPON_IDS = ['cannon', 'gatling', 'laser', 'guidedmissile'] as const;
 export type ShipWeaponId = typeof SHIP_WEAPON_IDS[number];
 export const SHIP_WEAPON_OPTIONS: ReadonlyArray<{
   id: ShipWeaponId;
@@ -25,6 +28,7 @@ export const SHIP_WEAPON_OPTIONS: ReadonlyArray<{
   { id: 'cannon', label: 'Cannon', description: 'Reliable medium-range primary weapon.' },
   { id: 'gatling', label: 'Gatling', researchKey: 'weaponGatling', description: 'Very weak, very fast, short range.' },
   { id: 'laser', label: 'Laser', researchKey: 'weaponLaser', description: 'Thin slow-firing beam with infinite pierce.' },
+  { id: 'guidedmissile', label: 'Guided Missile', researchKey: 'weaponGuidedMissile', description: 'Hold fire to steer a heavy explosive missile.' },
 ];
 
 /** Speed multiplier when boosting (Shift held). */
@@ -236,9 +240,19 @@ export class PlayerShip extends Entity {
     return this.primaryFireTimer <= 0 && this.battery >= BATTERY_FIRE_COST;
   }
 
-  consumePrimaryFire(cooldown: number): void {
+  consumePrimaryFire(cooldown: number, cost: number = BATTERY_FIRE_COST): void {
     this.primaryFireTimer = cooldown;
-    this.battery -= BATTERY_FIRE_COST;
+    this.battery -= cost;
+  }
+
+  drainBattery(amount: number): boolean {
+    if (amount <= 0) return true;
+    if (this.battery <= 0) {
+      this.battery = 0;
+      return false;
+    }
+    this.battery = Math.max(0, this.battery - amount);
+    return this.battery > 0;
   }
 
   canFireSpecial(): boolean {

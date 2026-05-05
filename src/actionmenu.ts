@@ -82,6 +82,7 @@ const RESEARCH_LABELS: Record<string, string> = {
   shipShield: 'Shield',
   weaponGatling: 'Gatling',
   weaponLaser: 'Laser',
+  weaponGuidedMissile: 'Guided\nMissile',
   missileturret: 'Missile\nTurret',
   exciterturret: 'Exciter\nTurret',
   massdriverturret: 'Mass Driver\nTurret',
@@ -531,6 +532,10 @@ class PaintMenu {
             }
           }
         } else if (this.dragMode === 'erase') {
+          if (state.eraseBlueprintAt(worldPos, Team.Player)) {
+            Audio.playSound('menucursor');
+            return true;
+          }
           if (state.grid.conduitTeam(cx, cy) === Team.Player) {
             state.grid.removeConduit(cx, cy);
             state.power.markDirty();

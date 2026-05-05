@@ -15,14 +15,23 @@ import { Audio } from './audio.js';
 import { WorldGrid, GRID_CELL_SIZE, cellKey, footprintOrigin } from './grid.js';
 import { PowerGraph } from './power.js';
 import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN } from './constants.js';
-import { WORLD_WIDTH, WORLD_HEIGHT } from './constants.js';
+import { WORLD_WIDTH, WORLD_HEIGHT, ENTITY_RADIUS } from './constants.js';
 import { buildCostForBuildingType, buildDefForEntityType, createBuildingFromDef, footprintForBuildingType, type BuildDef } from './builddefs.js';
+import { Colors, colorToCSS } from './colors.js';
 
 export interface DestroyedBuildingRecord {
   type: EntityType;
   team: Team;
   position: Vec2;
   maxHealth: number;
+  erased?: boolean;
+}
+
+export interface DestroyedConduitRecord {
+  cx: number;
+  cy: number;
+  team: Team;
+  erased?: boolean;
 }
 
 export interface ResearchProgress {
@@ -37,6 +46,7 @@ export class GameState {
   player: PlayerShip;
   buildings: BuildingBase[] = [];
   destroyedBuildings: DestroyedBuildingRecord[] = [];
+  destroyedConduits: DestroyedConduitRecord[] = [];
   projectiles: ProjectileBase[] = [];
   fighters: FighterShip[] = [];
   particles: ParticleSystem;
@@ -114,7 +124,7 @@ export class GameState {
     let bestDist = range;
     for (let i = 0; i < this.destroyedBuildings.length; i++) {
       const wreck = this.destroyedBuildings[i];
-      if (wreck.team !== source.team) continue;
+      if (wreck.erased || wreck.team !== source.team) continue;
       const d = source.position.distanceTo(wreck.position);
       if (d < bestDist) {
         bestDist = d;
@@ -201,7 +211,13 @@ export class GameState {
     for (const f of this.fighters) f.update(dt);
 
     // Update projectiles
-    for (const p of this.projectiles) p.update(dt);
+    for (const p of this.projectiles) {
+      if (!p.alive) continue;
+      p.update(dt);
+      if (!p.alive && this.projectileBlastRadius(p) > 0) {
+        this.detonateProjectile(p);
+      }
+    }
 
     // Collision detection
     this.resolveCollisions();
@@ -290,6 +306,11 @@ export class GameState {
     const dist = proj.position.distanceTo(target.position);
     const combinedRadius = proj.radius + target.radius;
     if (dist < combinedRadius) {
+      if (this.projectileBlastRadius(proj) > 0) {
+        this.applyProjectileDamage(proj, target);
+        proj.destroy();
+        return true;
+      }
       target.takeDamage(proj.damage, proj);
       this.recentlyDamaged.add(target.id);
       if (!target.alive) {
@@ -443,10 +464,16 @@ export class GameState {
       // Only opposing-team powered conduits stop shots.
       if (conduitTeam === null || conduitTeam === proj.team) continue;
       if (!this.power.isCellEnergized(conduitTeam, cx, cy)) continue;
-      this.grid.damageConduit(cx, cy, 1);
+      if (this.grid.damageConduit(cx, cy, 1)) {
+        this.recordDestroyedConduit(cx, cy, conduitTeam);
+      }
       this.power.markDirty();
       proj.destroy();
-      this.particles.emitSpark(proj.position);
+      if (this.projectileBlastRadius(proj) > 0) {
+        this.detonateProjectile(proj);
+      } else {
+        this.particles.emitSpark(proj.position);
+      }
     }
   }
 
@@ -533,6 +560,84 @@ export class GameState {
       if (orthogonal) return true;
     }
     return false;
+  }
+
+  private applyProjectileDamage(proj: ProjectileBase, target: Entity): void {
+    const blastRadius = this.projectileBlastRadius(proj);
+    if (blastRadius > 0) {
+      this.applyBlastDamage(proj, target, blastRadius);
+      this.emitFancyExplosion(proj.position, blastRadius);
+      return;
+    }
+
+    target.takeDamage(proj.damage, proj);
+    this.recentlyDamaged.add(target.id);
+    if (!target.alive) {
+      this.particles.emitExplosion(target.position, target.radius);
+      this.playEntityExplosionSound(target);
+    } else {
+      this.particles.emitSpark(target.position);
+      const playerDist = this.player.position.distanceTo(target.position);
+      Audio.playSoundAt('bhit0', playerDist);
+    }
+  }
+
+  private projectileBlastRadius(proj: ProjectileBase): number {
+    const maybeBlast = proj as ProjectileBase & { blastRadius?: number };
+    return typeof maybeBlast.blastRadius === 'number' ? maybeBlast.blastRadius : 0;
+  }
+
+  private applyBlastDamage(proj: ProjectileBase, directTarget: Entity, blastRadius: number): void {
+    for (const e of this.allEntities()) {
+      if (!e.alive || e === proj || e.team === Team.Neutral || e.team === proj.team) continue;
+      const d = e.position.distanceTo(proj.position);
+      if (d > blastRadius + e.radius) continue;
+      const falloff = Math.max(0.35, 1 - d / Math.max(1, blastRadius));
+      e.takeDamage(e === directTarget ? proj.damage : proj.damage * falloff, proj);
+      this.recentlyDamaged.add(e.id);
+      if (!e.alive) this.playEntityExplosionSound(e);
+    }
+  }
+
+  private emitFancyExplosion(pos: Vec2, blastRadius: number): void {
+    this.particles.emitExplosion(pos, blastRadius * 0.45);
+    this.particles.emitExplosion(pos, blastRadius * 0.22);
+    this.ringEffects.spawnPowerWave(pos, blastRadius * 0.15, blastRadius, 0.55, 1.65);
+    this.ringEffects.spawnBlackout(pos, blastRadius * 0.05, blastRadius * 0.72, 0.38, 0.55);
+    const playerDist = this.player.position.distanceTo(pos);
+    Audio.playSoundAt(blastRadius > 70 ? 'explode2' : 'explode1', playerDist);
+  }
+
+  private detonateProjectile(proj: ProjectileBase): void {
+    const blastRadius = this.projectileBlastRadius(proj);
+    if (blastRadius <= 0) return;
+    this.applyBlastDamage(proj, proj, blastRadius);
+    this.emitFancyExplosion(proj.position, blastRadius);
+  }
+
+  private playEntityExplosionSound(target: Entity): void {
+    const playerDist = this.player.position.distanceTo(target.position);
+    if (
+      target.type === EntityType.CommandPost ||
+      target.type === EntityType.PowerGenerator ||
+      target.type === EntityType.FighterYard ||
+      target.type === EntityType.BomberYard ||
+      target.type === EntityType.ResearchLab ||
+      target.type === EntityType.Factory
+    ) {
+      Audio.playSoundAt('explode2', playerDist);
+    } else if (
+      target.type === EntityType.MissileTurret ||
+      target.type === EntityType.ExciterTurret ||
+      target.type === EntityType.MassDriverTurret ||
+      target.type === EntityType.RegenTurret ||
+      target.type === EntityType.RepairTurret ||
+      target.type === EntityType.PlayerShip
+    ) {
+      Audio.playSoundAt('explode1', playerDist);
+    } else {
+      Audio.playSoundAt('explode0', playerDist);
+    }
   }
 
   private addAutomaticBuildingConduits(building: BuildingBase): void {
@@ -665,6 +770,35 @@ export class GameState {
     return best;
   }
 
+  eraseBlueprintAt(pos: Vec2, team: Team): boolean {
+    const px = Math.floor(pos.x / GRID_CELL_SIZE);
+    const py = Math.floor(pos.y / GRID_CELL_SIZE);
+    let removed = false;
+    for (const wreck of this.destroyedBuildings) {
+      if (wreck.erased || wreck.team !== team) continue;
+      const cx = Math.floor(wreck.position.x / GRID_CELL_SIZE);
+      const cy = Math.floor(wreck.position.y / GRID_CELL_SIZE);
+      const size = footprintForBuildingType(wreck.type);
+      const origin = footprintOrigin(cx, cy, size);
+      if (px >= origin.cx && px < origin.cx + size && py >= origin.cy && py < origin.cy + size) {
+        wreck.erased = true;
+        removed = true;
+      }
+    }
+    for (const conduit of this.destroyedConduits) {
+      if (conduit.erased || conduit.team !== team) continue;
+      if (conduit.cx === px && conduit.cy === py) {
+        conduit.erased = true;
+        removed = true;
+      }
+    }
+    if (removed) {
+      this.destroyedBuildings = this.destroyedBuildings.filter((w) => !w.erased);
+      this.destroyedConduits = this.destroyedConduits.filter((c) => !c.erased);
+    }
+    return removed;
+  }
+
   private completeBuildingDeletions(): void {
     for (const b of this.buildings) {
       if (!b.alive || !b.deleting || b.deletionProgress < 1) continue;
@@ -742,11 +876,17 @@ export class GameState {
     this.fighters = this.fighters.filter((f) => f.alive);
   }
 
+  private recordDestroyedConduit(cx: number, cy: number, team: Team): void {
+    if (this.destroyedConduits.some((c) => !c.erased && c.cx === cx && c.cy === cy && c.team === team)) return;
+    this.destroyedConduits.push({ cx, cy, team });
+  }
+
   // -----------------------------------------------------------------------
   // Drawing — calls draw on every entity
   // -----------------------------------------------------------------------
 
   drawEntities(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    this.drawBlueprintOutlines(ctx, camera);
     for (const b of this.buildings) b.draw(ctx, camera);
     for (const f of this.fighters) f.draw(ctx, camera);
     for (const p of this.projectiles) p.draw(ctx, camera);
@@ -756,6 +896,39 @@ export class GameState {
     }
     this.particles.draw(ctx, camera);
     this.ringEffects.draw(ctx, camera);
+  }
+
+  private drawBlueprintOutlines(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 1;
+    for (const wreck of this.destroyedBuildings) {
+      if (wreck.erased) continue;
+      const screen = camera.worldToScreen(wreck.position);
+      const color = wreck.team === Team.Player
+        ? colorToCSS(Colors.radar_friendly_status, 0.23)
+        : colorToCSS(Colors.enemyfire, 0.16);
+      const r = ENTITY_RADIUS.building * camera.zoom;
+      const size = footprintForBuildingType(wreck.type) * GRID_CELL_SIZE * camera.zoom;
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeRect(screen.x - size / 2, screen.y - size / 2, size, size);
+    }
+    for (const conduit of this.destroyedConduits) {
+      if (conduit.erased) continue;
+      const screen = camera.worldToScreen(new Vec2(
+        (conduit.cx + 0.5) * GRID_CELL_SIZE,
+        (conduit.cy + 0.5) * GRID_CELL_SIZE,
+      ));
+      const cellPx = GRID_CELL_SIZE * camera.zoom;
+      ctx.strokeStyle = conduit.team === Team.Player
+        ? colorToCSS(Colors.radar_friendly_status, 0.20)
+        : colorToCSS(Colors.enemyfire, 0.14);
+      ctx.strokeRect(screen.x - cellPx / 2 + 1, screen.y - cellPx / 2 + 1, cellPx - 2, cellPx - 2);
+    }
+    ctx.restore();
   }
 
   // -----------------------------------------------------------------------

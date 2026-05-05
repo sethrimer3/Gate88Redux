@@ -1,6 +1,6 @@
 /** Main game coordinator for Gate88 */
 
-import { Vec2 } from './math.js';
+import { Vec2, randomRange } from './math.js';
 import { Input } from './input.js';
 import { Audio } from './audio.js';
 import { Camera } from './camera.js';
@@ -18,11 +18,13 @@ import { BuildingBase, CommandPost } from './building.js';
 import { Shipyard } from './building.js';
 import { FighterShip, BomberShip } from './fighter.js';
 import { Bullet, GatlingBullet, Laser } from './projectile.js';
+import { GuidedMissile, BomberMissile } from './projectile.js';
 import { PracticeMode } from './practicemode.js';
 import { cloneDefaultPracticeConfig } from './practiceconfig.js';
 import { TutorialMode } from './tutorial.js';
 import { AIShip, VsAIDirector } from './vsaibot.js';
 import { tryFireSpecial } from './special.js';
+import { GATLING_BATTERY_FIRE_COST, GUIDED_MISSILE_CONTROL_BATTERY_DRAIN, GUIDED_MISSILE_INITIAL_BATTERY_COST } from './ship.js';
 import { createBuildingFromDef, getBuildDef } from './builddefs.js';
 import { worldToCell, footprintCenter, GRID_CELL_SIZE } from './grid.js';
 
@@ -61,6 +63,7 @@ export class Game {
   private debugOverlay = false;
   private lastFrameMs = 0;
   private waypointMarkers = new Map<ShipCommandGroup, WaypointMarker>();
+  private activeGuidedMissile: GuidedMissile | null = null;
 
   /** Respawn timer: counts down after the player ship dies. */
   private playerRespawnTimer: number = 0;
@@ -291,6 +294,7 @@ export class Game {
     }
 
     // Player firing
+    this.updateGuidedMissileControl();
     this.updatePlayerFiring();
 
     // Player ship fighter spawning from shipyards
@@ -416,14 +420,37 @@ export class Game {
   private fireSelectedPrimary(aimWorld: Vec2): void {
     const weapon = this.state.player.primaryWeaponId;
     if (weapon === 'gatling' && this.state.researchedItems.has('weaponGatling')) {
-      this.state.player.consumePrimaryFire(WEAPON_STATS.gatling.fireRate * DT * this.state.player.fireCooldownMultiplier);
+      this.state.player.consumePrimaryFire(
+        WEAPON_STATS.gatling.fireRate * DT * this.state.player.fireCooldownMultiplier,
+        GATLING_BATTERY_FIRE_COST,
+      );
+      const spread = randomRange(-Math.PI / 60, Math.PI / 60);
       this.state.addEntity(new GatlingBullet(
+        Team.Player,
+        this.state.player.position.clone(),
+        this.state.player.angle + spread,
+        this.state.player,
+      ));
+      Audio.playSound('shortbullet');
+      return;
+    }
+    if (weapon === 'guidedmissile' && this.state.researchedItems.has('weaponGuidedMissile')) {
+      if (this.activeGuidedMissile?.alive) return;
+      if (this.state.player.battery < GUIDED_MISSILE_INITIAL_BATTERY_COST) return;
+      this.state.player.consumePrimaryFire(
+        WEAPON_STATS.guidedmissile.fireRate * DT * this.state.player.fireCooldownMultiplier,
+        GUIDED_MISSILE_INITIAL_BATTERY_COST,
+      );
+      const missile = new GuidedMissile(
         Team.Player,
         this.state.player.position.clone(),
         this.state.player.angle,
         this.state.player,
-      ));
-      Audio.playSound('shortbullet');
+      );
+      missile.steerToward(aimWorld);
+      this.activeGuidedMissile = missile;
+      this.state.addEntity(missile);
+      Audio.playSound('missile');
       return;
     }
     if (weapon === 'laser' && this.state.researchedItems.has('weaponLaser')) {
@@ -447,6 +474,27 @@ export class Game {
       this.state.player,
     ));
     Audio.playSound('fire');
+  }
+
+  private updateGuidedMissileControl(): void {
+    const missile = this.activeGuidedMissile;
+    if (!missile) return;
+    if (!missile.alive) {
+      this.activeGuidedMissile = null;
+      return;
+    }
+    if (!Input.mouseDown || this.actionMenu.open || this.actionMenu.placementMode) {
+      missile.release();
+      this.activeGuidedMissile = null;
+      return;
+    }
+    const stillPowered = this.state.player.drainBattery(GUIDED_MISSILE_CONTROL_BATTERY_DRAIN * DT);
+    if (!stillPowered) {
+      missile.release();
+      this.activeGuidedMissile = null;
+      return;
+    }
+    missile.steerToward(this.camera.screenToWorld(Input.mousePos));
   }
 
   private damageLaserLine(start: Vec2, end: Vec2, damage: number): void {
@@ -753,9 +801,15 @@ export class Game {
         }
       }
       if (!target) continue;
-      f.consumeShot(WEAPON_STATS.fire.fireRate);
       const angle = f.position.angleTo(target.position);
-      this.state.addEntity(new Bullet(f.team, f.position.clone(), angle, f));
+      if (f instanceof BomberShip) {
+        f.consumeShot(WEAPON_STATS.bigmissile.fireRate);
+        this.state.addEntity(new BomberMissile(f.team, f.position.clone(), angle, f));
+        Audio.playSound('missile');
+      } else {
+        f.consumeShot(WEAPON_STATS.fire.fireRate);
+        this.state.addEntity(new Bullet(f.team, f.position.clone(), angle, f));
+      }
     }
   }
 
@@ -784,6 +838,7 @@ export class Game {
     // Reset respawn tracking.
     this.playerDeathHandled = false;
     this.playerRespawnTimer = 0;
+    this.activeGuidedMissile = null;
 
     // Reset subsystems
     this.camera = new Camera();

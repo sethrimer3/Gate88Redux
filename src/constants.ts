@@ -62,6 +62,7 @@ export const RESEARCH_COST = {
   weaponCannon: 0,
   weaponGatling: 180,
   weaponLaser: 320,
+  weaponGuidedMissile: 420,
   missileturret: 200,
   exciterturret: 250,
   massdriverturret: 220,
@@ -81,6 +82,7 @@ export const RESEARCH_TIME = {
   weaponCannon: 1,
   weaponGatling: 420,
   weaponLaser: 780,
+  weaponGuidedMissile: 900,
   missileturret: 600,
   exciterturret: 720,
   massdriverturret: 660,
@@ -100,6 +102,7 @@ export const ACTIVE_RESEARCH_ITEMS = [
   'shipShield',
   'weaponGatling',
   'weaponLaser',
+  'weaponGuidedMissile',
   'missileturret',
   'exciterturret',
   'massdriverturret',
@@ -122,6 +125,12 @@ export const WEAPON_STATS = {
     fireRate: 3,
     range: 260,
   },
+  guidedmissile: {
+    damage: 48,
+    speed: 480,
+    fireRate: 110,
+    range: 1000,
+  },
   laser: {
     damage: 7,
     speed: 0,
@@ -142,8 +151,8 @@ export const WEAPON_STATS = {
   },
   bigmissile: {
     damage: 35,
-    speed: 250,
-    fireRate: 60,
+    speed: 180,
+    fireRate: 120,
     range: 900,
   },
   exciterbullet: {
