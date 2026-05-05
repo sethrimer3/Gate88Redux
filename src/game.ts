@@ -27,6 +27,7 @@ import { createBuildingFromDef, getBuildDef } from './builddefs.js';
 import { worldToCell, footprintCenter, GRID_CELL_SIZE } from './grid.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
+type ShipCommandGroup = ShipGroup | 'all';
 
 const PLAYER_FIRE_COOLDOWN = WEAPON_STATS.fire.fireRate * DT;
 
@@ -212,6 +213,7 @@ export class Game {
       this.state.player.setAimPoint(aimWorld);
     }
 
+    this.updateNumberGroupHotkeys();
     this.updatePlayerFighterOrderTargets();
 
     // Update core game state (entities, collision, power, resources, research, particles)
@@ -286,6 +288,7 @@ export class Game {
 
     // Player ship fighter spawning from shipyards
     this.updatePlayerShipyards();
+    this.updatePlayerFighterCombat();
 
     // HUD
     this.hud.update(DT);
@@ -390,7 +393,7 @@ export class Game {
 
       if (b.shouldSpawnShip()) {
         const isBomber = b.type === EntityType.BomberYard;
-        const group = ShipGroup.Red; // default to red group
+        const group = b.assignedGroup;
         const fighter = isBomber
           ? new BomberShip(b.position.clone(), Team.Player, group, b)
           : new FighterShip(b.position.clone(), Team.Player, group, b);
@@ -439,54 +442,45 @@ export class Game {
     this.hud.showMessage(`Building ${def.label}…`, Colors.general_building, 2);
   }
 
-  private issueShipOrder(group: ShipGroup, order: string): void {
-    const fighters = this.state.getFightersByGroup(Team.Player, group);
+  private issueShipOrder(group: ShipCommandGroup, order: string): void {
+    const fighters = this.getPlayerFightersForCommand(group);
+    const label = this.groupLabel(group);
 
     switch (order) {
-      case 'attack': {
+      case 'waypoint': {
         const target = this.camera.screenToWorld(Input.mousePos);
         for (const f of fighters) {
-          f.order = 'attack';
+          f.order = 'waypoint';
           f.targetPos = target.clone();
           if (f.docked) f.launch();
         }
-        this.hud.showMessage(`${ShipGroup[group]} group: Attack!`, Colors.general_building, 2);
+        this.hud.showMessage(`${label}: Waypoint`, Colors.general_building, 2);
         break;
       }
       case 'dock':
         for (const f of fighters) {
           f.order = 'dock';
         }
-        this.hud.showMessage(`${ShipGroup[group]} group: Dock`, Colors.general_building, 2);
+        this.hud.showMessage(`${label}: Dock`, Colors.general_building, 2);
         break;
-      case 'defend': {
-        const defendPos = this.camera.screenToWorld(Input.mousePos);
+      case 'protect': {
+        const cp = this.state.getPlayerCommandPost();
+        const protectPos = cp?.position ?? this.state.player.position;
         for (const f of fighters) {
-          f.order = 'defend';
-          f.targetPos = defendPos.clone();
+          f.order = 'protect';
+          f.targetPos = protectPos.clone();
           if (f.docked) f.launch();
         }
-        this.hud.showMessage(`${ShipGroup[group]} group: Defend Area`, Colors.general_building, 2);
+        this.hud.showMessage(`${label}: Protect Base`, Colors.general_building, 2);
         break;
       }
-      case 'escort': {
+      case 'follow': {
         for (const f of fighters) {
-          f.order = 'escort';
+          f.order = 'follow';
           f.targetPos = this.state.player.position.clone();
           if (f.docked) f.launch();
         }
-        this.hud.showMessage(`${ShipGroup[group]} group: Escort Player`, Colors.general_building, 2);
-        break;
-      }
-      case 'harass': {
-        const enemyGen = this.findNearestEnemyBuildingOfType(EntityType.PowerGenerator);
-        const harassTarget = (enemyGen ?? this.state.getEnemyCommandPost())?.position ?? null;
-        for (const f of fighters) {
-          f.order = 'harass';
-          f.targetPos = harassTarget?.clone() ?? null;
-          if (f.docked) f.launch();
-        }
-        this.hud.showMessage(`${ShipGroup[group]} group: Harass Power`, Colors.general_building, 2);
+        this.hud.showMessage(`${label}: Follow Player`, Colors.general_building, 2);
         break;
       }
       default:
@@ -527,6 +521,73 @@ export class Game {
     this.hud.showMessage(`Researching: ${item}`, Colors.researchlab_detail, 3);
   }
 
+  private getPlayerFightersForCommand(group: ShipCommandGroup): FighterShip[] {
+    if (group === 'all') {
+      return this.state.fighters.filter((f) => f.alive && f.team === Team.Player);
+    }
+    return this.state.getFightersByGroup(Team.Player, group);
+  }
+
+  private groupLabel(group: ShipCommandGroup): string {
+    return group === 'all' ? 'ALL' : `Group ${group + 1}`;
+  }
+
+  private groupFromHeldNumber(): ShipGroup | null {
+    if (Input.isDown('1')) return ShipGroup.Red;
+    if (Input.isDown('2')) return ShipGroup.Green;
+    if (Input.isDown('3')) return ShipGroup.Blue;
+    return null;
+  }
+
+  private updateNumberGroupHotkeys(): void {
+    const group = this.groupFromHeldNumber();
+    if (group === null) return;
+
+    if (Input.mouse2Pressed) {
+      Input.consumeMouseButton(2);
+      this.issueShipOrder(group, 'dock');
+      return;
+    }
+
+    if (!Input.mousePressed) return;
+    Input.consumeMouseButton(0);
+
+    const aimWorld = this.camera.screenToWorld(Input.mousePos);
+    const yard = this.findPlayerShipyardAt(aimWorld);
+    if (yard) {
+      yard.assignedGroup = group;
+      for (const f of this.state.fighters) {
+        if (f.alive && f.team === Team.Player && f.homeYard === yard) {
+          f.group = group;
+        }
+      }
+      this.hud.showMessage(`Shipyard assigned to ${group + 1}`, Colors.alert2, 2);
+      return;
+    }
+
+    const fighters = this.state.getFightersByGroup(Team.Player, group);
+    for (const f of fighters) {
+      f.order = 'waypoint';
+      f.targetPos = aimWorld.clone();
+      if (f.docked) f.launch();
+    }
+    this.hud.showMessage(`Group ${group + 1}: Waypoint`, Colors.general_building, 2);
+  }
+
+  private findPlayerShipyardAt(pos: Vec2): Shipyard | null {
+    let best: Shipyard | null = null;
+    let bestDist = Infinity;
+    for (const b of this.state.buildings) {
+      if (!b.alive || b.team !== Team.Player || !(b instanceof Shipyard)) continue;
+      const d = b.position.distanceTo(pos);
+      if (d <= b.radius * 1.8 && d < bestDist) {
+        best = b;
+        bestDist = d;
+      }
+    }
+    return best;
+  }
+
   private findNearestEnemyBuildingOfType(type: EntityType): BuildingBase | null {
     let best: BuildingBase | null = null;
     let bestDist = Infinity;
@@ -542,16 +603,54 @@ export class Game {
   }
 
   private updatePlayerFighterOrderTargets(): void {
-    const enemyPower = this.findNearestEnemyBuildingOfType(EntityType.PowerGenerator);
-    const enemyFallback = enemyPower ?? this.state.getEnemyCommandPost();
+    const cp = this.state.getPlayerCommandPost();
     for (const f of this.state.fighters) {
       if (!f.alive || f.team !== Team.Player || f.docked) continue;
-      if (f.order === 'escort') {
+      if (f.order === 'follow') {
         f.targetPos = this.state.player.position.clone();
-      } else if (f.order === 'harass') {
-        f.targetPos = enemyFallback?.position.clone() ?? f.targetPos;
+      } else if (f.order === 'protect') {
+        const basePos = cp?.position ?? this.state.player.position;
+        const threat = this.findNearestEnemyNear(basePos, 650);
+        f.targetPos = threat?.position.clone() ?? basePos.clone();
       }
     }
+  }
+
+  private updatePlayerFighterCombat(): void {
+    for (const f of this.state.fighters) {
+      if (!f.alive || f.docked || f.team !== Team.Player) continue;
+      if (!f.canFire()) continue;
+
+      const nearby = this.state.getEntitiesInRange(f.position, f.weaponRange);
+      let target = null;
+      let bestDist = Infinity;
+      for (const e of nearby) {
+        if (!e.alive || e.team !== Team.Enemy) continue;
+        const d = f.position.distanceTo(e.position);
+        if (d < bestDist) {
+          bestDist = d;
+          target = e;
+        }
+      }
+      if (!target) continue;
+      f.consumeShot(WEAPON_STATS.fire.fireRate);
+      const angle = f.position.angleTo(target.position);
+      this.state.addEntity(new Bullet(f.team, f.position.clone(), angle, f));
+    }
+  }
+
+  private findNearestEnemyNear(pos: Vec2, range: number): { position: Vec2 } | null {
+    let best: { position: Vec2 } | null = null;
+    let bestDist = range;
+    for (const e of this.state.allEntities()) {
+      if (!e.alive || e.team !== Team.Enemy) continue;
+      const d = e.position.distanceTo(pos);
+      if (d < bestDist) {
+        bestDist = d;
+        best = e;
+      }
+    }
+    return best;
   }
 
   private startGame(mode: 'tutorial' | 'practice' | 'vs_ai'): void {
@@ -768,7 +867,7 @@ export class Game {
         )}%`
       : 'none';
     const groups = [ShipGroup.Red, ShipGroup.Green, ShipGroup.Blue]
-      .map((g) => `${ShipGroup[g]} ${this.state.getFighterGroupCounts(Team.Player, g).total}`)
+      .map((g) => `${g + 1} ${this.state.getFighterGroupCounts(Team.Player, g).total}`)
       .join(' / ');
 
     const lines = [

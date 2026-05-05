@@ -5,7 +5,7 @@ import { Camera } from './camera.js';
 import { Input } from './input.js';
 import { Entity, EntityType, Team } from './entities.js';
 import { Colors, colorToCSS } from './colors.js';
-import { ENTITY_RADIUS, SHIP_STATS } from './constants.js';
+import { ENTITY_RADIUS, PLAYER_SHIP_SCALE, SHIP_STATS } from './constants.js';
 import { DEFAULT_SPECIAL_ID } from './special.js';
 
 const BATTERY_MAX = 100;
@@ -75,7 +75,7 @@ export class PlayerShip extends Entity {
       team,
       position,
       SHIP_STATS.mainguy.health,
-      ENTITY_RADIUS.mainguy,
+      ENTITY_RADIUS.mainguy * (team === Team.Player ? PLAYER_SHIP_SCALE : 1),
     );
     this.turnRate = SHIP_STATS.mainguy.turnRate;
     this.thrustPower = SHIP_STATS.mainguy.speed;

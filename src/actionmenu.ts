@@ -41,7 +41,7 @@ const MIN_SELECT_DIST = 32;
 export type MenuResult =
   | { action: 'none' }
   | { action: 'build'; buildingType: string }
-  | { action: 'order'; group: ShipGroup; order: string }
+  | { action: 'order'; group: ShipGroup | 'all'; order: string }
   | { action: 'research'; item: string };
 
 // Re-export kept for convenience so callers don't need to know the origin
@@ -64,7 +64,7 @@ interface RadialItem {
   /** Leaf: place a building of this type. */
   buildingType?: string;
   /** Leaf: issue a tactical order to this group. */
-  orderGroup?: ShipGroup;
+  orderGroup?: ShipGroup | 'all';
   tacticalOrder?: TacticalOrder;
   /** Leaf: start researching this item. */
   researchItem?: string;
@@ -148,6 +148,7 @@ function availableBuildDefs(state: GameState): BuildDef[] {
     ...defsByTier('turret'),
   ].filter((def) => {
     if (def.hidden) return def.key === 'commandpost' && !state.getPlayerCommandPost();
+    if (def.tier === 'turret') return true;
     return isBuildDefAvailable(def, state);
   });
 }
@@ -176,19 +177,28 @@ function buildResearchRoot(state: GameState): RadialItem[] {
 
 function buildGroupOrders(group: ShipGroup): RadialItem[] {
   return [
-    { label: 'Attack\nTarget',  tacticalOrder: TacticalOrder.AttackTarget,  orderGroup: group },
-    { label: 'Defend\nArea',    tacticalOrder: TacticalOrder.DefendArea,    orderGroup: group },
-    { label: 'Dock',            tacticalOrder: TacticalOrder.Dock,          orderGroup: group },
-    { label: 'Escort\nPlayer',  tacticalOrder: TacticalOrder.EscortPlayer,  orderGroup: group },
-    { label: 'Harass\nPower',   tacticalOrder: TacticalOrder.HarassPower,   orderGroup: group },
+    { label: 'Protect\nBase',   tacticalOrder: TacticalOrder.ProtectBase,  orderGroup: group },
+    { label: 'Set\nWaypoint',   tacticalOrder: TacticalOrder.SetWaypoint,  orderGroup: group },
+    { label: 'Follow\nPlayer',  tacticalOrder: TacticalOrder.FollowPlayer, orderGroup: group },
+    { label: 'Dock',            tacticalOrder: TacticalOrder.Dock,         orderGroup: group },
+  ];
+}
+
+function buildAllOrders(): RadialItem[] {
+  return [
+    { label: 'Protect\nBase',   tacticalOrder: TacticalOrder.ProtectBase,  orderGroup: 'all' },
+    { label: 'Set\nWaypoint',   tacticalOrder: TacticalOrder.SetWaypoint,  orderGroup: 'all' },
+    { label: 'Follow\nPlayer',  tacticalOrder: TacticalOrder.FollowPlayer, orderGroup: 'all' },
+    { label: 'Dock',            tacticalOrder: TacticalOrder.Dock,         orderGroup: 'all' },
   ];
 }
 
 function buildCommandRoot(_state: GameState): RadialItem[] {
   return [
-    { label: 'Red\nGroup',   children: buildGroupOrders(ShipGroup.Red)   },
-    { label: 'Green\nGroup', children: buildGroupOrders(ShipGroup.Green) },
-    { label: 'Blue\nGroup',  children: buildGroupOrders(ShipGroup.Blue)  },
+    { label: '1',   children: buildGroupOrders(ShipGroup.Red)   },
+    { label: '2',   children: buildGroupOrders(ShipGroup.Green) },
+    { label: '3',   children: buildGroupOrders(ShipGroup.Blue)  },
+    { label: 'ALL', children: buildAllOrders() },
   ];
 }
 
@@ -536,6 +546,15 @@ class QuickBuildMenu {
   private selectedIndex = 0;
   private readonly iconRects: Array<{ index: number; x: number; y: number; w: number; h: number }> = [];
 
+  private conduitBrushCells(cx: number, cy: number): Array<{ cx: number; cy: number }> {
+    return [
+      { cx, cy },
+      { cx: cx + 1, cy },
+      { cx, cy: cy + 1 },
+      { cx: cx + 1, cy: cy + 1 },
+    ];
+  }
+
   update(state: GameState, camera: Camera): MenuResult {
     const keyDown = Input.isDown('q');
     if (keyDown && !this.open) {
@@ -606,16 +625,26 @@ class QuickBuildMenu {
       const key = cellKey(cx, cy);
       if (!this.touchedThisDrag.has(key)) {
         this.touchedThisDrag.add(key);
+        const brush = this.conduitBrushCells(cx, cy);
         if (this.dragMode === 'paint') {
-          if (!state.grid.hasConduit(cx, cy) && !state.grid.hasPendingConduit(cx, cy)) {
+          for (const cell of brush) {
+            if (state.grid.hasConduit(cell.cx, cell.cy) || state.grid.hasPendingConduit(cell.cx, cell.cy)) {
+              continue;
+            }
             if (state.resources >= CONDUIT_COST) {
               state.resources -= CONDUIT_COST;
-              state.grid.queueConduit(cx, cy, Team.Player);
+              state.grid.queueConduit(cell.cx, cell.cy, Team.Player);
             }
           }
-        } else if (state.grid.conduitTeam(cx, cy) === Team.Player) {
-          state.grid.removeConduit(cx, cy);
-          state.power.markDirty();
+        } else {
+          let removed = false;
+          for (const cell of brush) {
+            if (state.grid.conduitTeam(cell.cx, cell.cy) === Team.Player || state.grid.hasPendingConduit(cell.cx, cell.cy)) {
+              state.grid.removeConduit(cell.cx, cell.cy);
+              removed = true;
+            }
+          }
+          if (removed) state.power.markDirty();
           Audio.playSound('menucursor');
         }
       }
@@ -649,7 +678,7 @@ class QuickBuildMenu {
       this.drawBuildingFootprintCursor(ctx, state, camera, cell, selected.def);
     } else {
       const mode: 'paint' | 'erase' = this.dragMode === 'erase' ? 'erase' : 'paint';
-      state.grid.drawPaintCursor(ctx, camera, cell, mode);
+      this.drawConduitBrushCursor(ctx, camera, cell, mode);
     }
     this.drawPalette(ctx, state, palette);
 
@@ -660,7 +689,7 @@ class QuickBuildMenu {
     ctx.fillText(
       selected?.type === 'building'
         ? '[Q] Quick Build - wheel/click selects - LMB places - release Q to exit'
-        : `[Q] Quick Build - Conduit $${CONDUIT_COST}/cell - LMB paint - RMB erase - wheel/click selects`,
+        : `[Q] Quick Build - Conduit 2x2 brush $${CONDUIT_COST}/cell - LMB paint - RMB erase - wheel/click selects`,
       screenW * 0.5,
       24,
     );
@@ -671,6 +700,29 @@ class QuickBuildMenu {
       screenW * 0.5,
       40,
     );
+  }
+
+  private drawConduitBrushCursor(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    cell: { cx: number; cy: number },
+    mode: 'paint' | 'erase',
+  ): void {
+    const topLeft = camera.worldToScreen(cellCenter(cell.cx, cell.cy));
+    const cellPx = GRID_CELL_SIZE * camera.zoom;
+    const color =
+      mode === 'paint'
+        ? colorToCSS(Colors.radar_friendly_status, 0.85)
+        : colorToCSS(Colors.alert1, 0.85);
+    ctx.strokeStyle = color;
+    ctx.fillStyle = mode === 'paint'
+      ? colorToCSS(Colors.radar_friendly_status, 0.12)
+      : colorToCSS(Colors.alert1, 0.10);
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 3]);
+    ctx.fillRect(topLeft.x - cellPx / 2, topLeft.y - cellPx / 2, cellPx * 2, cellPx * 2);
+    ctx.strokeRect(topLeft.x - cellPx / 2, topLeft.y - cellPx / 2, cellPx * 2, cellPx * 2);
+    ctx.setLineDash([]);
   }
 
   private drawBuildingFootprintCursor(

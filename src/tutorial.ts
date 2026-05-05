@@ -96,7 +96,7 @@ function createTutorialSteps(): TutorialStep[] {
       duration: 6,
     },
     {
-      message: 'Hold C to open the Command menu — issue orders to Red, Green, or Blue group',
+      message: 'Hold C to command groups 1, 2, 3, or ALL',
       trigger: (s, _elapsed) => s.fighters.length > 0,
       shown: false,
       duration: 7,

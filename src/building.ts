@@ -2,7 +2,7 @@
 
 import { Vec2 } from './math.js';
 import { Camera } from './camera.js';
-import { Entity, EntityType, Team } from './entities.js';
+import { Entity, EntityType, ShipGroup, Team } from './entities.js';
 import { Colors, colorToCSS } from './colors.js';
 import {
   ENTITY_RADIUS,
@@ -239,6 +239,7 @@ export class Shipyard extends BuildingBase {
   buildTimer: number = 0;
   /** Seconds per ship. */
   buildInterval: number = 5;
+  assignedGroup: ShipGroup = ShipGroup.Red;
 
   constructor(
     type: EntityType.FighterYard | EntityType.BomberYard,
@@ -307,6 +308,15 @@ export class Shipyard extends BuildingBase {
       }
       ctx.closePath();
       ctx.stroke();
+    }
+
+    if (this.team === Team.Player) {
+      const label = `${this.assignedGroup + 1}`;
+      ctx.font = `bold ${Math.max(12, r * 0.95)}px "Courier New", monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = colorToCSS(Colors.alert2, 0.95);
+      ctx.fillText(label, 0, 0);
     }
 
     ctx.restore();

@@ -12,16 +12,14 @@ export enum Team {
 /**
  * Tactical orders that can be issued to fighter groups via the Command menu.
  *
- * AttackTarget uses the cursor position, DefendArea holds a cursor location,
- * EscortPlayer tracks the player ship, HarassPower prefers enemy generators,
- * and Dock returns ships to their home yard.
+ * ProtectBase tracks the player's Command Post, SetWaypoint uses the cursor,
+ * FollowPlayer tracks the player ship, and Dock returns ships to their yard.
  */
 export enum TacticalOrder {
-  AttackTarget = 'attack',
-  DefendArea   = 'defend',
-  Dock         = 'dock',
-  EscortPlayer = 'escort',
-  HarassPower  = 'harass',
+  ProtectBase = 'protect',
+  SetWaypoint = 'waypoint',
+  FollowPlayer = 'follow',
+  Dock = 'dock',
 }
 
 export enum ShipGroup {

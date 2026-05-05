@@ -6,9 +6,9 @@ import { Entity, EntityType, Team, ShipGroup } from './entities.js';
 import { TICK_RATE } from './constants.js';
 import { Shipyard } from './building.js';
 import { Colors, colorToCSS, Color } from './colors.js';
-import { ENTITY_RADIUS, SHIP_STATS } from './constants.js';
+import { ENTITY_RADIUS, PLAYER_SHIP_SCALE, SHIP_STATS } from './constants.js';
 
-export type FighterOrder = 'idle' | 'attack' | 'dock' | 'defend' | 'escort' | 'harass';
+export type FighterOrder = 'idle' | 'attack' | 'dock' | 'defend' | 'escort' | 'harass' | 'protect' | 'waypoint' | 'follow';
 
 const GROUP_COLORS: Record<ShipGroup, Color> = {
   [ShipGroup.Red]: Colors.redgroup,
@@ -51,7 +51,7 @@ export class FighterShip extends Entity {
       team,
       position,
       SHIP_STATS.fighter.health,
-      ENTITY_RADIUS.fighter,
+      ENTITY_RADIUS.fighter * (team === Team.Player ? PLAYER_SHIP_SCALE : 1),
     );
     this.group = group;
     this.homeYard = homeYard;
@@ -77,6 +77,9 @@ export class FighterShip extends Entity {
       case 'defend':
       case 'escort':
       case 'harass':
+      case 'protect':
+      case 'waypoint':
+      case 'follow':
         this.aiAttack(dt);
         break;
       case 'dock':
@@ -101,6 +104,16 @@ export class FighterShip extends Entity {
   private aiAttack(dt: number): void {
     if (!this.targetPos) {
       this.order = 'idle';
+      return;
+    }
+    const dist = this.position.distanceTo(this.targetPos);
+    if (dist < 90) {
+      const orbit = new Vec2(
+        this.targetPos.x - (this.position.y - this.targetPos.y),
+        this.targetPos.y + (this.position.x - this.targetPos.x),
+      );
+      this.steerTowards(orbit, dt);
+      this.thrustForward(dt * 0.45);
       return;
     }
     this.steerTowards(this.targetPos, dt);
@@ -229,7 +242,7 @@ export class BomberShip extends FighterShip {
     this.type = EntityType.Bomber;
     this.health = SHIP_STATS.bomber.health;
     this.maxHealth = SHIP_STATS.bomber.health;
-    this.radius = ENTITY_RADIUS.bomber;
+    this.radius = ENTITY_RADIUS.bomber * (team === Team.Player ? PLAYER_SHIP_SCALE : 1);
     this.turnRate = SHIP_STATS.bomber.turnRate;
     this.thrustPower = SHIP_STATS.bomber.speed;
     this.maxSpeed = SHIP_STATS.bomber.speed;

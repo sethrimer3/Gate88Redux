@@ -75,6 +75,8 @@ export const RESEARCH_TIME = {
   advancedFighters: 780,
 } as const;
 
+export const PLAYER_SHIP_SCALE = 1.75;
+
 export const ACTIVE_RESEARCH_ITEMS = [
   'missileturret',
   'exciterturret',
