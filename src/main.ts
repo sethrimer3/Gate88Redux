@@ -1,8 +1,12 @@
 /** Entry point for Gate88 */
 
 import { Game } from './game.js';
+import { loadGameFonts } from './fonts.js';
+import { applyThemeColors } from './theme.js';
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  applyThemeColors();
+  await loadGameFonts();
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   if (!canvas) {
     throw new Error('Canvas element #game not found');
@@ -10,3 +14,4 @@ document.addEventListener('DOMContentLoaded', () => {
   const game = new Game(canvas);
   game.start();
 });
+

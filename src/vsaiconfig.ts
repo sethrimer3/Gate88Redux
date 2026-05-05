@@ -50,3 +50,4 @@ export function effectiveApm(cfg: VsAIConfig): number {
 export function cloneDefaultVsAIConfig(): VsAIConfig {
   return { ...DEFAULT_VSAI_CONFIG };
 }
+

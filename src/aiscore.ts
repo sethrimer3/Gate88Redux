@@ -164,3 +164,4 @@ export function cellOf(pos: Vec2): { cx: number; cy: number } {
     cy: Math.floor(pos.y / GRID_CELL_SIZE),
   };
 }
+

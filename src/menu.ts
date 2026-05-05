@@ -21,6 +21,9 @@ import { Colors, TextColors, colorToCSS } from './colors.js';
 import { Input } from './input.js';
 import { Audio } from './audio.js';
 import { buildLabel } from './version.js';
+import { gameFont } from './fonts.js';
+import { drawDecodedText } from './decodeText.js';
+import { applyThemeColors, cycleThemeColor, themeColorLabel, themeSettings, type ThemeColorId } from './theme.js';
 import {
   PracticeConfig,
   cloneDefaultPracticeConfig,
@@ -45,6 +48,7 @@ export type MenuState =
   | 'play'
   | 'vs_ai_setup'
   | 'practice_setup'
+  | 'settings'
   | 'pause'
   | 'none';
 
@@ -118,6 +122,7 @@ export class MainMenu {
 
   private bgStars: BackgroundStar[] = [];
   private animTime: number = 0;
+  private openedAt: number = performance.now() * 0.001;
   private lastScreenW: number = 0;
   private lastScreenH: number = 0;
 
@@ -161,6 +166,7 @@ export class MainMenu {
     this.state = s;
     this.selectedIndex = 0;
     this.hits = [];
+    this.openedAt = performance.now() * 0.001;
     Audio.playSound('menucursor');
   }
 
@@ -248,7 +254,8 @@ export class MainMenu {
       Input.wasPressed('Escape') &&
       (this.state === 'play' ||
         this.state === 'vs_ai_setup' ||
-        this.state === 'practice_setup')
+        this.state === 'practice_setup' ||
+        this.state === 'settings')
     ) {
       Audio.playSound('menucursor');
       this.setState('title');
@@ -277,6 +284,8 @@ export class MainMenu {
             description: 'Configurable skirmish against a growing enemy base' },
           { label: 'Tutorial', action: () => { this.pendingAction = 'tutorial'; },
             description: 'Learn the game — no enemies, infinite resources' },
+          { label: 'Settings', action: () => this.setState('settings'),
+            description: 'Colors and interface style' },
         ];
       case 'play':
         return [
@@ -312,6 +321,7 @@ export class MainMenu {
       case 'play':            this.drawPlayMenu(ctx, screenW, screenH); break;
       case 'vs_ai_setup':     this.drawVsAISetup(ctx, screenW, screenH); break;
       case 'practice_setup':  this.drawPracticeSetup(ctx, screenW, screenH); break;
+      case 'settings':        this.drawSettings(ctx, screenW, screenH); break;
       case 'pause':           this.drawPauseMenu(ctx, screenW, screenH); break;
     }
 
@@ -347,7 +357,7 @@ export class MainMenu {
   /** Draw the build-number badge in the top-right corner. */
   private drawBuildBadge(ctx: CanvasRenderingContext2D, w: number): void {
     const label = buildLabel();
-    ctx.font = '11px "Courier New", monospace';
+    ctx.font = '11px "Poiret One", sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
     const padX = 14;
@@ -398,7 +408,7 @@ export class MainMenu {
     ctx.lineTo(cx + ruleW * 0.5, titleY - 36);
     ctx.stroke();
 
-    ctx.font = 'bold 52px "Courier New", monospace';
+    ctx.font = 'bold 52px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.titledark);
     ctx.fillText('GATE 88', cx + 2, titleY + 2);
     ctx.fillStyle = colorToCSS(TextColors.title);
@@ -410,14 +420,14 @@ export class MainMenu {
     ctx.stroke();
 
     const subtitleAlpha = 0.35 + 0.25 * Math.sin(this.animTime * 1.8);
-    ctx.font = '13px "Courier New", monospace';
+    ctx.font = '13px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.shadow, subtitleAlpha);
     ctx.fillText('A game of space strategy', cx, titleY + 56);
 
     const opts = this.currentSimpleOptions()!;
     this.drawClickableOptions(ctx, cx, h * 0.50, opts);
 
-    ctx.font = '10px "Courier New", monospace';
+    ctx.font = '10px "Poiret One", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.35);
     ctx.fillText('Click an option, or use \u2191 \u2193 + Enter', cx, h - 18);
@@ -434,7 +444,7 @@ export class MainMenu {
     const cx = w * 0.5;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold 32px "Courier New", monospace';
+    ctx.font = 'bold 32px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.title);
     ctx.fillText('PLAY', cx, h * 0.22);
 
@@ -456,7 +466,7 @@ export class MainMenu {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    ctx.font = 'bold 32px "Courier New", monospace';
+    ctx.font = 'bold 32px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.title);
     ctx.fillText('PAUSED', cx, headerY);
     const tw = ctx.measureText('PAUSED').width;
@@ -517,27 +527,27 @@ export class MainMenu {
         ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
 
         ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.9);
-        ctx.font = '18px "Courier New", monospace';
+        ctx.font = '18px "Poiret One", sans-serif';
         ctx.textAlign = 'left';
         ctx.fillText('>', cx - barW * 0.5 + 12, y);
         ctx.textAlign = 'right';
         ctx.fillText('<', cx + barW * 0.5 - 12, y);
 
         ctx.textAlign = 'center';
-        ctx.font = 'bold 18px "Courier New", monospace';
+        ctx.font = 'bold 18px "Poiret One", sans-serif';
         ctx.fillStyle = colorToCSS(Colors.radar_friendly_status);
-        ctx.fillText(options[i].label, cx, y - 4);
+        drawDecodedText(ctx, options[i].label, cx, y - 4, 18, this.openedAt, 'center');
 
         if (options[i].description) {
-          ctx.font = '11px "Courier New", monospace';
+          ctx.font = '11px "Poiret One", sans-serif';
           ctx.fillStyle = colorToCSS(TextColors.shadow, 0.85);
-          ctx.fillText(options[i].description ?? '', cx, y + 14);
+          drawDecodedText(ctx, options[i].description ?? '', cx, y + 14, 11, this.openedAt, 'center');
         }
       } else {
-        ctx.font = '18px "Courier New", monospace';
+        ctx.font = '18px "Poiret One", sans-serif';
         ctx.fillStyle = colorToCSS(TextColors.normal, 0.55);
         ctx.textAlign = 'center';
-        ctx.fillText(options[i].label, cx, y);
+        drawDecodedText(ctx, options[i].label, cx, y, 18, this.openedAt, 'center');
       }
 
       if (hovered && this.mousePressedLatched) {
@@ -562,7 +572,7 @@ export class MainMenu {
     const cx = w * 0.5;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold 28px "Courier New", monospace';
+    ctx.font = 'bold 28px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.title);
     ctx.fillText('PRACTICE SETUP', cx, 70);
 
@@ -648,7 +658,7 @@ export class MainMenu {
     const cx = w * 0.5;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold 28px "Courier New", monospace';
+    ctx.font = 'bold 28px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.title);
     ctx.fillText('VS. AI SETUP', cx, 70);
 
@@ -678,7 +688,7 @@ export class MainMenu {
       cfg.fogOfWar, (v) => cfg.fogOfWar = v);
 
     // Cheater section header
-    ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.font = 'bold 14px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
     ctx.fillText('CHEATER OPTIONS', right, yr + 8);
@@ -697,6 +707,67 @@ export class MainMenu {
       { label: 'Start Vs. AI', action: () => { this.pendingAction = 'start_vs_ai'; },
         emphasis: true },
     ], cx, btnY);
+  }
+
+  private drawSettings(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    this.drawBackground(ctx, w, h);
+    this.drawBuildBadge(ctx, w);
+
+    const cx = w * 0.5;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = gameFont(28);
+    ctx.fillStyle = colorToCSS(TextColors.title);
+    ctx.fillText('SETTINGS', cx, 90);
+
+    const x = cx - 230;
+    let y = 160;
+    const rowH = 44;
+    y = this.drawThemeColorRow(ctx, x, y, rowH, 'Player Color', themeSettings.playerColor, (v) => {
+      themeSettings.playerColor = v;
+      applyThemeColors();
+    });
+    y = this.drawThemeColorRow(ctx, x, y, rowH, 'Enemy Color', themeSettings.enemyColor, (v) => {
+      themeSettings.enemyColor = v;
+      applyThemeColors();
+    });
+
+    ctx.font = gameFont(12);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = colorToCSS(TextColors.normal, 0.75);
+    ctx.fillText('Text uses Poiret One. Opened menus decode from BJ Cree syllabics.', cx, y + 36);
+
+    this.drawButtonRow(ctx, [
+      { label: 'Back', action: () => this.setState('title'), emphasis: true },
+    ], cx, h - 70);
+  }
+
+  private drawThemeColorRow(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    h: number,
+    label: string,
+    value: ThemeColorId,
+    onChange: (v: ThemeColorId) => void,
+  ): number {
+    this.drawRowLabel(ctx, x, y, label);
+    const valX = x + 200;
+    const arrowW = 24;
+    const valW = 240;
+    const leftRect: HitRect = { x: valX, y: y - 14, w: arrowW, h: 28 };
+    const rightRect: HitRect = { x: valX + valW - arrowW, y: y - 14, w: arrowW, h: 28 };
+    const bodyRect: HitRect = { x: valX + arrowW, y: y - 14, w: valW - arrowW * 2, h: 28 };
+    this.drawArrow(ctx, leftRect, '<');
+    this.drawArrow(ctx, rightRect, '>');
+    ctx.font = gameFont(14);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = colorToCSS(TextColors.normal, 0.95);
+    ctx.fillText(themeColorLabel(value), bodyRect.x + bodyRect.w / 2, y);
+    if (this.handleClick(leftRect)) onChange(cycleThemeColor(value, -1));
+    if (this.handleClick(rightRect) || this.handleClick(bodyRect)) onChange(cycleThemeColor(value, 1));
+    return y + h;
   }
 
   // -------------------------------------------------------------------
@@ -747,7 +818,7 @@ export class MainMenu {
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '14px "Courier New", monospace';
+    ctx.font = '14px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.95);
     const text = fmt ? fmt(value) : String(value);
     ctx.fillText(text, bodyRect.x + bodyRect.w / 2, y);
@@ -799,7 +870,7 @@ export class MainMenu {
     ctx.fill();
 
     // Value
-    ctx.font = '12px "Courier New", monospace';
+    ctx.font = '12px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.85);
@@ -841,7 +912,7 @@ export class MainMenu {
   private drawRowLabel(
     ctx: CanvasRenderingContext2D, x: number, y: number, label: string,
   ): void {
-    ctx.font = '13px "Courier New", monospace';
+    ctx.font = '13px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.9);
@@ -857,7 +928,7 @@ export class MainMenu {
     ctx.lineWidth = 1;
     ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
 
-    ctx.font = '14px "Courier New", monospace';
+    ctx.font = '14px "Poiret One", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = colorToCSS(
@@ -894,7 +965,7 @@ export class MainMenu {
       ctx.lineWidth = 1;
       ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
 
-      ctx.font = 'bold 14px "Courier New", monospace';
+      ctx.font = 'bold 14px "Poiret One", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = colorToCSS(TextColors.normal, hovered ? 1.0 : 0.85);
@@ -950,3 +1021,5 @@ function defeatLabel(v: DefeatCondition): string {
     case 'disabled':       return 'Disabled';
   }
 }
+
+

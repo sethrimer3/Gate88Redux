@@ -16,3 +16,4 @@ export const BUILD_NUMBER = 11;
 export function buildLabel(): string {
   return `Build ${String(BUILD_NUMBER).padStart(3, '0')}`;
 }
+

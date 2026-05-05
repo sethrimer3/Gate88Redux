@@ -27,6 +27,7 @@ import { tryFireSpecial } from './special.js';
 import { GATLING_BATTERY_FIRE_COST, GUIDED_MISSILE_CONTROL_BATTERY_DRAIN, GUIDED_MISSILE_INITIAL_BATTERY_COST } from './ship.js';
 import { createBuildingFromDef, getBuildDef } from './builddefs.js';
 import { worldToCell, footprintCenter, GRID_CELL_SIZE } from './grid.js';
+import { gameFont } from './fonts.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 type ShipCommandGroup = ShipGroup | 'all';
@@ -958,6 +959,7 @@ export class Game {
 
   private render(): void {
     const ctx = this.ctx;
+    ctx.font = gameFont(12);
     const w = this.screenW;
     const h = this.screenH;
 
@@ -1036,7 +1038,7 @@ export class Game {
   }
 
   private drawPracticeHUD(ctx: CanvasRenderingContext2D, _w: number, _h: number): void {
-    ctx.font = '12px "Courier New", monospace';
+    ctx.font = '12px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.7);
@@ -1095,7 +1097,7 @@ export class Game {
       ctx.stroke();
 
       ctx.globalCompositeOperation = 'source-over';
-      ctx.font = `bold ${Math.max(9, 12 * this.camera.zoom)}px "Courier New", monospace`;
+      ctx.font = `bold ${Math.max(9, 12 * this.camera.zoom)}px "Poiret One", sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = colorToCSS(Colors.particles_switch, 0.92);
@@ -1130,7 +1132,7 @@ export class Game {
     ];
 
     ctx.save();
-    ctx.font = '11px "Courier New", monospace';
+    ctx.font = '11px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     const width = 310;
@@ -1167,3 +1169,4 @@ export class Game {
     ctx.fillRect(0, 0, w, h);
   }
 }
+

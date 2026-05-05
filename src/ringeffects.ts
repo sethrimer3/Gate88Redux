@@ -123,3 +123,4 @@ export class RingEffectSystem {
     return this.effects.length;
   }
 }
+

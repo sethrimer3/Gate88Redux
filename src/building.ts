@@ -371,7 +371,7 @@ export class Shipyard extends BuildingBase {
 
     if (this.team === Team.Player) {
       const label = `${this.assignedGroup + 1}`;
-      ctx.font = `bold ${Math.max(12, r * 0.95)}px "Courier New", monospace`;
+      ctx.font = `bold ${Math.max(12, r * 0.95)}px "Poiret One", sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = colorToCSS(Colors.alert2, 0.95);
@@ -482,3 +482,4 @@ export class Factory extends BuildingBase {
     ctx.restore();
   }
 }
+

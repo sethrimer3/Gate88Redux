@@ -312,3 +312,4 @@ export class ParticleSystem {
     ctx.globalCompositeOperation = 'source-over';
   }
 }
+

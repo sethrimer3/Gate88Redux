@@ -443,3 +443,4 @@ export class VsAIDirector {
     this.ship.desiredMove = new Vec2((v.x / len) * scale, (v.y / len) * scale);
   }
 }
+

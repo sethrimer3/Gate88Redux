@@ -669,3 +669,4 @@ export class FireBomb extends ProjectileBase {
     ctx.fill();
   }
 }
+

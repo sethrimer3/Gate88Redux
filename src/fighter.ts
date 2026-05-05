@@ -471,3 +471,4 @@ export class BomberShip extends FighterShip {
     }
   }
 }
+

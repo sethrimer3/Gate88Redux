@@ -119,3 +119,4 @@ export abstract class Entity {
     return this.maxHealth > 0 ? this.health / this.maxHealth : 0;
   }
 }
+

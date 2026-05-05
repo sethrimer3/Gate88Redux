@@ -78,3 +78,4 @@ export function difficultyRedundancy(d: DifficultyName): number {
 export function cloneDefaultPracticeConfig(): PracticeConfig {
   return { ...DEFAULT_PRACTICE_CONFIG };
 }
+

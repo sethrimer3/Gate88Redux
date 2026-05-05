@@ -185,3 +185,4 @@ class InputManager {
 }
 
 export const Input = new InputManager();
+

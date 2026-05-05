@@ -49,7 +49,7 @@ export class HUD {
   draw(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
     if (this.messages.length === 0) return;
 
-    ctx.font = '13px "Courier New", monospace';
+    ctx.font = '13px "Poiret One", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
@@ -82,7 +82,7 @@ export class HUD {
     screenW: number,
     screenH: number,
   ): void {
-    ctx.font = '12px "Courier New", monospace';
+    ctx.font = '12px "Poiret One", sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
@@ -101,7 +101,7 @@ export class HUD {
     const x = 10;
     const y = screenH - 54;
 
-    ctx.font = '9px "Courier New", monospace';
+    ctx.font = '9px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
 
@@ -139,7 +139,7 @@ export class HUD {
     const y = screenH - 24;
 
     // Label
-    ctx.font = '10px "Courier New", monospace';
+    ctx.font = '10px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
 
@@ -187,7 +187,7 @@ export class HUD {
     const x = 10;
     const y = screenH - 70;
     const flash = 0.5 + 0.5 * Math.sin(this.animTime * 5);
-    ctx.font = '10px "Courier New", monospace';
+    ctx.font = '10px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.5 + 0.5 * flash);
@@ -206,7 +206,7 @@ export class HUD {
   ): void {
     const x = 10;
     const y = screenH - 88;
-    ctx.font = '10px "Courier New", monospace';
+    ctx.font = '10px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = colorToCSS(Colors.researchlab_detail, 0.75);
@@ -218,3 +218,4 @@ export class HUD {
     }
   }
 }
+

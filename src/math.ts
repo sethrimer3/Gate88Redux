@@ -91,3 +91,4 @@ export function lerpAngle(a: number, b: number, t: number): number {
   let diff = wrapAngle(b - a);
   return wrapAngle(a + diff * t);
 }
+

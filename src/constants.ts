@@ -236,3 +236,4 @@ export const POWERGENERATOR_COVERAGE_RADIUS = 195;
 
 /** Resource cost to paint one conduit cell. */
 export const CONDUIT_COST = 1;
+

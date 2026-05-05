@@ -22,6 +22,7 @@ import { RESEARCH_COST, CONDUIT_COST, ACTIVE_RESEARCH_ITEMS } from './constants.
 import { SHIP_WEAPON_OPTIONS, type ShipWeaponId } from './ship.js';
 import { worldToCell, cellKey, cellCenter, footprintCenter, footprintOrigin, GRID_CELL_SIZE } from './grid.js';
 import { defsByTier, BuildDef, getBuildDef } from './builddefs.js';
+import { drawDecodedText } from './decodeText.js';
 
 /** Radius (px) from the menu centre at which items are placed. */
 const ITEM_RADIUS = 110;
@@ -378,17 +379,17 @@ class HoldMenu {
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '10px "Courier New", monospace';
+    ctx.font = '10px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.9);
     ctx.fillText(this.title, cx, cy - (this.stack.length > 1 ? 7 : 0));
     if (this.stack.length > 1) {
-      ctx.font = '8px "Courier New", monospace';
+      ctx.font = '8px "Poiret One", sans-serif';
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
       ctx.fillText('RMB=back', cx, cy + 9);
     }
 
     if (items.length === 0) {
-      ctx.font = '10px "Courier New", monospace';
+      ctx.font = '10px "Poiret One", sans-serif';
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
       ctx.fillText('(nothing available)', cx, cy - 75);
       return;
@@ -430,7 +431,7 @@ class HoldMenu {
       ctx.stroke();
 
       // Label (split on '\n').
-      ctx.font = '10px "Courier New", monospace';
+      ctx.font = '10px "Poiret One", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = item.disabled
@@ -451,7 +452,7 @@ class HoldMenu {
       }
 
       if (item.sublabel) {
-        ctx.font = '9px "Courier New", monospace';
+        ctx.font = '9px "Poiret One", sans-serif';
         ctx.fillStyle = item.disabled
           ? colorToCSS(Colors.radar_gridlines, 0.3)
           : hovered
@@ -462,7 +463,7 @@ class HoldMenu {
 
       // Sub-menu arrow indicator.
       if (item.children && item.children.length > 0) {
-        ctx.font = '10px "Courier New", monospace';
+        ctx.font = '10px "Poiret One", sans-serif';
         ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.6);
         ctx.fillText('▸', ix + ITEM_CIRCLE_R - 13, iy - ITEM_CIRCLE_R + 15);
       }
@@ -581,7 +582,7 @@ class PaintMenu {
     state.grid.drawPaintCursor(ctx, camera, cell, mode);
 
     // Top-of-screen hint banner.
-    ctx.font = '12px "Courier New", monospace';
+    ctx.font = '12px "Poiret One", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.85);
@@ -591,7 +592,7 @@ class PaintMenu {
       24,
     );
     // Conduit count for feedback.
-    ctx.font = '10px "Courier New", monospace';
+    ctx.font = '10px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
     ctx.fillText(
       `conduits: ${state.grid.conduitCount()}  •  queued: ${state.grid.pendingConduitCount()}  •  cell ${cell.cx},${cell.cy}  •  resources: $${Math.floor(state.resources)}`,
@@ -607,6 +608,7 @@ class LeftHoldMenu {
   private stack: RadialItem[][] = [];
   private selectedIdx = 0;
   private hoveredIdx = -1;
+  private openedAt = 0;
   private readonly rowRects: Array<{ index: number; x: number; y: number; w: number; h: number }> = [];
 
   constructor(
@@ -626,6 +628,7 @@ class LeftHoldMenu {
       this.open = true;
       this.stack = [this.rootFactory(state)];
       this.selectedIdx = 0;
+      this.openedAt = performance.now() * 0.001;
       Audio.playSound('menucursor');
     } else if (!keyDown && this.open) {
       this.open = false;
@@ -717,17 +720,17 @@ class LeftHoldMenu {
     ctx.strokeRect(x + 0.5, y + 0.5, w - 1, panelH - 1);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.font = '14px "Courier New", monospace';
+    ctx.font = '14px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.95);
-    ctx.fillText(this.title, x + 12, y + 12);
+    drawDecodedText(ctx, this.title, x + 12, y + 24, 14, this.openedAt);
     if (this.stack.length > 1) {
-      ctx.font = '10px "Courier New", monospace';
+      ctx.font = '10px "Poiret One", sans-serif';
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
       ctx.fillText('RMB back', x + w - 70, y + 15);
     }
 
     if (items.length === 0) {
-      ctx.font = '10px "Courier New", monospace';
+      ctx.font = '10px "Poiret One", sans-serif';
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
       ctx.fillText('(nothing available)', x + 12, y + headerH);
       ctx.restore();
@@ -751,7 +754,7 @@ class LeftHoldMenu {
           ? colorToCSS(Colors.radar_friendly_status, 0.95)
           : colorToCSS(Colors.radar_gridlines, 0.45);
       ctx.strokeRect(x + 10.5, rowY + 0.5, w - 21, rowH - 1);
-      ctx.font = '10px "Courier New", monospace';
+      ctx.font = '10px "Poiret One", sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = item.disabled
@@ -759,7 +762,7 @@ class LeftHoldMenu {
         : active
           ? colorToCSS(Colors.radar_friendly_status)
           : colorToCSS(Colors.general_building, 0.9);
-      ctx.fillText(item.label.replace(/\n/g, ' '), x + 20, rowY + rowH * 0.5);
+      drawDecodedText(ctx, item.label.replace(/\n/g, ' '), x + 20, rowY + rowH * 0.5, 10, this.openedAt);
       ctx.textAlign = 'right';
       if (item.sublabel) {
         ctx.fillStyle = item.disabled
@@ -852,7 +855,7 @@ class ShipMenu {
 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.font = '14px "Courier New", monospace';
+    ctx.font = '14px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.95);
     ctx.fillText('[Z] Ship', x + 12, y + 12);
 
@@ -870,14 +873,14 @@ class ShipMenu {
       `Fire Speed x${(1 / ship.fireCooldownMultiplier).toFixed(2)}`,
       `Resources $${Math.floor(state.resources)}`,
     ];
-    ctx.font = '11px "Courier New", monospace';
+    ctx.font = '11px "Poiret One", sans-serif';
     for (let i = 0; i < stats.length; i++) {
       ctx.fillStyle = colorToCSS(Colors.general_building, 0.78);
       ctx.fillText(stats[i], x + 12, statsY + i * 16);
     }
 
     const upgradeY = statsY + stats.length * 16 + 18;
-    ctx.font = '12px "Courier New", monospace';
+    ctx.font = '12px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
     ctx.fillText('Upgrades', x + 12, upgradeY);
     const upgrades = [
@@ -886,7 +889,7 @@ class ShipMenu {
       ['Fire Speed', 'shipFireSpeed'],
       ['Shield Aura', 'shipShield'],
     ] as const;
-    ctx.font = '10px "Courier New", monospace';
+    ctx.font = '10px "Poiret One", sans-serif';
     for (let i = 0; i < upgrades.length; i++) {
       const [label, key] = upgrades[i];
       const done = state.researchedItems.has(key);
@@ -895,10 +898,10 @@ class ShipMenu {
     }
 
     const weaponsY = upgradeY + 88;
-    ctx.font = '12px "Courier New", monospace';
+    ctx.font = '12px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
     ctx.fillText('Weapons', x + 12, weaponsY);
-    ctx.font = '10px "Courier New", monospace';
+    ctx.font = '10px "Poiret One", sans-serif';
     const rowH = 38;
     for (let i = 0; i < SHIP_WEAPON_OPTIONS.length; i++) {
       const weapon = SHIP_WEAPON_OPTIONS[i];
@@ -920,7 +923,7 @@ class ShipMenu {
       ctx.fillText(unlocked ? weapon.description : 'Research required', x + 20, wy + 21);
     }
 
-    ctx.font = '10px "Courier New", monospace';
+    ctx.font = '10px "Poiret One", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.7);
     ctx.fillText('click or mouse wheel changes weapon', x + panelW * 0.5, y + 362);
@@ -1163,7 +1166,7 @@ class QuickBuildMenu {
     }
     this.drawPalette(ctx, state, palette);
 
-    ctx.font = '12px "Courier New", monospace';
+    ctx.font = '12px "Poiret One", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.85);
@@ -1174,7 +1177,7 @@ class QuickBuildMenu {
       screenW * 0.5,
       24,
     );
-    ctx.font = '10px "Courier New", monospace';
+    ctx.font = '10px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
     ctx.fillText(
       `conduits: ${state.grid.conduitCount()} - queued: ${state.grid.pendingConduitCount()} - cell ${cell.cx},${cell.cy} - resources: $${Math.floor(state.resources)}`,
@@ -1231,7 +1234,7 @@ class QuickBuildMenu {
     ctx.strokeRect(screen.x - sizePx / 2, screen.y - sizePx / 2, sizePx, sizePx);
     ctx.setLineDash([]);
 
-    ctx.font = '10px "Courier New", monospace';
+    ctx.font = '10px "Poiret One", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = color;
@@ -1254,7 +1257,7 @@ class QuickBuildMenu {
     const h = 30;
     const gap = 6;
     ctx.save();
-    ctx.font = '10px "Courier New", monospace';
+    ctx.font = '10px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     for (let i = 0; i < palette.length; i++) {
@@ -1359,3 +1362,4 @@ export class ActionMenu {
   }
 
 }
+

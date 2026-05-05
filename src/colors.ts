@@ -97,3 +97,4 @@ export const TextColors = {
   admin:      c(174, 198, 175, 1.0),
   system:     c(224, 255, 226, 1.0),
 } as const;
+

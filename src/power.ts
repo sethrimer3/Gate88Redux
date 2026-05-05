@@ -220,3 +220,4 @@ export class PowerGraph {
     // Cell or any 4-neighbour energized → powered.
   }
 }
+

@@ -116,3 +116,4 @@ export function tryFireSpecial(state: GameState, ship: PlayerShip, aimWorld: Vec
   ship.battery -= ability.batteryCost;
   return true;
 }
+

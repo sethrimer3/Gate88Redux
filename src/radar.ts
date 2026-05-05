@@ -369,10 +369,11 @@ export function drawRadarOverlay(
   }
 
   // Distance label
-  ctx.font = '10px monospace';
+  ctx.font = '10px "Poiret One", sans-serif';
   ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.6);
   ctx.textAlign = 'left';
   for (let r = gridStep; r <= RADAR_RANGE; r += gridStep) {
     ctx.fillText(`${r}`, centerX + r * scale + 2, centerY - 2);
   }
 }
+

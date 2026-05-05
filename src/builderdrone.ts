@@ -265,3 +265,4 @@ export class BuilderDrone extends FighterShip {
 export function isBuilderDrone(e: unknown): e is BuilderDrone {
   return e instanceof BuilderDrone;
 }
+
