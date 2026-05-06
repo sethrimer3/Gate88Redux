@@ -340,7 +340,12 @@ export class PlayerShip extends Entity {
     this.primaryWeaponId = available[next];
   }
 
-  /** False during gatling overheat — prevents bypassing lockdown by swapping weapon. */
+  /**
+   * Returns false during the gatling overdrive or overheat states to prevent
+   * the player from bypassing the lockdown by switching weapons.  Other
+   * special states (laser charging, missile cooldown) do not need to block
+   * weapon switching because they resolve naturally when the weapon changes.
+   */
   canSwitchWeapon(): boolean {
     return this.gatlingOverheatTimer <= 0 && this.gatlingOverdriveTimer <= 0;
   }

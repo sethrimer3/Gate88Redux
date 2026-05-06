@@ -283,3 +283,12 @@ export const CANNON_HOMING_ENERGY_COST = 15;
 /** Cooldown (seconds) between cannon homing shots. */
 export const CANNON_HOMING_COOLDOWN_SECS = 1.5;
 
+/** Damage multiplier applied to BomberMissile damage for each swarm missile. */
+export const SWARM_MISSILE_DAMAGE_MULTIPLIER = 0.55; // ~19 hp per missile at default bomber damage
+
+/** Base damage multiplier for the charged laser burst at minimum charge/energy. */
+export const LASER_BURST_BASE_MULTIPLIER = 3.0;
+
+/** Maximum additional damage multiplier from full energy × full charge. */
+export const LASER_BURST_ENERGY_SCALING = 8.0;
+

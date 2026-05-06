@@ -15,7 +15,7 @@ import { Colors, colorToCSS, type Color } from './colors.js';
 import { Team, EntityType, ShipGroup, Entity } from './entities.js';
 import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS, ACTIVE_RESEARCH_ITEMS } from './constants.js';
 import { GATLING_OVERDRIVE_DURATION_SECS, GATLING_OVERHEAT_DURATION_SECS, GATLING_OVERDRIVE_FIRE_RATE_DIVISOR } from './constants.js';
-import { LASER_MAX_CHARGE_SECS, LASER_CHARGE_COOLDOWN_SECS } from './constants.js';
+import { LASER_MAX_CHARGE_SECS, LASER_CHARGE_COOLDOWN_SECS, LASER_BURST_BASE_MULTIPLIER, LASER_BURST_ENERGY_SCALING } from './constants.js';
 import { ROCKET_SWARM_COUNT, ROCKET_SWARM_SPREAD_DEGREES, ROCKET_SWARM_ENERGY_COST, ROCKET_SWARM_COOLDOWN_SECS } from './constants.js';
 import { CANNON_HOMING_ENERGY_COST, CANNON_HOMING_COOLDOWN_SECS } from './constants.js';
 import { BuildingBase, CommandPost } from './building.js';
@@ -577,9 +577,11 @@ export class Game {
       if (player.battery > 0 && player.laserChargeTimer > 0.15) {
         const energySpent = player.battery;
         const chargeFraction = Math.min(1, player.laserChargeTimer / LASER_MAX_CHARGE_SECS);
-        // Damage scales with both energy available and charge fraction
+        // Damage scales with both energy available and charge fraction.
+        // LASER_BURST_BASE_MULTIPLIER is the floor at empty battery / no charge;
+        // LASER_BURST_ENERGY_SCALING adds up to 8× extra at full battery + full charge.
         const burstDamage =
-          WEAPON_STATS.laser.damage * (3 + (energySpent / player.maxBattery) * 8 * chargeFraction);
+          WEAPON_STATS.laser.damage * (LASER_BURST_BASE_MULTIPLIER + (energySpent / player.maxBattery) * LASER_BURST_ENERGY_SCALING * chargeFraction);
         const burstRange = WEAPON_STATS.laser.range * (1.5 + chargeFraction * 0.5);
         const hitRadius = 2 + chargeFraction * 14; // wider beam hits larger area
 

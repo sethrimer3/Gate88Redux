@@ -4,7 +4,7 @@ import { Vec2, wrapAngle } from './math.js';
 import { Camera } from './camera.js';
 import { Entity, EntityType, Team } from './entities.js';
 import { Colors, colorToCSS } from './colors.js';
-import { ENTITY_RADIUS, WEAPON_STATS } from './constants.js';
+import { ENTITY_RADIUS, WEAPON_STATS, SWARM_MISSILE_DAMAGE_MULTIPLIER } from './constants.js';
 
 const BULLET_TRAIL_LIFETIME = 0.09;
 const BULLET_TRAIL_MIN_DISTANCE = 2;
@@ -786,7 +786,7 @@ export class SwarmMissile extends ProjectileBase {
       team,
       position,
       angle,
-      damage: Math.round(WEAPON_STATS.bigmissile.damage * 0.55), // ~19 per missile
+      damage: Math.round(WEAPON_STATS.bigmissile.damage * SWARM_MISSILE_DAMAGE_MULTIPLIER),
       speed: WEAPON_STATS.missile.speed * 1.05,
       lifetime: (WEAPON_STATS.bigmissile.range * 0.65) / (WEAPON_STATS.missile.speed * 1.05),
       source,
