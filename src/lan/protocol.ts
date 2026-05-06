@@ -7,6 +7,11 @@
  * remote clients send input and receive periodic state snapshots.
  *
  * Port: 8787 (configurable via LAN_PORT env variable).
+ *
+ * Connection flow:
+ *   Host:      connect → server sends welcome(slot=0) → host lobby ready
+ *   Non-host:  connect → server sends server_connected(clientId) →
+ *              client sends join_request → server sends welcome(slotN) or join_rejected
  */
 
 // ---------------------------------------------------------------------------
@@ -81,6 +86,12 @@ export interface MsgInputSnapshot {
   boost: boolean;
 }
 
+/** Client ping to server (heartbeat) */
+export interface MsgPing {
+  type: 'ping';
+  t: number; // client timestamp (ms)
+}
+
 /** Host → server: authoritative game state snapshot to relay to all clients */
 export interface MsgGameSnapshot {
   type: 'game_snapshot';
@@ -89,7 +100,9 @@ export interface MsgGameSnapshot {
   ships: SerializedShip[];
   projectiles: SerializedProjectile[];
   fighters: SerializedFighter[];
-  resources: number[];    // resources per slot index
+  buildings: SerializedBuilding[];
+  /** Resources indexed by slot (sparse — only active slots included). */
+  resourcesPerSlot: number[];
   hostSlot: number;
 }
 
@@ -107,6 +120,8 @@ export interface SerializedShip {
 
 export interface SerializedProjectile {
   id: number;
+  /** EntityType enum value */
+  entityType: number;
   team: number;
   x: number; y: number;
   vx: number; vy: number;
@@ -115,6 +130,8 @@ export interface SerializedProjectile {
 
 export interface SerializedFighter {
   id: number;
+  /** EntityType enum value (Fighter or Bomber) */
+  entityType: number;
   team: number;
   x: number; y: number;
   vx: number; vy: number;
@@ -122,11 +139,34 @@ export interface SerializedFighter {
   alive: boolean;
 }
 
+export interface SerializedBuilding {
+  id: number;
+  /** EntityType enum value */
+  entityType: number;
+  team: number;
+  x: number; y: number;
+  health: number;
+  maxHealth: number;
+  buildProgress: number;
+  powered: boolean;
+  alive: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // S → C messages (server → client)
 // ---------------------------------------------------------------------------
 
-/** Server assigns this client an id and role */
+/**
+ * Server sends this to non-host clients immediately on connect, before they
+ * have sent a join_request. Contains only the client id.
+ * Host clients receive `welcome` directly (slot 0 is auto-assigned).
+ */
+export interface MsgServerConnected {
+  type: 'server_connected';
+  clientId: string;
+}
+
+/** Server assigns this client an id, role, and slot after successful join */
 export interface MsgWelcome {
   type: 'welcome';
   clientId: string;
@@ -169,7 +209,8 @@ export interface MsgRelayedSnapshot {
   ships: SerializedShip[];
   projectiles: SerializedProjectile[];
   fighters: SerializedFighter[];
-  resources: number[];
+  buildings: SerializedBuilding[];
+  resourcesPerSlot: number[];
   hostSlot: number;
 }
 
@@ -193,6 +234,12 @@ export interface MsgChat {
   text: string;
 }
 
+/** Server pong response to client ping */
+export interface MsgPong {
+  type: 'pong';
+  t: number; // echoes the client's timestamp
+}
+
 // ---------------------------------------------------------------------------
 // Union type helpers
 // ---------------------------------------------------------------------------
@@ -205,9 +252,11 @@ export type ClientMessage =
   | MsgKickPlayer
   | MsgStartMatch
   | MsgInputSnapshot
-  | MsgGameSnapshot;
+  | MsgGameSnapshot
+  | MsgPing;
 
 export type ServerMessage =
+  | MsgServerConnected
   | MsgWelcome
   | MsgLobbyUpdate
   | MsgJoinRejected
@@ -216,6 +265,7 @@ export type ServerMessage =
   | MsgRelayedSnapshot
   | MsgRelayedInput
   | MsgMatchEnd
-  | MsgChat;
+  | MsgChat
+  | MsgPong;
 
 export const DEFAULT_LAN_PORT = 8787;

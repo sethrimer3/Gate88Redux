@@ -153,7 +153,7 @@ export class MainMenu {
   private _lanMatchStart: MsgMatchStart | null = null;
 
   /** Join screen: text being typed in the URL input field. */
-  private _joinUrl: string = 'ws://';
+  private _joinUrl: string = 'ws://192.168.1.';
   /** Join screen: whether the input field is focused (for typing). */
   private _joinInputActive: boolean = false;
   /** Join screen: player name to send. */
@@ -1049,7 +1049,15 @@ export class MainMenu {
 
   private connectToJoinUrl(): void {
     const url = this._joinUrl.trim();
-    if (!url || url === 'ws://') return;
+    // Validate URL format before attempting to connect.
+    if (!url || url === 'ws://') {
+      this.lanClient.lastError = 'Please enter a valid WebSocket URL (e.g. ws://192.168.1.25:8787)';
+      return;
+    }
+    if (!url.startsWith('ws://') && !url.startsWith('wss://')) {
+      this.lanClient.lastError = 'URL must start with ws:// or wss://';
+      return;
+    }
 
     this.lanClient = new LanClient(url);
     this._lanLobby = null;
@@ -1080,10 +1088,12 @@ export class MainMenu {
     };
 
     this.lanClient.connect();
-    // Wait for 'welcome' before sending join_request
-    const origConnected = this.lanClient.onConnected;
+    // Wait for 'server_connected' (or 'welcome' for backwards compat) before
+    // sending join_request. The onConnected fires on socket open; after that
+    // the server sends server_connected and we send join_request.
     this.lanClient.onConnected = () => {
-      origConnected?.();
+      // A brief delay ensures the server's server_connected message arrives
+      // before we try to send join_request. In practice this is sub-ms.
       this.lanClient.sendJoinRequest(this._joinName || 'Player');
     };
   }
@@ -1103,7 +1113,7 @@ export class MainMenu {
     ctx.fillStyle = colorToCSS(TextColors.title);
     ctx.fillText('HOST LOBBY', cx, 68);
 
-    // Connection status
+    // Server setup instructions
     const st = this.lanClient.state;
     const statusText = st === 'lobby' ? `Connected — ws://localhost:8787  (your LAN IP:8787 for others)`
       : st === 'connecting' ? 'Connecting to ws://localhost:8787 …'
@@ -1115,14 +1125,25 @@ export class MainMenu {
       : st === 'error' ? Colors.alert1 : Colors.alert2, 0.85);
     ctx.fillText(statusText, cx, 100);
 
+    // Show hint if not connected yet
+    if (st !== 'lobby') {
+      ctx.font = gameFont(11);
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.65);
+      ctx.fillText('You must run "npm run lan:server" (or "npm run dev:lan") on your machine first.', cx, 118);
+    }
+
     // Slots table
     const lobby = this._lanLobby;
     this.drawSlotsTable(ctx, cx, h, lobby, true);
 
-    // Hint
+    // Hints at bottom
     ctx.font = gameFont(11);
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
-    ctx.fillText('Host: click slot buttons to toggle Open / AI / Closed.  AI slots cycle difficulty.', cx, h - 100);
+    ctx.fillText('Host: click slot buttons to toggle Open / AI / Closed.  AI slots cycle difficulty.', cx, h - 120);
+    ctx.fillStyle = colorToCSS(Colors.alert2, 0.55);
+    ctx.fillText('⚠ For others to join, share your LAN IP — e.g. ws://192.168.1.25:8787', cx, h - 104);
+    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.45);
+    ctx.fillText('Note: GitHub Pages (HTTPS) blocks ws:// connections.  Use http://IP:5173 for local Vite hosting.', cx, h - 88);
 
     // Bottom buttons
     const allReady = lobby ? lobby.slots.every(s =>
@@ -1158,13 +1179,19 @@ export class MainMenu {
     const fieldW = 400;
     const fieldX = cx - fieldW / 2;
 
+    // ---- URL format hint ----
+    ctx.font = gameFont(11);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.6);
+    ctx.fillText('Format: ws://HOST_IP:8787  (e.g. ws://192.168.1.25:8787)', cx, 116);
+
     // ---- URL field ----
     ctx.font = gameFont(13);
     ctx.textAlign = 'left';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.75);
-    ctx.fillText('Host WebSocket URL:', fieldX, 130);
+    ctx.fillText('Host WebSocket URL:', fieldX, 135);
 
-    const urlRect: HitRect = { x: fieldX, y: 145, w: fieldW, h: 32 };
+    const urlRect: HitRect = { x: fieldX, y: 150, w: fieldW, h: 32 };
     const urlActive = this._joinActiveField === 'url';
     ctx.strokeStyle = colorToCSS(urlActive ? Colors.radar_friendly_status : Colors.radar_gridlines, urlActive ? 0.9 : 0.5);
     ctx.lineWidth = 1;
@@ -1174,16 +1201,16 @@ export class MainMenu {
     ctx.font = gameFont(14);
     ctx.textAlign = 'left';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.95);
-    ctx.fillText(this._joinUrl + (urlActive && Math.floor(this.animTime * 2) % 2 === 0 ? '|' : ''), fieldX + 8, 162);
+    ctx.fillText(this._joinUrl + (urlActive && Math.floor(this.animTime * 2) % 2 === 0 ? '|' : ''), fieldX + 8, 167);
     if (this.handleClick(urlRect)) this._joinActiveField = 'url';
 
     // ---- Name field ----
     ctx.font = gameFont(13);
     ctx.textAlign = 'left';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.75);
-    ctx.fillText('Your name:', fieldX, 200);
+    ctx.fillText('Your name:', fieldX, 205);
 
-    const nameRect: HitRect = { x: fieldX, y: 215, w: fieldW * 0.5, h: 32 };
+    const nameRect: HitRect = { x: fieldX, y: 220, w: fieldW * 0.5, h: 32 };
     const nameActive = this._joinActiveField === 'name';
     ctx.strokeStyle = colorToCSS(nameActive ? Colors.radar_friendly_status : Colors.radar_gridlines, nameActive ? 0.9 : 0.5);
     ctx.lineWidth = 1;
@@ -1193,7 +1220,7 @@ export class MainMenu {
     ctx.font = gameFont(14);
     ctx.textAlign = 'left';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.95);
-    ctx.fillText(this._joinName + (nameActive && Math.floor(this.animTime * 2) % 2 === 0 ? '|' : ''), fieldX + 8, 232);
+    ctx.fillText(this._joinName + (nameActive && Math.floor(this.animTime * 2) % 2 === 0 ? '|' : ''), fieldX + 8, 237);
     if (this.handleClick(nameRect)) this._joinActiveField = 'name';
 
     // Handle keyboard input for the active field

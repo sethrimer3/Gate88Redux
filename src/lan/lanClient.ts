@@ -5,7 +5,8 @@
  *   const client = new LanClient('ws://192.168.1.10:8787');
  *   client.onLobbyUpdate = (lobby) => { ... };
  *   client.connect();
- *   client.sendJoinRequest('Alice');
+ *   // For non-hosts: wait for onConnected, then sendJoinRequest
+ *   // For hosts: the server auto-assigns slot 0 and sends welcome directly
  */
 
 import type {
@@ -32,9 +33,16 @@ export type LanClientState =
   | 'in_match'
   | 'error';
 
+/** Heartbeat ping interval in ms. Matches the server-side CLIENT_TIMEOUT_MS / 4. */
+const HEARTBEAT_INTERVAL_MS = 15_000;
+
 export class LanClient {
   private ws: WebSocket | null = null;
   private url: string;
+  /** Heartbeat ping interval handle */
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
+  /** Time the last ping was sent (ms) */
+  private lastPingSentAt: number = 0;
 
   // -------------------------------------------------------------------------
   // Public state
@@ -45,6 +53,10 @@ export class LanClient {
   mySlot: number = -1;
   lobby: LobbyState | null = null;
   lastError: string = '';
+  /** Round-trip ping estimate in ms (0 = unknown). */
+  pingMs: number = 0;
+  /** Timestamp (ms) of the last received snapshot. */
+  lastSnapshotAt: number = 0;
 
   // -------------------------------------------------------------------------
   // Callbacks (set by consumers)
@@ -71,6 +83,8 @@ export class LanClient {
     if (this.ws) this.ws.close();
     this.state = 'connecting';
     this.lastError = '';
+    this.pingMs = 0;
+    this.lastSnapshotAt = 0;
     try {
       this.ws = new WebSocket(this.url);
     } catch (e) {
@@ -80,7 +94,8 @@ export class LanClient {
     }
 
     this.ws.onopen = () => {
-      this.state = 'connecting'; // wait for 'welcome'
+      this.state = 'connecting'; // wait for 'welcome' or 'server_connected'
+      this.startHeartbeat();
       this.onConnected?.();
     };
 
@@ -98,6 +113,7 @@ export class LanClient {
       const reason = ev.reason || 'Connection closed';
       this.state = 'disconnected';
       this.ws = null;
+      this.stopHeartbeat();
       this.onDisconnected?.(reason);
     };
 
@@ -108,6 +124,7 @@ export class LanClient {
   }
 
   disconnect(): void {
+    this.stopHeartbeat();
     this.ws?.close();
     this.ws = null;
     this.state = 'disconnected';
@@ -118,11 +135,41 @@ export class LanClient {
   }
 
   // -------------------------------------------------------------------------
+  // Heartbeat
+  // -------------------------------------------------------------------------
+
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    // Send a ping every HEARTBEAT_INTERVAL_MS to keep the connection alive and measure RTT.
+    this.pingInterval = setInterval(() => {
+      if (!this.connected) return;
+      this.lastPingSentAt = performance.now();
+      this.send({ type: 'ping', t: this.lastPingSentAt });
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.pingInterval !== null) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Incoming message dispatch
   // -------------------------------------------------------------------------
 
   private handleMessage(msg: ServerMessage): void {
     switch (msg.type) {
+      case 'server_connected': {
+        // Non-host initial greeting: we now know our clientId.
+        // The consumer (menu.ts) should call sendJoinRequest after this.
+        this.clientId = msg.clientId;
+        this.state = 'connecting'; // still waiting to join
+        // Trigger the same onConnected callback so existing code works.
+        // (menu.ts already sets onConnected before calling connect())
+        break;
+      }
       case 'welcome': {
         const m = msg as MsgWelcome;
         this.clientId = m.clientId;
@@ -159,6 +206,7 @@ export class LanClient {
         break;
       }
       case 'game_snapshot': {
+        this.lastSnapshotAt = performance.now();
         this.onGameSnapshot?.(msg as MsgRelayedSnapshot);
         break;
       }
@@ -169,6 +217,13 @@ export class LanClient {
       case 'match_end': {
         this.state = 'lobby';
         this.onMatchEnd?.(msg.reason);
+        break;
+      }
+      case 'pong': {
+        // Calculate round-trip time.
+        if (this.lastPingSentAt > 0) {
+          this.pingMs = Math.round(performance.now() - this.lastPingSentAt);
+        }
         break;
       }
       default:
