@@ -40,10 +40,25 @@ export interface ResearchProgress {
   timeNeeded: number;
 }
 
-export type GameMode = 'menu' | 'tutorial' | 'practice' | 'vs_ai' | 'playing';
+export type GameMode = 'menu' | 'tutorial' | 'practice' | 'vs_ai' | 'playing' | 'lan_host' | 'lan_client';
 
 export class GameState {
-  player: PlayerShip;
+  /**
+   * Map of slot index → PlayerShip for all active player ships (slots 0–7).
+   * Slot 0 is always the local/host player; additional slots are remote
+   * human players or AI ships in multiplayer.
+   */
+  playerShips: Map<number, PlayerShip> = new Map();
+
+  /**
+   * Convenience accessor for the slot-0 ship (local player / host).
+   * All single-player code continues to use this; new multi-player code
+   * should use `playerShips` directly.
+   */
+  get player(): PlayerShip {
+    return this.playerShips.get(0)!;
+  }
+
   buildings: BuildingBase[] = [];
   destroyedBuildings: DestroyedBuildingRecord[] = [];
   destroyedConduits: DestroyedConduitRecord[] = [];
@@ -72,8 +87,20 @@ export class GameState {
    * Vs. AI bot-player main ship, when the active mode is `vs_ai`.
    * Treated like a second player: physics tick, render, and projectile
    * collisions all flow through the same paths as `player`.
+   *
+   * In LAN multiplayer this is superseded by `playerShips`; for the
+   * legacy Vs. AI mode it remains active so existing code is unchanged.
    */
-  aiPlayerShip: PlayerShip | null = null;
+  get aiPlayerShip(): PlayerShip | null {
+    return this.playerShips.get(1) ?? null;
+  }
+  set aiPlayerShip(ship: PlayerShip | null) {
+    if (ship) {
+      this.playerShips.set(1, ship);
+    } else {
+      this.playerShips.delete(1);
+    }
+  }
 
   /**
    * The most recently selected building type from the Q build menu.
@@ -95,7 +122,7 @@ export class GameState {
   recentEnemyConstructions: Array<{ pos: Vec2; time: number }> = [];
 
   constructor(playerStart: Vec2 = new Vec2(0, 0)) {
-    this.player = new PlayerShip(playerStart, Team.Player);
+    this.playerShips.set(0, new PlayerShip(playerStart, Team.Player));
     this.particles = new ParticleSystem();
   }
 
@@ -149,8 +176,9 @@ export class GameState {
   /** Return all living entities across every list plus the player. */
   allEntities(): Entity[] {
     const result: Entity[] = [];
-    if (this.player.alive) result.push(this.player);
-    if (this.aiPlayerShip && this.aiPlayerShip.alive) result.push(this.aiPlayerShip);
+    for (const ship of this.playerShips.values()) {
+      if (ship.alive) result.push(ship);
+    }
     for (const b of this.buildings) if (b.alive) result.push(b);
     for (const f of this.fighters) if (f.alive) result.push(f);
     for (const p of this.projectiles) if (p.alive) result.push(p);
@@ -193,13 +221,11 @@ export class GameState {
     this.gameTime += dt;
     this.recentlyDamaged.clear();
 
-    // Update player
-    this.player.update(dt);
-    this.updatePlayerShieldAura();
-    // Vs. AI bot ship — same physics tick path.
-    if (this.aiPlayerShip && this.aiPlayerShip.alive) {
-      this.aiPlayerShip.update(dt);
+    // Update all player ships (slot 0 = local player, others = remote/AI)
+    for (const ship of this.playerShips.values()) {
+      if (ship.alive) ship.update(dt);
     }
+    this.updatePlayerShieldAura();
 
     // Update buildings and power status
     this.updateBuildingPower();
@@ -272,15 +298,10 @@ export class GameState {
       }
       if (!proj.alive) continue;
 
-      // Check against player
-      if (this.player.alive) {
-        if (this.checkHit(proj, this.player, isRegen)) continue;
-      }
-
-      // Check against the Vs. AI bot ship — it's a player-class entity
-      // that must be damageable by player projectiles.
-      if (this.aiPlayerShip && this.aiPlayerShip.alive) {
-        this.checkHit(proj, this.aiPlayerShip, isRegen);
+      // Check against all player ships (slot 0 = local, others = remote/AI)
+      for (const ship of this.playerShips.values()) {
+        if (!ship.alive) continue;
+        if (this.checkHit(proj, ship, isRegen)) break;
       }
     }
   }
@@ -402,8 +423,9 @@ export class GameState {
     const CONDUIT_DPS = 0.5; // damage while touching an opposing powered conduit
 
     const shipsToCheck: Entity[] = [];
-    if (this.player.alive) shipsToCheck.push(this.player);
-    if (this.aiPlayerShip && this.aiPlayerShip.alive) shipsToCheck.push(this.aiPlayerShip);
+    for (const ship of this.playerShips.values()) {
+      if (ship.alive) shipsToCheck.push(ship);
+    }
     for (const f of this.fighters) {
       if (f.alive && !f.docked) shipsToCheck.push(f);
     }
@@ -491,12 +513,15 @@ export class GameState {
   }
 
   private updatePlayerShieldAura(): void {
-    if (!this.player.shieldUnlocked || !this.player.alive || this.player.shield <= 0) return;
-    const radius = 260;
-    for (const f of this.fighters) {
-      if (!f.alive || f.docked || f.team !== Team.Player) continue;
-      if (f.position.distanceTo(this.player.position) <= radius) {
-        f.enableShield();
+    // Apply shield aura from each player ship to nearby friendly fighters.
+    for (const ship of this.playerShips.values()) {
+      if (!ship.shieldUnlocked || !ship.alive || ship.shield <= 0) continue;
+      const radius = 260;
+      for (const f of this.fighters) {
+        if (!f.alive || f.docked || f.team !== ship.team) continue;
+        if (f.position.distanceTo(ship.position) <= radius) {
+          f.enableShield();
+        }
       }
     }
   }
@@ -890,9 +915,8 @@ export class GameState {
     for (const b of this.buildings) b.draw(ctx, camera);
     for (const f of this.fighters) f.draw(ctx, camera);
     for (const p of this.projectiles) p.draw(ctx, camera);
-    if (this.player.alive) this.player.draw(ctx, camera);
-    if (this.aiPlayerShip && this.aiPlayerShip.alive) {
-      this.aiPlayerShip.draw(ctx, camera);
+    for (const ship of this.playerShips.values()) {
+      if (ship.alive) ship.draw(ctx, camera);
     }
     this.particles.draw(ctx, camera);
     this.ringEffects.draw(ctx, camera);

@@ -5,8 +5,24 @@ import { Camera } from './camera.js';
 
 export enum Team {
   Neutral = 0,
-  Player = 1,
-  Enemy = 2,
+  Player1 = 1,
+  Player2 = 2,
+  Player3 = 3,
+  Player4 = 4,
+  Player5 = 5,
+  Player6 = 6,
+  Player7 = 7,
+  Player8 = 8,
+  /**
+   * Backward-compat alias for the local single-player team (= Player1).
+   * Use Team.Player1 in new code.
+   */
+  Player = 1, // eslint-disable-line @typescript-eslint/no-duplicate-enum-values
+  /**
+   * Backward-compat alias for the first AI/enemy team (= Player2).
+   * Use Team.Player2 in new code.
+   */
+  Enemy = 2,  // eslint-disable-line @typescript-eslint/no-duplicate-enum-values
 }
 
 /**

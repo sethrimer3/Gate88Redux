@@ -29,6 +29,10 @@ import { createBuildingFromDef, getBuildDef } from './builddefs.js';
 import { worldToCell, footprintCenter, GRID_CELL_SIZE } from './grid.js';
 import { gameFont } from './fonts.js';
 import { createSpaceFluid, SpaceFluid } from './spacefluid.js';
+import type { LanClient } from './lan/lanClient.js';
+import type { MsgMatchStart, MsgRelayedInput, SerializedShip } from './lan/protocol.js';
+import { PlayerShip } from './ship.js';
+import { teamForSlot } from './teamutils.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 type ShipCommandGroup = ShipGroup | 'all';
@@ -74,6 +78,21 @@ export class Game {
   private playerDeathHandled: boolean = false;
   /** Delay (seconds) before the player ship respawns. */
   private static readonly RESPAWN_DELAY = 3;
+
+  // LAN multiplayer
+  private lanClient: LanClient | null = null;
+  /** Slot assigned to this client (0 = host). */
+  private lanMySlot: number = 0;
+  /** Snapshot sequence counter for outgoing snapshots. */
+  private lanSnapshotSeq: number = 0;
+  /** Countdown until next snapshot broadcast (host only). */
+  private lanSnapshotTimer: number = 0;
+  /** Interval (seconds) between host snapshots. */
+  private static readonly SNAPSHOT_INTERVAL = 1 / 20; // 20 Hz
+  /** Per-slot remote input buffer (filled by relayed_input from server). */
+  private lanRemoteInputs: Map<number, { dx: number; dy: number; aimX: number; aimY: number; firePrimary: boolean; fireSpecial: boolean; boost: boolean }> = new Map();
+  /** Input sequence counter for outgoing input snapshots. */
+  private lanInputSeq: number = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -171,6 +190,12 @@ export class Game {
   }
 
   private updateMenu(): void {
+    // Forward typed characters to the join screen text fields.
+    if (Input.typedChars) {
+      for (const ch of Input.typedChars) {
+        this.mainMenu.appendJoinChar(ch);
+      }
+    }
     const action = this.mainMenu.update(DT, this.screenW, this.screenH);
     this.handleMenuAction(action);
   }
@@ -191,6 +216,14 @@ export class Game {
       case 'start_vs_ai':
         this.startGame('vs_ai');
         break;
+      case 'start_lan_host':
+      case 'start_lan_client': {
+        const matchStart = this.mainMenu.takePendingLanMatchStart();
+        if (matchStart) {
+          this.startLanGame(matchStart, action === 'start_lan_host');
+        }
+        break;
+      }
       case 'resume':
         this.phase = 'playing';
         this.mainMenu.close();
@@ -201,6 +234,10 @@ export class Game {
         Audio.stopDriveLoop();
         Audio.stopMusic();
         Audio.playMenuMusic();
+        if (this.lanClient) {
+          this.lanClient.disconnect();
+          this.lanClient = null;
+        }
         break;
       default:
         break;
@@ -321,6 +358,17 @@ export class Game {
       this.practiceMode.update(this.state, this.hud, DT);
     } else if (this.state.gameMode === 'tutorial') {
       this.tutorialMode.update(this.state, this.hud, DT);
+    } else if (this.state.gameMode === 'lan_host') {
+      // Apply buffered remote inputs, then broadcast snapshot on interval.
+      this.applyRemoteLanInputs();
+      this.lanSnapshotTimer -= DT;
+      if (this.lanSnapshotTimer <= 0) {
+        this.lanSnapshotTimer = Game.SNAPSHOT_INTERVAL;
+        this.broadcastLanSnapshot();
+      }
+    } else if (this.state.gameMode === 'lan_client') {
+      // Send local input to the server every tick.
+      this.sendLanInput();
     }
 
     // Vs. AI bot-player: tick the strategic director every frame. The
@@ -1032,6 +1080,216 @@ export class Game {
     for (const item of list) {
       this.state.researchedItems.add(item);
       this.state.player.applyResearchUpgrade(item);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // LAN match startup & networking
+  // -----------------------------------------------------------------------
+
+  /**
+   * Begin a LAN match. The host runs the authoritative simulation; remote
+   * clients receive periodic snapshots and send their input each tick.
+   */
+  private startLanGame(matchStart: MsgMatchStart, isHost: boolean): void {
+    this.lanMySlot = matchStart.mySlot;
+    this.lanClient = this.mainMenu.getLanClient();
+    this.lanRemoteInputs.clear();
+    this.lanSnapshotSeq = 0;
+    this.lanInputSeq = 0;
+
+    const myTeam = teamForSlot(this.lanMySlot);
+    const playerStart = new Vec2(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
+
+    // Build fresh game state for host slot 0.
+    this.state = new GameState(playerStart);
+    this.state.gameMode = isHost ? 'lan_host' : 'lan_client';
+    this.vsAIDirector = null;
+    this.playerDeathHandled = false;
+    this.playerRespawnTimer = 0;
+    this.activeGuidedMissile = null;
+    this.camera = new Camera();
+    this.camera.setScreenSize(this.screenW, this.screenH);
+    this.camera.position = playerStart.clone();
+    this.actionMenu = new ActionMenu();
+    this.hud = new HUD();
+    this.waypointMarkers.clear();
+    this.spaceFluid.reset();
+    this.spaceFluid.resize(this.screenW, this.screenH);
+
+    // Set the local player ship's team from the assigned slot.
+    this.state.playerShips.set(0, new PlayerShip(playerStart, myTeam));
+
+    // For every non-local human slot, create a remote PlayerShip placeholder.
+    for (const slot of matchStart.lobby.slots) {
+      if (slot.type === 'human' && slot.slotIndex !== this.lanMySlot) {
+        const remoteShip = new PlayerShip(playerStart.clone(), teamForSlot(slot.slotIndex));
+        this.state.playerShips.set(slot.slotIndex, remoteShip);
+      }
+    }
+
+    // Command post for the local player
+    const cpPos = new Vec2(playerStart.x, playerStart.y + 80);
+    const cp = new CommandPost(cpPos, myTeam);
+    this.state.addEntity(cp);
+
+    const startCx = Math.floor(cpPos.x / GRID_CELL_SIZE);
+    const startCy = Math.floor(cpPos.y / GRID_CELL_SIZE);
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        if (Math.abs(dx) + Math.abs(dy) <= 2) {
+          this.state.grid.addConduit(startCx + dx, startCy + dy, myTeam);
+        }
+      }
+    }
+    this.state.power.markDirty();
+    this.state.resources = 500;
+
+    // Wire up LAN callbacks.
+    if (this.lanClient) {
+      if (isHost) {
+        // Host receives remote player inputs and applies them to remote ships.
+        this.lanClient.onRelayedInput = (msg: MsgRelayedInput) => {
+          this.lanRemoteInputs.set(msg.fromSlot, {
+            dx: msg.input.dx,
+            dy: msg.input.dy,
+            aimX: msg.input.aimX,
+            aimY: msg.input.aimY,
+            firePrimary: msg.input.firePrimary,
+            fireSpecial: msg.input.fireSpecial,
+            boost: msg.input.boost,
+          });
+        };
+      } else {
+        // Remote client receives authoritative snapshots from the host.
+        this.lanClient.onGameSnapshot = (snapshot) => {
+          this.applyLanSnapshot(snapshot);
+        };
+      }
+
+      this.lanClient.onMatchEnd = (reason) => {
+        this.hud.showMessage(`Match ended: ${reason}`, Colors.alert1, 5);
+        this.phase = 'menu';
+        this.mainMenu.openTitle();
+        Audio.stopDriveLoop();
+        Audio.stopMusic();
+        Audio.playMenuMusic();
+        this.lanClient = null;
+      };
+    }
+
+    this.phase = 'playing';
+    this.mainMenu.close();
+    Audio.stopDriveLoop();
+    Audio.stopMusic();
+    Audio.startPlaylist();
+
+    this.hud.showMessage(
+      `LAN ${isHost ? 'Host' : 'Client'} — slot ${this.lanMySlot + 1}`,
+      Colors.radar_friendly_status, 4,
+    );
+  }
+
+  /**
+   * Apply a relayed game snapshot to non-authoritative client state.
+   * Directly writes position/velocity onto remote ship objects so
+   * rendering is always current.
+   */
+  private applyLanSnapshot(snapshot: { ships: SerializedShip[] }): void {
+    for (const sd of snapshot.ships) {
+      if (sd.slotIndex === this.lanMySlot) continue; // skip local ship
+      let ship = this.state.playerShips.get(sd.slotIndex);
+      if (!ship) {
+        // Lazily create remote ship on first snapshot.
+        ship = new PlayerShip(new Vec2(sd.x, sd.y), teamForSlot(sd.slotIndex));
+        this.state.playerShips.set(sd.slotIndex, ship);
+      }
+      ship.position.x = sd.x;
+      ship.position.y = sd.y;
+      ship.velocity.x = sd.vx;
+      ship.velocity.y = sd.vy;
+      ship.angle = sd.angle;
+      ship.health = sd.health;
+      ship.battery = sd.battery;
+      if (!sd.alive && ship.alive) ship.destroy();
+    }
+  }
+
+  /**
+   * Broadcast the authoritative game state snapshot to the server for
+   * relay to all remote clients. Called by the host at SNAPSHOT_INTERVAL.
+   */
+  private broadcastLanSnapshot(): void {
+    if (!this.lanClient?.connected) return;
+
+    const ships: SerializedShip[] = [];
+    for (const [slot, ship] of this.state.playerShips) {
+      ships.push({
+        slotIndex: slot,
+        x: ship.position.x,
+        y: ship.position.y,
+        vx: ship.velocity.x,
+        vy: ship.velocity.y,
+        angle: ship.angle,
+        health: ship.health,
+        maxHealth: ship.maxHealth,
+        battery: ship.battery,
+        shield: ship.shield,
+        alive: ship.alive,
+      });
+    }
+
+    this.lanClient.sendGameSnapshot({
+      seq: this.lanSnapshotSeq++,
+      gameTime: this.state.gameTime,
+      ships,
+      projectiles: [],
+      fighters: [],
+      resources: [this.state.resources],
+      hostSlot: 0,
+    });
+  }
+
+  /**
+   * Send this client's local input to the server (for the host to apply).
+   * Called every tick for non-host LAN clients.
+   */
+  private sendLanInput(): void {
+    if (!this.lanClient?.connected) return;
+    const aimWorld = this.camera.screenToWorld(Input.mousePos);
+    this.lanClient.sendInputSnapshot({
+      seq: this.lanInputSeq++,
+      dx: (Input.isDown('d') ? 1 : 0) - (Input.isDown('a') ? 1 : 0),
+      dy: (Input.isDown('s') ? 1 : 0) - (Input.isDown('w') ? 1 : 0),
+      aimX: aimWorld.x,
+      aimY: aimWorld.y,
+      firePrimary: Input.mouseDown,
+      fireSpecial: Input.mouse2Down,
+      boost: Input.isDown('Shift'),
+    });
+  }
+
+  /**
+   * Apply buffered remote-player inputs to their corresponding ships.
+   * Host-only: called once per tick before GameState.update().
+   */
+  private applyRemoteLanInputs(): void {
+    for (const [slot, inp] of this.lanRemoteInputs) {
+      const ship = this.state.playerShips.get(slot);
+      if (!ship || !ship.alive) continue;
+      // Aim
+      ship.setAimPoint(new Vec2(inp.aimX, inp.aimY));
+      // Inject virtual thrust as velocity impulse (mirrors PlayerShip.handleInput)
+      const len = Math.hypot(inp.dx, inp.dy);
+      if (len > 0.01) {
+        const ux = inp.dx / len;
+        const uy = inp.dy / len;
+        ship.velocity = ship.velocity.add(new Vec2(ux * ship.thrustPower * DT, uy * ship.thrustPower * DT));
+        ship.thrustDir = new Vec2(ux, uy);
+        ship.isThrusting = true;
+      } else {
+        ship.isThrusting = false;
+      }
     }
   }
 

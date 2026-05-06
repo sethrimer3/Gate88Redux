@@ -38,6 +38,8 @@ import {
   VsAIConfig,
   cloneDefaultVsAIConfig,
 } from './vsaiconfig.js';
+import { LanClient } from './lan/lanClient.js';
+import type { LobbyState, LobbySlot, AIDifficulty, MsgMatchStart } from './lan/protocol.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,6 +52,10 @@ export type MenuState =
   | 'practice_setup'
   | 'settings'
   | 'pause'
+  | 'lan_type'
+  | 'lan_host_lobby'
+  | 'lan_join'
+  | 'lan_client_lobby'
   | 'none';
 
 export type MenuAction =
@@ -57,6 +63,8 @@ export type MenuAction =
   | 'tutorial'
   | 'start_practice'
   | 'start_vs_ai'
+  | 'start_lan_host'
+  | 'start_lan_client'
   | 'resume'
   | 'quit_to_menu';
 
@@ -130,6 +138,31 @@ export class MainMenu {
   practiceConfig: PracticeConfig = cloneDefaultPracticeConfig();
   /** Persisted Vs. AI config. */
   vsAIConfig: VsAIConfig = cloneDefaultVsAIConfig();
+
+  // -------------------------------------------------------------------------
+  // LAN multiplayer state
+  // -------------------------------------------------------------------------
+
+  /** Shared LAN client used by both Host and Join screens. */
+  lanClient: LanClient = new LanClient('ws://localhost:8787');
+
+  /** Current lobby state received from the server. */
+  private _lanLobby: LobbyState | null = null;
+
+  /** Pending match-start info passed to game.ts via MenuAction. */
+  private _lanMatchStart: MsgMatchStart | null = null;
+
+  /** Join screen: text being typed in the URL input field. */
+  private _joinUrl: string = 'ws://';
+  /** Join screen: whether the input field is focused (for typing). */
+  private _joinInputActive: boolean = false;
+  /** Join screen: player name to send. */
+  private _joinName: string = 'Player';
+  /** Join screen: which field is active: 'url' | 'name' */
+  private _joinActiveField: 'url' | 'name' = 'url';
+
+  /** Returned to game.ts alongside start_lan_host / start_lan_client. */
+  pendingLanMatchStart: MsgMatchStart | null = null;
 
   /** Hit rectangles registered during draw, consumed during update. */
   private hits: Array<{ rect: HitRect; key: string }> = [];
@@ -255,7 +288,8 @@ export class MainMenu {
       (this.state === 'play' ||
         this.state === 'vs_ai_setup' ||
         this.state === 'practice_setup' ||
-        this.state === 'settings')
+        this.state === 'settings' ||
+        this.state === 'lan_type')
     ) {
       Audio.playSound('menucursor');
       this.setState('title');
@@ -291,7 +325,17 @@ export class MainMenu {
         return [
           { label: 'Vs. AI', action: () => this.setState('vs_ai_setup'),
             description: 'Match against an AI opponent with its own main ship' },
+          { label: 'LAN Multiplayer', action: () => this.setState('lan_type'),
+            description: 'Host or join a LAN game with up to 8 players' },
           { label: 'Back', action: () => this.setState('title') },
+        ];
+      case 'lan_type':
+        return [
+          { label: 'Host LAN Lobby', action: () => this.openHostLobby(),
+            description: 'Create a lobby — other players join via your IP' },
+          { label: 'Join LAN Lobby', action: () => this.setState('lan_join'),
+            description: 'Enter the host IP/port to join' },
+          { label: 'Back', action: () => this.setState('play') },
         ];
       case 'pause':
         return [
@@ -323,6 +367,10 @@ export class MainMenu {
       case 'practice_setup':  this.drawPracticeSetup(ctx, screenW, screenH); break;
       case 'settings':        this.drawSettings(ctx, screenW, screenH); break;
       case 'pause':           this.drawPauseMenu(ctx, screenW, screenH); break;
+      case 'lan_type':        this.drawPlayMenu(ctx, screenW, screenH); break; // re-use play menu draw (simple list)
+      case 'lan_host_lobby':  this.drawLanHostLobby(ctx, screenW, screenH); break;
+      case 'lan_join':        this.drawLanJoin(ctx, screenW, screenH); break;
+      case 'lan_client_lobby':this.drawLanClientLobby(ctx, screenW, screenH); break;
     }
 
     // Click-pulse overlay
@@ -446,7 +494,8 @@ export class MainMenu {
     ctx.textBaseline = 'middle';
     ctx.font = 'bold 32px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.title);
-    ctx.fillText('PLAY', cx, h * 0.22);
+    const title = this.state === 'lan_type' ? 'LAN MULTIPLAYER' : 'PLAY';
+    ctx.fillText(title, cx, h * 0.22);
 
     const opts = this.currentSimpleOptions()!;
     this.drawClickableOptions(ctx, cx, h * 0.45, opts);
@@ -977,10 +1026,440 @@ export class MainMenu {
     }
   }
 
+  // -------------------------------------------------------------------
+  // LAN: private helpers
+  // -------------------------------------------------------------------
+
+  private openHostLobby(): void {
+    // Create a local LAN client that connects to the local server.
+    this.lanClient = new LanClient('ws://localhost:8787');
+    this._lanLobby = null;
+
+    this.lanClient.onLobbyUpdate = (lobby) => { this._lanLobby = lobby; };
+    this.lanClient.onMatchStart = (msg) => {
+      this._lanMatchStart = msg;
+      this.pendingLanMatchStart = msg;
+      this.pendingAction = 'start_lan_host';
+    };
+    this.lanClient.onDisconnected = () => { this._lanLobby = null; };
+    this.lanClient.connect();
+
+    this.setState('lan_host_lobby');
+  }
+
+  private connectToJoinUrl(): void {
+    const url = this._joinUrl.trim();
+    if (!url || url === 'ws://') return;
+
+    this.lanClient = new LanClient(url);
+    this._lanLobby = null;
+
+    this.lanClient.onLobbyUpdate = (lobby) => {
+      this._lanLobby = lobby;
+      if (this.state === 'lan_join') {
+        this.setState('lan_client_lobby');
+      }
+    };
+    this.lanClient.onJoinRejected = (reason) => {
+      this.lanClient.lastError = reason;
+    };
+    this.lanClient.onKicked = () => {
+      this._lanLobby = null;
+      this.setState('lan_type');
+    };
+    this.lanClient.onMatchStart = (msg) => {
+      this._lanMatchStart = msg;
+      this.pendingLanMatchStart = msg;
+      this.pendingAction = 'start_lan_client';
+    };
+    this.lanClient.onDisconnected = () => {
+      this._lanLobby = null;
+      if (this.state === 'lan_client_lobby') {
+        this.setState('lan_type');
+      }
+    };
+
+    this.lanClient.connect();
+    // Wait for 'welcome' before sending join_request
+    const origConnected = this.lanClient.onConnected;
+    this.lanClient.onConnected = () => {
+      origConnected?.();
+      this.lanClient.sendJoinRequest(this._joinName || 'Player');
+    };
+  }
+
+  // -------------------------------------------------------------------
+  // LAN: Host lobby screen
+  // -------------------------------------------------------------------
+
+  private drawLanHostLobby(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    this.drawBackground(ctx, w, h);
+    this.drawBuildBadge(ctx, w);
+
+    const cx = w * 0.5;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = gameFont(28);
+    ctx.fillStyle = colorToCSS(TextColors.title);
+    ctx.fillText('HOST LOBBY', cx, 68);
+
+    // Connection status
+    const st = this.lanClient.state;
+    const statusText = st === 'lobby' ? `Connected — ws://localhost:8787  (your LAN IP:8787 for others)`
+      : st === 'connecting' ? 'Connecting to ws://localhost:8787 …'
+      : st === 'error' ? `Error: ${this.lanClient.lastError}`
+      : 'Disconnected';
+    ctx.font = gameFont(12);
+    ctx.fillStyle = colorToCSS(
+      st === 'lobby' ? Colors.radar_friendly_status
+      : st === 'error' ? Colors.alert1 : Colors.alert2, 0.85);
+    ctx.fillText(statusText, cx, 100);
+
+    // Slots table
+    const lobby = this._lanLobby;
+    this.drawSlotsTable(ctx, cx, h, lobby, true);
+
+    // Hint
+    ctx.font = gameFont(11);
+    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
+    ctx.fillText('Host: click slot buttons to toggle Open / AI / Closed.  AI slots cycle difficulty.', cx, h - 100);
+
+    // Bottom buttons
+    const allReady = lobby ? lobby.slots.every(s =>
+      s.type !== 'human' || s.slotIndex === 0 || s.ready) : false;
+
+    this.drawButtonRow(ctx, [
+      { label: 'Back / Disconnect', action: () => {
+        this.lanClient.disconnect();
+        this._lanLobby = null;
+        this.setState('lan_type');
+      }},
+      { label: 'Start Match', emphasis: allReady, action: () => {
+        this.lanClient.sendStartMatch();
+      }},
+    ], cx, h - 56);
+  }
+
+  // -------------------------------------------------------------------
+  // LAN: Join screen
+  // -------------------------------------------------------------------
+
+  private drawLanJoin(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    this.drawBackground(ctx, w, h);
+    this.drawBuildBadge(ctx, w);
+
+    const cx = w * 0.5;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = gameFont(28);
+    ctx.fillStyle = colorToCSS(TextColors.title);
+    ctx.fillText('JOIN LOBBY', cx, 68);
+
+    const fieldW = 400;
+    const fieldX = cx - fieldW / 2;
+
+    // ---- URL field ----
+    ctx.font = gameFont(13);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = colorToCSS(TextColors.normal, 0.75);
+    ctx.fillText('Host WebSocket URL:', fieldX, 130);
+
+    const urlRect: HitRect = { x: fieldX, y: 145, w: fieldW, h: 32 };
+    const urlActive = this._joinActiveField === 'url';
+    ctx.strokeStyle = colorToCSS(urlActive ? Colors.radar_friendly_status : Colors.radar_gridlines, urlActive ? 0.9 : 0.5);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(urlRect.x + 0.5, urlRect.y + 0.5, urlRect.w - 1, urlRect.h - 1);
+    ctx.fillStyle = colorToCSS(Colors.friendly_background, 0.85);
+    ctx.fillRect(urlRect.x + 1, urlRect.y + 1, urlRect.w - 2, urlRect.h - 2);
+    ctx.font = gameFont(14);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = colorToCSS(TextColors.normal, 0.95);
+    ctx.fillText(this._joinUrl + (urlActive && Math.floor(this.animTime * 2) % 2 === 0 ? '|' : ''), fieldX + 8, 162);
+    if (this.handleClick(urlRect)) this._joinActiveField = 'url';
+
+    // ---- Name field ----
+    ctx.font = gameFont(13);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = colorToCSS(TextColors.normal, 0.75);
+    ctx.fillText('Your name:', fieldX, 200);
+
+    const nameRect: HitRect = { x: fieldX, y: 215, w: fieldW * 0.5, h: 32 };
+    const nameActive = this._joinActiveField === 'name';
+    ctx.strokeStyle = colorToCSS(nameActive ? Colors.radar_friendly_status : Colors.radar_gridlines, nameActive ? 0.9 : 0.5);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(nameRect.x + 0.5, nameRect.y + 0.5, nameRect.w - 1, nameRect.h - 1);
+    ctx.fillStyle = colorToCSS(Colors.friendly_background, 0.85);
+    ctx.fillRect(nameRect.x + 1, nameRect.y + 1, nameRect.w - 2, nameRect.h - 2);
+    ctx.font = gameFont(14);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = colorToCSS(TextColors.normal, 0.95);
+    ctx.fillText(this._joinName + (nameActive && Math.floor(this.animTime * 2) % 2 === 0 ? '|' : ''), fieldX + 8, 232);
+    if (this.handleClick(nameRect)) this._joinActiveField = 'name';
+
+    // Handle keyboard input for the active field
+    this.handleTextInput();
+
+    // Status
+    const st = this.lanClient.state;
+    if (st === 'connecting') {
+      ctx.font = gameFont(13);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = colorToCSS(Colors.alert2, 0.9);
+      ctx.fillText('Connecting…', cx, 280);
+    } else if (st === 'error') {
+      ctx.font = gameFont(13);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = colorToCSS(Colors.alert1, 0.9);
+      ctx.fillText(`Error: ${this.lanClient.lastError}`, cx, 280);
+    }
+
+    // Buttons
+    this.drawButtonRow(ctx, [
+      { label: 'Back', action: () => {
+        this.lanClient.disconnect();
+        this.setState('lan_type');
+      }},
+      { label: 'Connect & Join', emphasis: true, action: () => {
+        this.connectToJoinUrl();
+      }},
+    ], cx, h - 56);
+  }
+
+  // -------------------------------------------------------------------
+  // LAN: Client lobby screen
+  // -------------------------------------------------------------------
+
+  private drawLanClientLobby(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    this.drawBackground(ctx, w, h);
+    this.drawBuildBadge(ctx, w);
+
+    const cx = w * 0.5;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = gameFont(28);
+    ctx.fillStyle = colorToCSS(TextColors.title);
+    ctx.fillText('WAITING FOR HOST', cx, 68);
+
+    const st = this.lanClient.state;
+    ctx.font = gameFont(12);
+    ctx.fillStyle = colorToCSS(
+      st === 'lobby' ? Colors.radar_friendly_status : Colors.alert1, 0.85);
+    ctx.fillText(st === 'lobby' ? 'Connected' : `Status: ${st}`, cx, 100);
+
+    const lobby = this._lanLobby;
+    this.drawSlotsTable(ctx, cx, h, lobby, false);
+
+    // Ready button
+    const mySlot = lobby?.slots.find(s => s.clientId === this.lanClient.clientId);
+    const isReady = mySlot?.ready ?? false;
+    this.drawButtonRow(ctx, [
+      { label: 'Leave', action: () => {
+        this.lanClient.sendLeave();
+        this.lanClient.disconnect();
+        this._lanLobby = null;
+        this.setState('lan_type');
+      }},
+      { label: isReady ? 'Unready' : 'Ready', emphasis: !isReady, action: () => {
+        this.lanClient.sendReadyToggle();
+      }},
+    ], cx, h - 56);
+  }
+
+  // -------------------------------------------------------------------
+  // LAN: shared slot table
+  // -------------------------------------------------------------------
+
+  private drawSlotsTable(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    h: number,
+    lobby: LobbyState | null,
+    isHost: boolean,
+  ): void {
+    const tableTop = 130;
+    const rowH = 36;
+    const tableW = 680;
+    const tableLeft = cx - tableW / 2;
+
+    // Header
+    ctx.font = gameFont(11);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.6);
+    ctx.fillText('#', tableLeft + 8, tableTop - 10);
+    ctx.fillText('Status', tableLeft + 40, tableTop - 10);
+    ctx.fillText('Name', tableLeft + 160, tableTop - 10);
+    ctx.fillText('Type / Difficulty', tableLeft + 380, tableTop - 10);
+    if (isHost) ctx.fillText('Controls', tableLeft + 540, tableTop - 10);
+
+    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.35);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(tableLeft, tableTop - 2);
+    ctx.lineTo(tableLeft + tableW, tableTop - 2);
+    ctx.stroke();
+
+    const slots: LobbySlot[] = lobby?.slots ?? Array.from({ length: 8 }, (_, i) => ({
+      slotIndex: i, type: i === 0 ? 'open' : 'open', ready: false,
+    } as LobbySlot));
+
+    const AI_DIFFICULTIES: AIDifficulty[] = ['easy', 'normal', 'hard', 'nightmare'];
+
+    for (let i = 0; i < 8; i++) {
+      const slot = slots[i];
+      const y = tableTop + i * rowH + rowH / 2;
+      const rowRect: HitRect = { x: tableLeft, y: tableTop + i * rowH, w: tableW, h: rowH - 2 };
+
+      // Row background
+      if (i % 2 === 0) {
+        ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.06);
+        ctx.fillRect(rowRect.x, rowRect.y, rowRect.w, rowRect.h);
+      }
+
+      // Slot #
+      ctx.font = gameFont(14);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = colorToCSS(TextColors.normal, 0.6);
+      ctx.fillText(`${i + 1}`, tableLeft + 12, y);
+
+      // Status indicator
+      const statusColor = slot.type === 'human'
+        ? (slot.ready || i === 0 ? Colors.radar_friendly_status : Colors.alert2)
+        : slot.type === 'ai' ? Colors.radar_allied_status
+        : slot.type === 'closed' ? Colors.radar_enemy_status
+        : Colors.radar_gridlines;
+      const statusText = slot.type === 'human'
+        ? (slot.ready || i === 0 ? 'Ready' : 'Waiting')
+        : slot.type === 'ai' ? 'AI'
+        : slot.type === 'closed' ? 'Closed'
+        : 'Open';
+      ctx.fillStyle = colorToCSS(statusColor, 0.85);
+      ctx.fillText(statusText, tableLeft + 44, y);
+
+      // Name
+      ctx.fillStyle = colorToCSS(TextColors.normal, 0.9);
+      ctx.fillText(slot.playerName ?? (slot.type === 'ai' ? `AI Bot` : '—'), tableLeft + 164, y);
+
+      // Type / difficulty
+      const typeText = slot.type === 'ai'
+        ? `AI / ${slot.aiDifficulty ?? 'normal'}`
+        : slot.type;
+      ctx.fillStyle = colorToCSS(TextColors.normal, 0.6);
+      ctx.fillText(typeText, tableLeft + 384, y);
+
+      // Host controls for non-slot-0 slots
+      if (isHost && i > 0) {
+        // Toggle type button
+        const toggleRect: HitRect = { x: tableLeft + 544, y: tableTop + i * rowH + 6, w: 80, h: rowH - 14 };
+        const toggleHovered = pointInRect(this.mouseXLatched, this.mouseYLatched, toggleRect);
+        ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, toggleHovered ? 0.8 : 0.45);
+        ctx.lineWidth = 1;
+        ctx.strokeRect(toggleRect.x + 0.5, toggleRect.y + 0.5, toggleRect.w - 1, toggleRect.h - 1);
+        ctx.font = gameFont(12);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = colorToCSS(TextColors.normal, toggleHovered ? 1.0 : 0.7);
+        const nextType = slot.type === 'open' ? 'AI' : slot.type === 'ai' ? 'Closed' : 'Open';
+        ctx.fillText(`→ ${nextType}`, toggleRect.x + toggleRect.w / 2, toggleRect.y + toggleRect.h / 2);
+        if (this.handleClick(toggleRect)) {
+          if (slot.type === 'open') {
+            this.lanClient.sendSlotConfig(i, 'ai', 'normal');
+          } else if (slot.type === 'ai') {
+            this.lanClient.sendSlotConfig(i, 'closed');
+          } else {
+            this.lanClient.sendSlotConfig(i, 'open');
+          }
+        }
+
+        // AI difficulty cycle (only for AI slots)
+        if (slot.type === 'ai') {
+          const diffRect: HitRect = { x: tableLeft + 628, y: tableTop + i * rowH + 6, w: 48, h: rowH - 14 };
+          const diffHovered = pointInRect(this.mouseXLatched, this.mouseYLatched, diffRect);
+          ctx.strokeStyle = colorToCSS(Colors.radar_allied_status, diffHovered ? 0.8 : 0.4);
+          ctx.lineWidth = 1;
+          ctx.strokeRect(diffRect.x + 0.5, diffRect.y + 0.5, diffRect.w - 1, diffRect.h - 1);
+          ctx.font = gameFont(11);
+          ctx.textAlign = 'center';
+          ctx.fillStyle = colorToCSS(Colors.radar_allied_status, diffHovered ? 1.0 : 0.75);
+          ctx.fillText('Diff', diffRect.x + diffRect.w / 2, diffRect.y + diffRect.h / 2);
+          if (this.handleClick(diffRect)) {
+            const cur = slot.aiDifficulty ?? 'normal';
+            const idx = AI_DIFFICULTIES.indexOf(cur);
+            const next = AI_DIFFICULTIES[(idx + 1) % AI_DIFFICULTIES.length];
+            this.lanClient.sendSlotConfig(i, 'ai', next);
+          }
+        }
+
+        // Kick button for occupied human slots
+        if (slot.type === 'human' && slot.clientId) {
+          const kickRect: HitRect = { x: tableLeft + 628, y: tableTop + i * rowH + 6, w: 48, h: rowH - 14 };
+          const kickHovered = pointInRect(this.mouseXLatched, this.mouseYLatched, kickRect);
+          ctx.strokeStyle = colorToCSS(Colors.alert1, kickHovered ? 0.8 : 0.4);
+          ctx.lineWidth = 1;
+          ctx.strokeRect(kickRect.x + 0.5, kickRect.y + 0.5, kickRect.w - 1, kickRect.h - 1);
+          ctx.font = gameFont(11);
+          ctx.textAlign = 'center';
+          ctx.fillStyle = colorToCSS(Colors.alert1, kickHovered ? 1.0 : 0.7);
+          ctx.fillText('Kick', kickRect.x + kickRect.w / 2, kickRect.y + kickRect.h / 2);
+          if (this.handleClick(kickRect)) {
+            this.lanClient.sendKickPlayer(i);
+          }
+        }
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------
+  // Text input for Join screen fields
+  // -------------------------------------------------------------------
+
+  private handleTextInput(): void {
+    // Only handle typed characters for LAN join fields
+    if (this.state !== 'lan_join') return;
+
+    // Backspace
+    if (Input.wasPressed('Backspace')) {
+      if (this._joinActiveField === 'url' && this._joinUrl.length > 0) {
+        this._joinUrl = this._joinUrl.slice(0, -1);
+      } else if (this._joinActiveField === 'name' && this._joinName.length > 0) {
+        this._joinName = this._joinName.slice(0, -1);
+      }
+    }
+    // Tab: switch field
+    if (Input.wasPressed('Tab')) {
+      this._joinActiveField = this._joinActiveField === 'url' ? 'name' : 'url';
+    }
+  }
+
   /**
-   * Returns true and consumes the click if the mouse was just pressed
-   * inside `rect` this frame. Plays selection sound and starts a click
-   * pulse for visual feedback.
+   * Called by game.ts on every tick during the join screen to forward
+   * typed characters into the active input field.
+   */
+  appendJoinChar(ch: string): void {
+    if (this.state !== 'lan_join') return;
+    if (this._joinActiveField === 'url') {
+      if (this._joinUrl.length < 120) this._joinUrl += ch;
+    } else {
+      if (this._joinName.length < 24) this._joinName += ch;
+    }
+  }
+
+  /**
+   * Returns the pending LanClient so game.ts can wire up the match.
+   */
+  takePendingLanMatchStart(): MsgMatchStart | null {
+    const m = this.pendingLanMatchStart;
+    this.pendingLanMatchStart = null;
+    return m;
+  }
+
+  /**
+   * Returns the pending LanClient (host or client) for use during the match.
+   */
+  getLanClient(): LanClient {
+    return this.lanClient;
+  }
+
+  /**
+   * Returns the pending action for game.ts to handle and resets it.
    */
   private handleClick(rect: HitRect): boolean {
     if (!this.mousePressedLatched) return false;

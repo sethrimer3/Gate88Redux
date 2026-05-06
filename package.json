@@ -6,10 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "node node_modules/typescript/bin/tsc && node node_modules/vite/bin/vite.js build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lan:server": "tsx server/lanServer.ts",
+    "dev:lan": "concurrently \"npm run dev\" \"npm run lan:server\""
   },
   "devDependencies": {
+    "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vite": "^8.0.8"
+  },
+  "dependencies": {
+    "@types/ws": "^8.18.1",
+    "ws": "^8.20.0"
   }
 }
