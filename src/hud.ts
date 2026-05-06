@@ -79,13 +79,15 @@ export class HUD {
   drawResources(
     ctx: CanvasRenderingContext2D,
     resources: number,
+    incomePerSecond: number,
     screenW: number,
     screenH: number,
   ): void {
-    ctx.font = '12px "Poiret One", sans-serif';
+    ctx.font = '16px "Poiret One", sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
+    ctx.fillText(`(+${incomePerSecond.toFixed(1)}/sec)`, screenW - 10, screenH - 28);
     ctx.fillText(`$${Math.floor(resources)}`, screenW - 10, screenH - 10);
   }
 
@@ -212,10 +214,11 @@ export class HUD {
     ctx.fillStyle = colorToCSS(Colors.researchlab_detail, 0.75);
     if (current.item) {
       const pct = Math.floor((current.progress / Math.max(1, current.timeNeeded)) * 100);
+      const secsLeft = Math.max(0, Math.ceil(current.timeNeeded - current.progress));
+      ctx.fillText(`${secsLeft} sec`, x, y - 12);
       ctx.fillText(`Research: ${current.item} ${pct}%`, x, y);
     } else if (completedCount > 0) {
       ctx.fillText(`Research complete: ${completedCount}`, x, y);
     }
   }
 }
-
