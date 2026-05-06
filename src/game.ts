@@ -310,6 +310,7 @@ export class Game {
     this.updatePlayerFighterCombat();
 
     // Inject fluid forces from all active entities.
+    this.spaceFluid.setView(this.camera.position.x, this.camera.position.y, this.camera.zoom);
     this.injectFluidForces();
 
     // HUD
@@ -526,8 +527,7 @@ export class Game {
         this.state.recentlyDamaged.add(target.id);
         if (!target.alive) {
           this.state.particles.emitExplosion(target.position, target.radius);
-          const es = this.camera.worldToScreen(target.position);
-          this.spaceFluid.addExplosion(es.x, es.y, 1.2, 214, 134, 48); // warm orange explosion
+          this.spaceFluid.addExplosion(target.position.x, target.position.y, 1.2, 214, 134, 48); // warm orange explosion
         } else {
           this.state.particles.emitSpark(target.position);
         }
@@ -843,12 +843,11 @@ export class Game {
   private injectFluidForces(): void {
     // ── Player ship ─────────────────────────────────────────────────────────
     if (this.state.player.alive) {
-      const ps = this.camera.worldToScreen(this.state.player.position);
       const pv = this.state.player.velocity;
       this.spaceFluid.addForce({
-        x: ps.x, y: ps.y,
-        vx: pv.x * this.camera.zoom,
-        vy: pv.y * this.camera.zoom,
+        x: this.state.player.position.x, y: this.state.player.position.y,
+        vx: pv.x,
+        vy: pv.y,
         r: 56, g: 132, b: 68,   // friendly green exhaust
         strength: 1.0,
       });
@@ -857,12 +856,11 @@ export class Game {
     // ── AI player ship (Vs. AI mode) ─────────────────────────────────────
     if (this.state.aiPlayerShip?.alive) {
       const ais = this.state.aiPlayerShip;
-      const ss = this.camera.worldToScreen(ais.position);
       const sv = ais.velocity;
       this.spaceFluid.addForce({
-        x: ss.x, y: ss.y,
-        vx: sv.x * this.camera.zoom,
-        vy: sv.y * this.camera.zoom,
+        x: ais.position.x, y: ais.position.y,
+        vx: sv.x,
+        vy: sv.y,
         r: 132, g: 56, b: 68,   // enemy red
         strength: 1.0,
       });
@@ -871,13 +869,12 @@ export class Game {
     // ── All live fighters (player and enemy) ─────────────────────────────
     for (const f of this.state.fighters) {
       if (!f.alive || f.docked) continue;
-      const fs = this.camera.worldToScreen(f.position);
       const fv = f.velocity;
       const isEnemy = f.team === Team.Enemy;
       this.spaceFluid.addForce({
-        x: fs.x, y: fs.y,
-        vx: fv.x * this.camera.zoom,
-        vy: fv.y * this.camera.zoom,
+        x: f.position.x, y: f.position.y,
+        vx: fv.x,
+        vy: fv.y,
         r: isEnemy ? 132 : 56,
         g: isEnemy ? 56 : 132,
         b: 68,
@@ -896,13 +893,12 @@ export class Game {
         !(e instanceof BomberMissile) &&
         !(e instanceof Laser)
       ) continue;
-      const es = this.camera.worldToScreen(e.position);
       const ev = e.velocity;
       const isEnemy = e.team === Team.Enemy;
       this.spaceFluid.addForce({
-        x: es.x, y: es.y,
-        vx: ev.x * this.camera.zoom,
-        vy: ev.y * this.camera.zoom,
+        x: e.position.x, y: e.position.y,
+        vx: ev.x,
+        vy: ev.y,
         r: isEnemy ? 228 : 0,
         g: isEnemy ? 0 : 176,
         b: isEnemy ? 33 : 66,

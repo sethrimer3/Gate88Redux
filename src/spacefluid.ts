@@ -27,7 +27,7 @@ const FLUID_SIZE = FLUID_COLS * FLUID_ROWS; // 4 800 cells
 const PARTICLE_COUNT_LOW  = 140;
 /** Particle count on high-graphics mode — 3× low. */
 const PARTICLE_COUNT_HIGH = 420;
-const TRAIL_LENGTH     = 22;
+const TRAIL_LENGTH     = 13;
 /** Canvas-space line width for trail segments. */
 const TRAIL_LINE_WIDTH = 1.4;
 
@@ -237,16 +237,13 @@ function _makeParticle(): FluidParticle {
 
 /**
  * A single directional force and colour impulse to inject this frame.
- * All positions are in screen-space pixels (converted from world space by the caller).
+ * All positions and velocities are in world-space units.
  */
 export interface FluidImpulse {
-  /** Screen-space position (pixels). */
+  /** World-space position. */
   x: number;
   y: number;
-  /**
-   * Velocity in screen pixels per second.
-   * Callers must scale world-space velocity by camera.zoom before passing.
-   */
+  /** Velocity in world units per second. */
   vx: number;
   vy: number;
   /** Source colour (0–255 per channel). */
@@ -260,13 +257,15 @@ export interface FluidImpulse {
 export interface SpaceFluid {
   /** Update internal cell-size when the canvas dimensions change. */
   resize(widthPx: number, heightPx: number): void;
+  /** Anchor the local fluid grid to the current camera view. */
+  setView(centerX: number, centerY: number, zoom: number): void;
   /**
-   * Inject a directional force and colour impulse at a screen-space position.
+   * Inject a directional force and colour impulse at a world-space position.
    * Call once per active entity per frame.
    */
   addForce(impulse: FluidImpulse): void;
   /**
-   * Inject a radial outward explosion at screen-space (x, y).
+   * Inject a radial outward explosion at world-space (x, y).
    * Used for AoE attacks, enemy deaths, and impact events.
    */
   addExplosion(
@@ -298,6 +297,9 @@ export interface SpaceFluid {
 export function createSpaceFluid(): SpaceFluid {
   let widthPx  = 320;
   let heightPx = 568;
+  let zoomPxPerWorld = 1;
+  let originWorldX = -widthPx * 0.5;
+  let originWorldY = -heightPx * 0.5;
   let cellW    = widthPx  / FLUID_COLS;
   let cellH    = heightPx / FLUID_ROWS;
 
@@ -325,8 +327,29 @@ export function createSpaceFluid(): SpaceFluid {
   const _sparseCellH = FLUID_ROWS / SPARSE_RESPAWN_ROWS;
 
   // ── Coordinate helpers ──────────────────────────────────────────────────────
-  function _toGX(wx: number): number { return wx / cellW; }
-  function _toGY(wy: number): number { return wy / cellH; }
+  function _toGX(wx: number): number { return (wx - originWorldX) / cellW; }
+  function _toGY(wy: number): number { return (wy - originWorldY) / cellH; }
+  function _toScreenX(gx: number): number { return (gx * cellW) * zoomPxPerWorld; }
+  function _toScreenY(gy: number): number { return (gy * cellH) * zoomPxPerWorld; }
+
+  function _rebaseParticles(
+    prevOriginX: number,
+    prevOriginY: number,
+    prevCellW: number,
+    prevCellH: number,
+  ): void {
+    for (const p of particles) {
+      const worldX = prevOriginX + p.x * prevCellW;
+      const worldY = prevOriginY + p.y * prevCellH;
+      p.x = _toGX(worldX);
+      p.y = _toGY(worldY);
+      for (let i = 0; i < p.trailCount; i++) {
+        const idx = (p.trailHead - p.trailCount + i + TRAIL_LENGTH) % TRAIL_LENGTH;
+        p.trailX[idx] = _toGX(prevOriginX + p.trailX[idx] * prevCellW);
+        p.trailY[idx] = _toGY(prevOriginY + p.trailY[idx] * prevCellH);
+      }
+    }
+  }
 
   // ── Force splat ─────────────────────────────────────────────────────────────
   /**
@@ -409,8 +432,8 @@ export function createSpaceFluid(): SpaceFluid {
     const prevW = widthPx, prevH = heightPx;
     widthPx  = w;
     heightPx = h;
-    cellW = w / FLUID_COLS;
-    cellH = h / FLUID_ROWS;
+    cellW = (w / zoomPxPerWorld) / FLUID_COLS;
+    cellH = (h / zoomPxPerWorld) / FLUID_ROWS;
     const rw = Math.abs(w - prevW) / (prevW + 1);
     const rh = Math.abs(h - prevH) / (prevH + 1);
     if (rw > RESIZE_THRESHOLD_FR || rh > RESIZE_THRESHOLD_FR) {
@@ -418,13 +441,28 @@ export function createSpaceFluid(): SpaceFluid {
     }
   }
 
+  function setView(centerX: number, centerY: number, zoom: number): void {
+    const prevOriginX = originWorldX;
+    const prevOriginY = originWorldY;
+    const prevCellW = cellW;
+    const prevCellH = cellH;
+    zoomPxPerWorld = Math.max(0.05, zoom);
+    const viewW = widthPx / zoomPxPerWorld;
+    const viewH = heightPx / zoomPxPerWorld;
+    originWorldX = centerX - viewW * 0.5;
+    originWorldY = centerY - viewH * 0.5;
+    cellW = viewW / FLUID_COLS;
+    cellH = viewH / FLUID_ROWS;
+    _rebaseParticles(prevOriginX, prevOriginY, prevCellW, prevCellH);
+  }
+
   function addForce(impulse: FluidImpulse): void {
     const gx     = _toGX(impulse.x);
     const gy     = _toGY(impulse.y);
     const str    = impulse.strength ?? 1.0;
     // Convert screen px/s → grid cells/s, then cap magnitude.
-    const gvxRaw = impulse.vx / cellW;
-    const gvyRaw = impulse.vy / cellH;
+    const gvxRaw = (impulse.vx / cellW) * 0.25;
+    const gvyRaw = (impulse.vy / cellH) * 0.25;
     const gspd   = Math.sqrt(gvxRaw * gvxRaw + gvyRaw * gvyRaw);
     const scale  = gspd > MAX_INJECT_VEL ? MAX_INJECT_VEL / gspd : 1.0;
     // Exponential (quadratic) dropoff: slow movements barely disturb the
@@ -634,10 +672,10 @@ export function createSpaceFluid(): SpaceFluid {
         const prev = (p.trailHead - n + j - 1 + TRAIL_LENGTH) % TRAIL_LENGTH;
         const curr = (p.trailHead - n + j     + TRAIL_LENGTH) % TRAIL_LENGTH;
         const arr  = _batches[hue][bkt];
-        // Store screen-space coordinates directly.
+        // Store camera-relative screen-space coordinates.
         arr.push(
-          p.trailX[prev] * cellW, p.trailY[prev] * cellH,
-          p.trailX[curr] * cellW, p.trailY[curr] * cellH,
+          _toScreenX(p.trailX[prev]), _toScreenY(p.trailY[prev]),
+          _toScreenX(p.trailX[curr]), _toScreenY(p.trailY[curr]),
         );
       }
     }
@@ -700,5 +738,5 @@ export function createSpaceFluid(): SpaceFluid {
     }
   }
 
-  return { resize, addForce, addExplosion, step, render, reset, setLowGraphicsMode };
+  return { resize, setView, addForce, addExplosion, step, render, reset, setLowGraphicsMode };
 }

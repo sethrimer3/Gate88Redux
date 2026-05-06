@@ -6,9 +6,9 @@ import { Entity, EntityType, Team } from './entities.js';
 import { Colors, colorToCSS } from './colors.js';
 import { ENTITY_RADIUS, WEAPON_STATS } from './constants.js';
 
-const BULLET_TRAIL_LIFETIME = 0.18;
+const BULLET_TRAIL_LIFETIME = 0.09;
 const BULLET_TRAIL_MIN_DISTANCE = 2;
-const GATLING_TRAIL_LIFETIME = 0.055;
+const GATLING_TRAIL_LIFETIME = 0.0275;
 
 interface TrailPoint {
   pos: Vec2;
@@ -72,7 +72,7 @@ export abstract class ProjectileBase extends Entity {
     if (!last || last.pos.distanceTo(this.position) >= BULLET_TRAIL_MIN_DISTANCE) {
       this.trail.push({ pos: this.position.clone(), age: 0 });
     }
-    if (this.trail.length > 10) this.trail.shift();
+    if (this.trail.length > 5) this.trail.shift();
   }
 
   protected drawTrail(
@@ -139,7 +139,7 @@ export class Bullet extends ProjectileBase {
     this.drawTrail(ctx, camera, fireColor);
 
     // Small bright dot with short tail
-    const tail = this.velocity.normalize().scale(-4 * camera.zoom);
+    const tail = this.velocity.normalize().scale(-2 * camera.zoom);
     ctx.strokeStyle = fireColor;
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -181,7 +181,7 @@ export class GatlingBullet extends ProjectileBase {
     if (!last || last.pos.distanceTo(this.position) >= 5) {
       this.trail.push({ pos: this.position.clone(), age: 0 });
     }
-    if (this.trail.length > 3) this.trail.shift();
+    if (this.trail.length > 2) this.trail.shift();
   }
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
@@ -336,7 +336,7 @@ export class GuidedMissile extends ProjectileBase {
     if (!this.alive) return;
     const screen = camera.worldToScreen(this.position);
     const r = this.radius * camera.zoom;
-    this.drawTrail(ctx, camera, colorToCSS(Colors.alert2, 0.9), 0.28, 4);
+    this.drawTrail(ctx, camera, colorToCSS(Colors.alert2, 0.9), 0.14, 4);
     ctx.save();
     ctx.translate(screen.x, screen.y);
     ctx.rotate(this.angle);
@@ -392,7 +392,7 @@ export class BomberMissile extends ProjectileBase {
     if (!this.alive) return;
     const screen = camera.worldToScreen(this.position);
     const r = this.radius * camera.zoom;
-    this.drawTrail(ctx, camera, colorToCSS(Colors.explosion, 0.75), 0.28, 2.5);
+    this.drawTrail(ctx, camera, colorToCSS(Colors.explosion, 0.75), 0.14, 2.5);
     ctx.save();
     ctx.translate(screen.x, screen.y);
     ctx.rotate(this.angle);
