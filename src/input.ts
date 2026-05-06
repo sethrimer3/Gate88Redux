@@ -9,6 +9,9 @@ class InputManager {
   private keysPressed = new Set<string>();
   private keysReleased = new Set<string>();
 
+  /** Printable characters typed this frame (for text input fields). */
+  typedChars: string = '';
+
   /** Timestamps of the last key-up per key, used for double-tap detection. */
   private lastReleaseTimes = new Map<string, number>();
   private doubleTapped = new Set<string>();
@@ -65,6 +68,10 @@ class InputManager {
       }
     }
     this.keysDown.add(key);
+    // Capture printable characters for text input fields.
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey) {
+      this.typedChars += e.key;
+    }
   };
 
   private onKeyUp = (e: KeyboardEvent): void => {
@@ -170,6 +177,7 @@ class InputManager {
     this.mouse2Pressed = false;
     this.mouse2Released = false;
     this.wheelDelta = 0;
+    this.typedChars = '';
   }
 
   destroy(): void {
