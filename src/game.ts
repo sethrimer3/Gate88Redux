@@ -1688,7 +1688,7 @@ export class Game {
 
     // HUD
     this.hud.draw(ctx, w, h);
-    this.hud.drawResources(ctx, this.state.resources, w, h);
+    this.hud.drawResources(ctx, this.state.resources, this.state.getPlayerIncomePerSecond(), w, h);
     if (this.state.player.alive) {
       this.hud.drawSelectedBuild(ctx, this.state.selectedBuildType, this.state.resources, w, h);
       this.hud.drawPlayerEnergy(ctx, this.state.player.battery, this.state.player.maxBattery, w, h);
@@ -1877,4 +1877,3 @@ export class Game {
     ctx.fillRect(0, 0, w, h);
   }
 }
-

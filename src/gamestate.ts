@@ -405,6 +405,23 @@ export class GameState {
     }
   }
 
+  /** Current player income rate (resources per second). */
+  getPlayerIncomePerSecond(): number {
+    let income = this.player.alive ? BASELINE_RESOURCE_GAIN : 0;
+    for (const b of this.buildings) {
+      if (
+        b.alive &&
+        b.type === EntityType.Factory &&
+        b.team === Team.Player &&
+        b.powered &&
+        b.buildProgress >= 1
+      ) {
+        income += RESOURCE_GAIN_RATE;
+      }
+    }
+    return income;
+  }
+
   // -----------------------------------------------------------------------
   // Conduit interaction (PR3) — powered conduits block ships + shots
   // -----------------------------------------------------------------------
@@ -1162,4 +1179,3 @@ export class GameState {
     return false;
   }
 }
-
