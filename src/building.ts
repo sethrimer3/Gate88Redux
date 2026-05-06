@@ -285,6 +285,11 @@ export class Shipyard extends BuildingBase {
   holdDocked: boolean = false;
   /** Ships physically in the bay; used for the silhouette pips. */
   dockedShips: number = 0;
+  /**
+   * Guard flag: ensures the "release fighters on destruction" logic only
+   * fires once per yard regardless of how many times cleanupDead is called.
+   */
+  fightersReleased: boolean = false;
 
   constructor(
     type: EntityType.FighterYard | EntityType.BomberYard,

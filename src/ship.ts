@@ -5,7 +5,7 @@ import { Camera } from './camera.js';
 import { Input } from './input.js';
 import { Entity, EntityType, Team } from './entities.js';
 import { Colors, colorToCSS } from './colors.js';
-import { ENTITY_RADIUS, PLAYER_SHIP_SCALE, SHIP_STATS } from './constants.js';
+import { ENTITY_RADIUS, PLAYER_SHIP_SCALE, SHIP_STATS, PLAYER_SPAWN_INVINCIBILITY_SECS } from './constants.js';
 import { DEFAULT_SPECIAL_ID } from './special.js';
 
 const BATTERY_MAX = 100;
@@ -85,6 +85,40 @@ export class PlayerShip extends Entity {
   /** Id of the currently equipped special ability (RMB). */
   specialAbilityId: string = DEFAULT_SPECIAL_ID;
 
+  // ---------------------------------------------------------------------------
+  // Special-ability state — managed by game.ts; held here for rendering access
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Spawn-invincibility countdown (seconds).  Decremented in update(); while
+   * > 0 all incoming damage is blocked and a shield ring is drawn.
+   */
+  spawnInvincibilityTimer: number = PLAYER_SPAWN_INVINCIBILITY_SECS;
+
+  /**
+   * Gatling overdrive countdown (seconds).  While > 0 the gatling fires at
+   * extreme speed; decremented and transitioned by game.ts.
+   */
+  gatlingOverdriveTimer: number = 0;
+
+  /**
+   * Gatling overheat lockdown countdown (seconds).  While > 0 the ship cannot
+   * move; decremented and transitioned by game.ts.
+   */
+  gatlingOverheatTimer: number = 0;
+
+  /** True while the laser charged-burst is accumulating charge (RMB held). */
+  isLaserCharging: boolean = false;
+
+  /** Elapsed laser charge time in seconds (clamped to LASER_MAX_CHARGE_SECS). */
+  laserChargeTimer: number = 0;
+
+  /**
+   * Per-weapon special-ability cooldown (seconds).  Used by swarm missiles
+   * and cannon homing; decremented in update().
+   */
+  weaponSpecialCooldown: number = 0;
+
   /**
    * Direction of last applied thrust (unit vector). Used by game.ts to emit
    * exhaust particles trailing behind the actual motion direction rather than
@@ -140,6 +174,10 @@ export class PlayerShip extends Entity {
     // Tick fire timers
     if (this.primaryFireTimer > 0) this.primaryFireTimer -= dt;
     if (this.specialFireTimer > 0) this.specialFireTimer -= dt;
+    // Spawn invincibility — counts down to 0
+    if (this.spawnInvincibilityTimer > 0) this.spawnInvincibilityTimer -= dt;
+    // Weapon special cooldown (swarm / homing) — counts down to 0
+    if (this.weaponSpecialCooldown > 0) this.weaponSpecialCooldown = Math.max(0, this.weaponSpecialCooldown - dt);
   }
 
   /**
@@ -160,6 +198,14 @@ export class PlayerShip extends Entity {
     this.thrustDir = new Vec2(0, 0);
     this.isThrusting = false;
     this.isBoosting = false;
+    // Re-apply spawn invincibility on each (re)spawn
+    this.spawnInvincibilityTimer = PLAYER_SPAWN_INVINCIBILITY_SECS;
+    // Clear any lingering special-ability states
+    this.gatlingOverdriveTimer = 0;
+    this.gatlingOverheatTimer = 0;
+    this.isLaserCharging = false;
+    this.laserChargeTimer = 0;
+    this.weaponSpecialCooldown = 0;
   }
 
   setAimPoint(world: Vec2): void {
@@ -167,6 +213,23 @@ export class PlayerShip extends Entity {
   }
 
   protected handleInput(dt: number): void {
+    // Gatling overheat: the ship is completely immobilised — only aiming works.
+    if (this.gatlingOverheatTimer > 0) {
+      this.isThrusting = false;
+      this.isBoosting = false;
+      // Still allow aim rotation so the player can plan their next move
+      const desired = Math.atan2(
+        this.aimWorld.y - this.position.y,
+        this.aimWorld.x - this.position.x,
+      );
+      let delta = wrapAngle(desired - this.angle);
+      const maxStep = AIM_TURN_RATE * dt;
+      if (delta > maxStep) delta = maxStep;
+      else if (delta < -maxStep) delta = -maxStep;
+      this.angle = wrapAngle(this.angle + delta);
+      return;
+    }
+
     // --- Movement: WASD as a 4-axis direction, decoupled from facing -----
     let dx = 0;
     let dy = 0;
@@ -277,6 +340,11 @@ export class PlayerShip extends Entity {
     this.primaryWeaponId = available[next];
   }
 
+  /** False during gatling overheat — prevents bypassing lockdown by swapping weapon. */
+  canSwitchWeapon(): boolean {
+    return this.gatlingOverheatTimer <= 0 && this.gatlingOverdriveTimer <= 0;
+  }
+
   applyResearchUpgrade(item: string): void {
     switch (item) {
       case 'shipHp':
@@ -306,6 +374,8 @@ export class PlayerShip extends Entity {
       super.takeDamage(amount, source);
       return;
     }
+    // Spawn invincibility blocks all incoming damage during the grace period
+    if (this.spawnInvincibilityTimer > 0) return;
     if (this.shieldUnlocked && this.shield > 0) {
       const blocked = Math.min(this.shield, amount);
       this.shield -= blocked;
@@ -434,6 +504,77 @@ export class PlayerShip extends Entity {
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(screen.x, screen.y, r * (1.45 + shieldFrac * 0.08), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // --- Spawn invincibility ring -------------------------------------------
+    // Pulsing cyan ring that shrinks slightly as the grace period nears expiry
+    if (this.spawnInvincibilityTimer > 0) {
+      const fraction = Math.max(0, this.spawnInvincibilityTimer / PLAYER_SPAWN_INVINCIBILITY_SECS);
+      const pulse = 0.5 + 0.5 * Math.sin(this.drawTime * 9);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = colorToCSS(Colors.particles_spark, (0.35 + pulse * 0.3) * fraction);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r * (2.1 + pulse * 0.25), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = colorToCSS(Colors.particles_spark, 0.12 * fraction);
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r * 1.85, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // --- Gatling overheat aura -----------------------------------------------
+    // Red flickering glow while the ship is locked down
+    if (this.gatlingOverheatTimer > 0) {
+      const heatPulse = 0.5 + 0.5 * Math.sin(this.drawTime * 13);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = colorToCSS(Colors.alert1, 0.10 + heatPulse * 0.20);
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r * 2.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = colorToCSS(Colors.alert1, 0.4 + heatPulse * 0.35);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r * 1.6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // --- Gatling overdrive glow -----------------------------------------------
+    // Orange/yellow aura during overdrive burst
+    if (this.gatlingOverdriveTimer > 0) {
+      const overdrivePulse = 0.5 + 0.5 * Math.sin(this.drawTime * 16);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = colorToCSS(Colors.alert2, 0.12 + overdrivePulse * 0.18);
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r * 2.0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = colorToCSS(Colors.alert2, 0.55 + overdrivePulse * 0.3);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r * 1.4, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // --- Laser charge buildup glow -------------------------------------------
+    // Expanding green glow proportional to charge fraction
+    if (this.isLaserCharging && this.laserChargeTimer > 0) {
+      const chargeFrac = this.laserChargeTimer / 2.5; // normalised (max ~2.5 s)
+      const pulse = 0.5 + 0.5 * Math.sin(this.drawTime * 14);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = colorToCSS(Colors.friendlyfire, (0.22 + chargeFrac * 0.5) * (0.7 + pulse * 0.3));
+      ctx.lineWidth = 1.5 + chargeFrac * 4;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r * (1.3 + chargeFrac * 1.6), 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }

@@ -237,3 +237,49 @@ export const POWERGENERATOR_COVERAGE_RADIUS = 195;
 /** Resource cost to paint one conduit cell. */
 export const CONDUIT_COST = 1;
 
+// ---------------------------------------------------------------------------
+// Special ability tuning constants
+// ---------------------------------------------------------------------------
+
+/** Duration (seconds) of the player spawn-invincibility shield. */
+export const PLAYER_SPAWN_INVINCIBILITY_SECS = 5.0;
+
+/** Duration (seconds) of the Gatling overdrive burst (auto-fires at high rate). */
+export const GATLING_OVERDRIVE_DURATION_SECS = 2.0;
+
+/** Duration (seconds) of the post-overdrive overheat lockdown (no movement). */
+export const GATLING_OVERHEAT_DURATION_SECS = 4.0;
+
+/**
+ * During overdrive the gatling fire-interval is divided by this value,
+ * making it fire far faster than normal.
+ */
+export const GATLING_OVERDRIVE_FIRE_RATE_DIVISOR = 8;
+
+/** Maximum laser charge duration in seconds. */
+export const LASER_MAX_CHARGE_SECS = 2.5;
+
+/** Cooldown (seconds) after a charged laser burst fires. */
+export const LASER_CHARGE_COOLDOWN_SECS = 1.5;
+
+/** Number of missiles launched in one rocket swarm. */
+export const ROCKET_SWARM_COUNT = 7;
+
+/** Total angular spread (degrees) of the rocket swarm fan. */
+export const ROCKET_SWARM_SPREAD_DEGREES = 20;
+
+/** Battery energy cost to trigger the rocket swarm. */
+export const ROCKET_SWARM_ENERGY_COST = 30;
+
+/** Cooldown (seconds) between rocket swarm uses. */
+export const ROCKET_SWARM_COOLDOWN_SECS = 4.0;
+
+/**
+ * Energy cost for the cannon homing special.
+ * Equals 3 × the normal cannon shot cost (BATTERY_FIRE_COST = 5).
+ */
+export const CANNON_HOMING_ENERGY_COST = 15;
+
+/** Cooldown (seconds) between cannon homing shots. */
+export const CANNON_HOMING_COOLDOWN_SECS = 1.5;
+

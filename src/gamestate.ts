@@ -246,6 +246,8 @@ export class GameState {
     }
 
     // Collision detection
+    // First let enemy bullets intercept swarm missiles (GOAL 3C)
+    this.resolveProjectileInterceptions();
     this.resolveCollisions();
 
     // Resources from factories
@@ -886,6 +888,11 @@ export class GameState {
     const beforeBuildings = this.buildings.length;
     for (const b of this.buildings) {
       if (b.alive || b.deleting) continue;
+      // GOAL 1: When a shipyard is destroyed, release its docked fighters so
+      // they defend the team's base instead of drifting idle.
+      if ((b.type === EntityType.FighterYard || b.type === EntityType.BomberYard) && b instanceof Shipyard) {
+        this.releaseDeferredFighters(b);
+      }
       this.destroyedBuildings.push({
         type: b.type,
         team: b.team,
@@ -904,6 +911,86 @@ export class GameState {
   private recordDestroyedConduit(cx: number, cy: number, team: Team): void {
     if (this.destroyedConduits.some((c) => !c.erased && c.cx === cx && c.cy === cy && c.team === team)) return;
     this.destroyedConduits.push({ cx, cy, team });
+  }
+
+  // -----------------------------------------------------------------------
+  // GOAL 1: Fighter release on shipyard destruction
+  // -----------------------------------------------------------------------
+
+  /**
+   * When a shipyard is destroyed, launch all docked fighters and redirect any
+   * fighters returning to dock so they defend the team's command post instead
+   * of drifting idle.  The `fightersReleased` guard prevents this from
+   * running more than once per yard.
+   */
+  private releaseDeferredFighters(yard: Shipyard): void {
+    if (yard.fightersReleased) return;
+    yard.fightersReleased = true;
+
+    const cp = this.getCommandPostForTeam(yard.team);
+    const defendPos = cp?.position ?? null;
+    let released = 0;
+
+    for (const f of this.fighters) {
+      if (!f.alive || f.homeYard !== yard) continue;
+      // Detach so the fighter no longer references a dead yard
+      f.homeYard = null;
+
+      if (f.docked) {
+        // Fighter was still in the bay — launch it into the world
+        f.launch();
+        released++;
+      } else if (f.order === 'dock') {
+        // Fighter was flying back to dock — redirect it instead of idling
+        released++;
+      } else {
+        // Fighter is already active with another order; leave it alone but
+        // clear the homeYard reference so it won't try to return later.
+        continue;
+      }
+      // Give the fighter a base-defence order
+      f.order = 'protect';
+      f.targetPos = defendPos ? defendPos.clone() : null;
+    }
+
+    if (released > 0) {
+      // Small visual cue — particles burst at the yard position
+      this.particles.emitExplosion(yard.position, yard.radius * 0.55);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // GOAL 3C: Swarm missile interception by enemy projectiles
+  // -----------------------------------------------------------------------
+
+  /**
+   * Check whether any non-interceptable enemy projectile hits an
+   * interceptable projectile (e.g. SwarmMissile).  When a hit is detected
+   * the interceptor is consumed and the swarm missile detonates via its
+   * existing blast-radius logic.
+   */
+  private resolveProjectileInterceptions(): void {
+    for (let i = 0; i < this.projectiles.length; i++) {
+      const swarm = this.projectiles[i];
+      if (!swarm.alive || !swarm.interceptable) continue;
+
+      for (let j = 0; j < this.projectiles.length; j++) {
+        if (i === j) continue;
+        const bullet = this.projectiles[j];
+        if (!bullet.alive || bullet.team === swarm.team) continue;
+        // Interceptable missiles shouldn't intercept each other
+        if (bullet.interceptable) continue;
+
+        const dist = swarm.position.distanceTo(bullet.position);
+        if (dist < swarm.radius + bullet.radius) {
+          bullet.destroy(); // the intercepting bullet is consumed
+          // Trigger the swarm missile's blast before marking it dead
+          this.detonateProjectile(swarm);
+          swarm.destroy();
+          break; // this swarm missile is gone; move to the next one
+        }
+      }
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -973,6 +1060,15 @@ export class GameState {
     return (
       (this.buildings.find(
         (b) => b.alive && b.type === EntityType.CommandPost && b.team === Team.Enemy,
+      ) as CommandPost) ?? null
+    );
+  }
+
+  /** Get the command post for any given team. */
+  getCommandPostForTeam(team: Team): CommandPost | null {
+    return (
+      (this.buildings.find(
+        (b) => b.alive && b.type === EntityType.CommandPost && b.team === team,
       ) as CommandPost) ?? null
     );
   }

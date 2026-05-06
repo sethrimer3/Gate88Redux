@@ -12,13 +12,17 @@ import { ActionMenu, MenuResult } from './actionmenu.js';
 import { HUD } from './hud.js';
 import { MainMenu, MenuAction } from './menu.js';
 import { Colors, colorToCSS, type Color } from './colors.js';
-import { Team, EntityType, ShipGroup } from './entities.js';
+import { Team, EntityType, ShipGroup, Entity } from './entities.js';
 import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS, ACTIVE_RESEARCH_ITEMS } from './constants.js';
+import { GATLING_OVERDRIVE_DURATION_SECS, GATLING_OVERHEAT_DURATION_SECS, GATLING_OVERDRIVE_FIRE_RATE_DIVISOR } from './constants.js';
+import { LASER_MAX_CHARGE_SECS, LASER_CHARGE_COOLDOWN_SECS } from './constants.js';
+import { ROCKET_SWARM_COUNT, ROCKET_SWARM_SPREAD_DEGREES, ROCKET_SWARM_ENERGY_COST, ROCKET_SWARM_COOLDOWN_SECS } from './constants.js';
+import { CANNON_HOMING_ENERGY_COST, CANNON_HOMING_COOLDOWN_SECS } from './constants.js';
 import { BuildingBase, CommandPost } from './building.js';
 import { Shipyard } from './building.js';
 import { FighterShip, BomberShip } from './fighter.js';
 import { Bullet, GatlingBullet, Laser } from './projectile.js';
-import { GuidedMissile, BomberMissile } from './projectile.js';
+import { GuidedMissile, BomberMissile, HomingBullet, SwarmMissile, ChargedLaserBurst } from './projectile.js';
 import { PracticeMode } from './practicemode.js';
 import { cloneDefaultPracticeConfig } from './practiceconfig.js';
 import { TutorialMode } from './tutorial.js';
@@ -445,21 +449,207 @@ export class Game {
 
   private updatePlayerFiring(): void {
     if (!this.state.player.alive) return;
-    // Don't fire when action menu is open or in placement mode
-    if (this.actionMenu.open || this.actionMenu.placementMode) return;
+    const player = this.state.player;
+
+    if (this.actionMenu.open || this.actionMenu.placementMode) {
+      // Cancel laser charge if the player opened the menu while charging
+      if (player.isLaserCharging && !Input.mouse2Down) {
+        player.isLaserCharging = false;
+        player.laserChargeTimer = 0;
+      }
+      return;
+    }
 
     const aimWorld = this.camera.screenToWorld(Input.mousePos);
 
-    // Primary fire: left mouse button only.
-    if (Input.mouseDown && this.state.player.canFirePrimary()) {
+    // --- Gatling overdrive: auto-fires at extreme rate, no LMB required ---
+    if (player.gatlingOverdriveTimer > 0) {
+      // Overdrive fire rate is much faster than normal; divide the base interval
+      const overdriveCooldown =
+        WEAPON_STATS.gatling.fireRate * DT * player.fireCooldownMultiplier / GATLING_OVERDRIVE_FIRE_RATE_DIVISOR;
+      if (player.primaryFireTimer <= 0 && player.battery >= GATLING_BATTERY_FIRE_COST) {
+        player.consumePrimaryFire(overdriveCooldown, GATLING_BATTERY_FIRE_COST);
+        const spread = randomRange(-Math.PI / 36, Math.PI / 36);
+        this.state.addEntity(new GatlingBullet(
+          Team.Player, player.position.clone(), player.angle + spread, player,
+        ));
+        Audio.playSound('shortbullet');
+      }
+      player.gatlingOverdriveTimer -= DT;
+      if (player.gatlingOverdriveTimer <= 0) {
+        player.gatlingOverdriveTimer = 0;
+        player.gatlingOverheatTimer = GATLING_OVERHEAT_DURATION_SECS;
+        this.hud.showMessage('GATLING OVERHEAT — immobilised for 4s', Colors.alert1, 4.5);
+        Audio.playSound('explode0');
+      }
+      return; // no other firing during overdrive
+    }
+
+    // --- Gatling overheat lockdown: no movement or firing ---
+    if (player.gatlingOverheatTimer > 0) {
+      player.gatlingOverheatTimer -= DT;
+      if (player.gatlingOverheatTimer <= 0) {
+        player.gatlingOverheatTimer = 0;
+        this.hud.showMessage('System cooled', Colors.friendly_status, 2);
+      }
+      return; // no firing during overheat
+    }
+
+    // --- Primary fire (LMB) ---
+    if (Input.mouseDown && player.canFirePrimary()) {
       this.fireSelectedPrimary(aimWorld);
     }
 
-    // Special ability: right mouse button. The only exposed ability for now
-    // is the homing missile; hidden ability ids are ignored by menus/research.
-    if (Input.mouse2Down) {
-      tryFireSpecial(this.state, this.state.player, aimWorld);
+    // --- Weapon special ability (RMB) ---
+    this.handleWeaponSpecial(aimWorld);
+  }
+
+  /**
+   * Dispatch the right-click (RMB) special ability for the equipped weapon.
+   * Each weapon has its own unique ability; the fallback is the registered
+   * special ability from special.ts (homing missile).
+   */
+  private handleWeaponSpecial(aimWorld: Vec2): void {
+    const player = this.state.player;
+    const weapon = player.primaryWeaponId;
+
+    if (weapon === 'gatling' && this.state.researchedItems.has('weaponGatling')) {
+      this.handleGatlingSpecial();
+    } else if (weapon === 'laser' && this.state.researchedItems.has('weaponLaser')) {
+      this.handleLaserSpecial(aimWorld);
+    } else if (weapon === 'guidedmissile' && this.state.researchedItems.has('weaponGuidedMissile')) {
+      this.handleRocketSwarmSpecial(aimWorld);
+    } else if (weapon === 'cannon') {
+      this.handleCannonHomingSpecial(aimWorld);
+    } else {
+      // Fallback: registered special ability (missile)
+      if (Input.mouse2Down) {
+        tryFireSpecial(this.state, player, aimWorld);
+      }
     }
+  }
+
+  /**
+   * Gatling gun special (RMB): enter overdrive — extreme auto-fire for
+   * GATLING_OVERDRIVE_DURATION_SECS, then GATLING_OVERHEAT_DURATION_SECS of
+   * complete immobility.
+   */
+  private handleGatlingSpecial(): void {
+    const player = this.state.player;
+    if (!Input.mouse2Pressed) return;
+    if (player.gatlingOverdriveTimer > 0 || player.gatlingOverheatTimer > 0) return;
+    if (player.battery < GATLING_BATTERY_FIRE_COST) return;
+
+    player.gatlingOverdriveTimer = GATLING_OVERDRIVE_DURATION_SECS;
+    this.hud.showMessage('GATLING OVERDRIVE!', Colors.alert2, 2.5);
+    Audio.playSound('shortbullet');
+  }
+
+  /**
+   * Laser special (RMB): hold to charge, release to fire a wide energy burst.
+   * Consumes all current battery; damage and beam width scale with charge
+   * fraction and energy spent.
+   */
+  private handleLaserSpecial(aimWorld: Vec2): void {
+    const player = this.state.player;
+
+    if (player.weaponSpecialCooldown > 0) {
+      if (player.isLaserCharging && !Input.mouse2Down) {
+        player.isLaserCharging = false;
+        player.laserChargeTimer = 0;
+      }
+      return;
+    }
+
+    if (Input.mouse2Down) {
+      if (!player.isLaserCharging) {
+        if (player.battery > 0) {
+          player.isLaserCharging = true;
+          player.laserChargeTimer = 0;
+        }
+      } else {
+        player.laserChargeTimer = Math.min(player.laserChargeTimer + DT, LASER_MAX_CHARGE_SECS);
+      }
+    }
+
+    if (player.isLaserCharging && !Input.mouse2Down) {
+      player.isLaserCharging = false;
+      if (player.battery > 0 && player.laserChargeTimer > 0.15) {
+        const energySpent = player.battery;
+        const chargeFraction = Math.min(1, player.laserChargeTimer / LASER_MAX_CHARGE_SECS);
+        // Damage scales with both energy available and charge fraction
+        const burstDamage =
+          WEAPON_STATS.laser.damage * (3 + (energySpent / player.maxBattery) * 8 * chargeFraction);
+        const burstRange = WEAPON_STATS.laser.range * (1.5 + chargeFraction * 0.5);
+        const hitRadius = 2 + chargeFraction * 14; // wider beam hits larger area
+
+        player.battery = 0;
+        const start = player.position.clone();
+        const end = new Vec2(
+          start.x + Math.cos(player.angle) * burstRange,
+          start.y + Math.sin(player.angle) * burstRange,
+        );
+        this.state.addEntity(new ChargedLaserBurst(Team.Player, start, end, player, chargeFraction));
+        this.damageLaserLine(start, end, burstDamage, hitRadius);
+        player.weaponSpecialCooldown = LASER_CHARGE_COOLDOWN_SECS;
+        player.laserChargeTimer = 0;
+        Audio.playSound('laser');
+      } else {
+        player.laserChargeTimer = 0;
+      }
+    }
+  }
+
+  /**
+   * Guided missile special (RMB): launch a spread swarm of
+   * ROCKET_SWARM_COUNT small blast missiles.  Each swarm missile has a blast
+   * radius, is interceptable by enemy bullets, and detonates on impact.
+   */
+  private handleRocketSwarmSpecial(aimWorld: Vec2): void {
+    const player = this.state.player;
+    if (!Input.mouse2Pressed) return;
+    if (player.weaponSpecialCooldown > 0) return;
+    if (player.battery < ROCKET_SWARM_ENERGY_COST) return;
+
+    player.battery -= ROCKET_SWARM_ENERGY_COST;
+    player.weaponSpecialCooldown = ROCKET_SWARM_COOLDOWN_SECS;
+
+    const baseAngle = player.position.angleTo(aimWorld);
+    const spreadRad = ROCKET_SWARM_SPREAD_DEGREES * (Math.PI / 180);
+    const count = ROCKET_SWARM_COUNT;
+
+    for (let i = 0; i < count; i++) {
+      // Spread missiles evenly across the fan angle
+      const t = count > 1 ? i / (count - 1) - 0.5 : 0;
+      const angle = baseAngle + t * spreadRad;
+      this.state.addEntity(new SwarmMissile(Team.Player, player.position.clone(), angle, player));
+    }
+    Audio.playSound('missile');
+    this.hud.showMessage('Missile swarm!', Colors.alert2, 1.5);
+  }
+
+  /**
+   * Cannon special (RMB): fire a homing bullet that steers toward the nearest
+   * enemy.  Costs CANNON_HOMING_ENERGY_COST (3× normal cannon shot).
+   */
+  private handleCannonHomingSpecial(aimWorld: Vec2): void {
+    const player = this.state.player;
+    if (!Input.mouse2Pressed) return;
+    if (player.weaponSpecialCooldown > 0) return;
+    if (player.battery < CANNON_HOMING_ENERGY_COST) return;
+
+    // Find nearest enemy within lock-on range
+    let target: Entity | null = null;
+    let bestDist = 600;
+    for (const e of this.state.getEnemiesOf(Team.Player)) {
+      const d = player.position.distanceTo(e.position);
+      if (d < bestDist) { bestDist = d; target = e; }
+    }
+
+    player.battery -= CANNON_HOMING_ENERGY_COST;
+    player.weaponSpecialCooldown = CANNON_HOMING_COOLDOWN_SECS;
+    this.state.addEntity(new HomingBullet(Team.Player, player.position.clone(), player.angle, player, target));
+    Audio.playSound('fire');
   }
 
   private updatePlayerShipyards(): void {
@@ -574,20 +764,21 @@ export class Game {
     missile.steerToward(this.camera.screenToWorld(Input.mousePos));
   }
 
-  private damageLaserLine(start: Vec2, end: Vec2, damage: number): void {
+  private damageLaserLine(start: Vec2, end: Vec2, damage: number, hitRadius: number = 2): void {
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const lenSq = dx * dx + dy * dy;
     if (lenSq <= 0) return;
     for (const target of this.state.allEntities()) {
-      if (!target.alive || target.team !== Team.Enemy) continue;
+      // Skip neutrals and own-team entities
+      if (!target.alive || target.team === Team.Player || target.team === Team.Neutral) continue;
       const tx = target.position.x - start.x;
       const ty = target.position.y - start.y;
       const t = Math.max(0, Math.min(1, (tx * dx + ty * dy) / lenSq));
       const px = start.x + dx * t;
       const py = start.y + dy * t;
       const dist = Math.hypot(target.position.x - px, target.position.y - py);
-      if (dist <= target.radius + 2) {
+      if (dist <= target.radius + hitRadius) {
         target.takeDamage(damage, this.state.player);
         this.state.recentlyDamaged.add(target.id);
         if (!target.alive) {

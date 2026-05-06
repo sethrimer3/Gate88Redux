@@ -37,6 +37,11 @@ export abstract class ProjectileBase extends Entity {
   maxLifetime: number;
   source: Entity | null;
   protected trail: TrailPoint[] = [];
+  /**
+   * When true, enemy projectiles can collide with and destroy this projectile.
+   * Used by SwarmMissile to make swarm missiles interceptable by enemy bullets.
+   */
+  interceptable: boolean = false;
 
   constructor(opts: ProjectileOptions) {
     super(opts.type, opts.team, opts.position, 1, ENTITY_RADIUS.bullet);
@@ -670,3 +675,232 @@ export class FireBomb extends ProjectileBase {
   }
 }
 
+// ---------------------------------------------------------------------------
+// HomingBullet – cannon special: blue-tinted homing bullet (3× energy cost)
+// ---------------------------------------------------------------------------
+
+/**
+ * Homing cannon bullet fired by the player's RMB cannon special.
+ * Steers toward the nearest locked enemy at a moderate turn rate — not instant
+ * perfect tracking — so skilled enemies can still dodge.  Visually distinct
+ * from ordinary cannon rounds by its blue/cyan tint.
+ */
+export class HomingBullet extends ProjectileBase {
+  targetEntity: Entity | null = null;
+  /** Radians per second the bullet can turn.  Moderate — not instant. */
+  readonly turnRate: number = 2.0;
+
+  constructor(
+    team: Team,
+    position: Vec2,
+    angle: number,
+    source: Entity | null = null,
+    target: Entity | null = null,
+  ) {
+    super({
+      type: EntityType.Bullet,
+      team,
+      position,
+      angle,
+      damage: WEAPON_STATS.fire.damage, // same base damage as normal cannon
+      speed: WEAPON_STATS.fire.speed,
+      lifetime: WEAPON_STATS.fire.range / WEAPON_STATS.fire.speed,
+      source,
+    });
+    this.radius = ENTITY_RADIUS.bullet * 1.15;
+    this.targetEntity = target;
+  }
+
+  update(dt: number): void {
+    if (!this.alive) return;
+    // Steer toward target if it is still alive
+    if (this.targetEntity && this.targetEntity.alive) {
+      const desired = this.position.angleTo(this.targetEntity.position);
+      let diff = desired - this.angle;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      const steer = Math.sign(diff) * Math.min(Math.abs(diff), this.turnRate * dt);
+      this.angle += steer;
+      this.velocity = new Vec2(
+        Math.cos(this.angle) * this.speed,
+        Math.sin(this.angle) * this.speed,
+      );
+    }
+    super.update(dt);
+  }
+
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive) return;
+    const screen = camera.worldToScreen(this.position);
+    // Blue/cyan trail to distinguish from normal green cannon bullets
+    const bulletColor = colorToCSS(Colors.alliedfire, 0.9);
+    this.drawTrail(ctx, camera, bulletColor);
+
+    const tail = this.velocity.normalize().scale(-3 * camera.zoom);
+    ctx.strokeStyle = bulletColor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(screen.x, screen.y);
+    ctx.lineTo(screen.x + tail.x, screen.y + tail.y);
+    ctx.stroke();
+
+    // Glow core
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = colorToCSS(Colors.alliedfire, 0.4);
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, 3.5 * camera.zoom, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = bulletColor;
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, 2 * camera.zoom, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SwarmMissile – guided-missile special: small blast-AOE, interceptable
+// ---------------------------------------------------------------------------
+
+/**
+ * One missile in a rocket swarm (RMB ability for the guided-missile weapon).
+ * Smaller than a BomberMissile but carries a blast radius so it deals AOE
+ * damage on impact.  Setting `interceptable = true` allows enemy bullets to
+ * destroy these missiles mid-flight, reusing the existing conduit-interaction
+ * pattern.
+ */
+export class SwarmMissile extends ProjectileBase {
+  /** AOE blast radius — smaller than a BomberMissile (48). */
+  readonly blastRadius: number = 35;
+
+  constructor(
+    team: Team,
+    position: Vec2,
+    angle: number,
+    source: Entity | null = null,
+  ) {
+    super({
+      type: EntityType.Missile,
+      team,
+      position,
+      angle,
+      damage: Math.round(WEAPON_STATS.bigmissile.damage * 0.55), // ~19 per missile
+      speed: WEAPON_STATS.missile.speed * 1.05,
+      lifetime: (WEAPON_STATS.bigmissile.range * 0.65) / (WEAPON_STATS.missile.speed * 1.05),
+      source,
+    });
+    this.radius = ENTITY_RADIUS.missile * 1.1;
+    this.interceptable = true; // enemy bullets can destroy swarm missiles
+  }
+
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive) return;
+    const screen = camera.worldToScreen(this.position);
+    const r = this.radius * camera.zoom;
+    const missileColor = colorToCSS(Colors.alert2, 0.9);
+    this.drawTrail(ctx, camera, missileColor, 0.12, 2);
+    ctx.save();
+    ctx.translate(screen.x, screen.y);
+    ctx.rotate(this.angle);
+    ctx.fillStyle = missileColor;
+    ctx.beginPath();
+    ctx.moveTo(r * 1.1, 0);
+    ctx.lineTo(-r * 0.6, -r * 0.5);
+    ctx.lineTo(-r * 0.6, r * 0.5);
+    ctx.closePath();
+    ctx.fill();
+    // Exhaust glow
+    ctx.fillStyle = colorToCSS(Colors.particles_neutral_exhaust, 0.55);
+    ctx.beginPath();
+    ctx.arc(-r * 0.7, 0, r * 0.28, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ChargedLaserBurst – laser special: wide, bright charged energy beam (visual)
+// ---------------------------------------------------------------------------
+
+/**
+ * Visual entity for the charged laser burst (RMB ability for the laser weapon).
+ * Damage is applied immediately by damageLaserLine() in game.ts before this
+ * entity is spawned; this class only provides the visual effect that persists
+ * for a short time so the burst feels impactful.
+ *
+ * chargeFraction ∈ [0, 1] controls width and brightness.
+ */
+export class ChargedLaserBurst extends ProjectileBase {
+  targetPos: Vec2;
+  readonly chargeFraction: number;
+
+  constructor(
+    team: Team,
+    startPos: Vec2,
+    targetPos: Vec2,
+    source: Entity | null = null,
+    chargeFraction: number = 1.0,
+  ) {
+    const angle = startPos.angleTo(targetPos);
+    super({
+      type: EntityType.Laser,
+      team,
+      position: startPos,
+      angle,
+      damage: 0, // damage handled externally by damageLaserLine()
+      speed: 0,
+      lifetime: 0.28,
+      source,
+    });
+    this.targetPos = targetPos.clone();
+    this.velocity.set(0, 0);
+    this.chargeFraction = Math.max(0, Math.min(1, chargeFraction));
+  }
+
+  update(dt: number): void {
+    if (!this.alive) return;
+    this.lifetime -= dt;
+    if (this.lifetime <= 0) this.destroy();
+  }
+
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive) return;
+    const from = camera.worldToScreen(this.position);
+    const to = camera.worldToScreen(this.targetPos);
+    const fade = this.lifetime / 0.28; // 1 at spawn, 0 at expiry
+    const beamWidth = (3 + this.chargeFraction * 7) * camera.zoom * fade;
+    const burstColor = this.team === Team.Player ? Colors.friendlyfire : Colors.enemyfire;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+
+    // Outer glow
+    ctx.strokeStyle = colorToCSS(burstColor, 0.28 * fade);
+    ctx.lineWidth = beamWidth * 3.5;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+
+    // Mid beam
+    ctx.strokeStyle = colorToCSS(burstColor, 0.8 * fade);
+    ctx.lineWidth = beamWidth;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+
+    // Bright white core
+    ctx.strokeStyle = `rgba(255,255,255,${0.65 * fade})`;
+    ctx.lineWidth = beamWidth * 0.35;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+}
