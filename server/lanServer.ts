@@ -25,6 +25,7 @@ import type {
   MsgRelayedSnapshot,
   MsgRelayedInput,
   MsgMatchEnd,
+  MsgChat,
   AIDifficulty,
 } from '../src/lan/protocol.js';
 
@@ -62,7 +63,7 @@ let matchSeed = 0;
 function initSlots(): LobbySlot[] {
   const slots: LobbySlot[] = [];
   for (let i = 0; i < MAX_SLOTS; i++) {
-    slots.push({ slotIndex: i, type: i === 0 ? 'open' : 'open', ready: false });
+    slots.push({ slotIndex: i, type: 'open', ready: false });
   }
   return slots;
 }
@@ -315,7 +316,7 @@ wss.on('connection', (ws: WebSocket) => {
 
         if (!allReady) {
           // Only inform host; don't block
-          send(ws, { type: 'chat', from: 'Server', text: 'Not all players are ready.' } as any);
+          send(ws, { type: 'chat', from: 'Server', text: 'Not all players are ready.' } as MsgChat);
           break;
         }
 

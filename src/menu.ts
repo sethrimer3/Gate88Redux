@@ -1299,7 +1299,7 @@ export class MainMenu {
     ctx.stroke();
 
     const slots: LobbySlot[] = lobby?.slots ?? Array.from({ length: 8 }, (_, i) => ({
-      slotIndex: i, type: i === 0 ? 'open' : 'open', ready: false,
+      slotIndex: i, type: 'open' as const, ready: false,
     } as LobbySlot));
 
     const AI_DIFFICULTIES: AIDifficulty[] = ['easy', 'normal', 'hard', 'nightmare'];
