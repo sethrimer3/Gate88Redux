@@ -33,6 +33,9 @@ export type LanClientState =
   | 'in_match'
   | 'error';
 
+/** Heartbeat ping interval in ms. Matches the server-side CLIENT_TIMEOUT_MS / 4. */
+const HEARTBEAT_INTERVAL_MS = 15_000;
+
 export class LanClient {
   private ws: WebSocket | null = null;
   private url: string;
@@ -137,12 +140,12 @@ export class LanClient {
 
   private startHeartbeat(): void {
     this.stopHeartbeat();
-    // Send a ping every 15 seconds to keep the connection alive and measure RTT.
+    // Send a ping every HEARTBEAT_INTERVAL_MS to keep the connection alive and measure RTT.
     this.pingInterval = setInterval(() => {
       if (!this.connected) return;
       this.lastPingSentAt = performance.now();
       this.send({ type: 'ping', t: this.lastPingSentAt });
-    }, 15_000);
+    }, HEARTBEAT_INTERVAL_MS);
   }
 
   private stopHeartbeat(): void {

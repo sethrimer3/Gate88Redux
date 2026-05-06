@@ -1158,8 +1158,11 @@ export class Game {
         if (slot.type !== 'ai') continue;
         const aiTeam = teamForSlot(slot.slotIndex);
         // Place AI ship offset from centre so it doesn't overlap other ships.
+        // Spread AI ships around the map centre, one per slot, with 300px spacing.
+        // Slot indices 0–7 are offset from slot 4 (centre) so ships spread symmetrically.
+        const AI_SPREAD_PX = 300;
         const aiStart = new Vec2(
-          playerStart.x + (slot.slotIndex - 4) * 300,
+          playerStart.x + (slot.slotIndex - 4) * AI_SPREAD_PX,
           playerStart.y - 400,
         );
         const aiShip = new AIShip(aiStart, aiTeam);
@@ -1380,8 +1383,9 @@ export class Game {
       });
     }
 
-    // --- Resources per slot (sparse, indexed by slot) ---
-    const resourcesPerSlot: number[] = new Array(8).fill(0);
+    // Resources indexed by slot (sparse, sized to MAX_SLOTS from protocol).
+    const MAX_LAN_SLOTS = 8;
+    const resourcesPerSlot: number[] = new Array(MAX_LAN_SLOTS).fill(0);
     resourcesPerSlot[this.lanMySlot] = this.state.resources;
 
     this.lanClient.sendGameSnapshot({

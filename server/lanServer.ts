@@ -45,7 +45,12 @@ const PORT = parseInt(process.env.LAN_PORT ?? '8787', 10);
 const MAX_SLOTS = 8;
 /** Heartbeat: if a client has not sent any message for this many ms, close it. */
 const CLIENT_TIMEOUT_MS = 60_000;
-/** Maximum buffered bytes before we skip sending a snapshot to a lagging client. */
+/**
+ * Maximum buffered bytes before we skip sending a snapshot to a lagging client.
+ * 128 KB gives roughly 2–3 large snapshots worth of buffer before dropping.
+ * Higher values allow more queuing but increase per-client memory and latency;
+ * lower values drop snapshots more aggressively at the cost of visual stuttering.
+ */
 const BACKPRESSURE_LIMIT = 128 * 1024; // 128 KB
 
 // ---------------------------------------------------------------------------
