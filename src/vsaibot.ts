@@ -54,8 +54,8 @@ export class AIShip extends PlayerShip {
   /** When true, the ship attempts to fire its primary each tick. */
   wantsFire: boolean = false;
 
-  constructor(position: Vec2) {
-    super(position, Team.Enemy);
+  constructor(position: Vec2, team: Team = Team.Enemy) {
+    super(position, team);
     // Slightly tougher than the human player so a human can't trivially
     // alpha-strike the AI from full health.
     this.maxHealth = Math.floor(this.maxHealth * 1.15);

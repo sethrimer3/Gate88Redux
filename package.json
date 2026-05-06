@@ -5,12 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node node_modules/typescript/bin/tsc && node node_modules/vite/bin/vite.js build",
+    "build": "npx tsc --noEmit && npx vite build",
     "preview": "vite preview",
+    "typecheck": "npx tsc --noEmit",
+    "typecheck:server": "npx tsc --project tsconfig.server.json --noEmit",
     "lan:server": "tsx server/lanServer.ts",
     "dev:lan": "concurrently \"npm run dev\" \"npm run lan:server\""
   },
   "devDependencies": {
+    "concurrently": "^9.1.2",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vite": "^8.0.8"

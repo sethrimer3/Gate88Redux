@@ -30,9 +30,10 @@ import { worldToCell, footprintCenter, GRID_CELL_SIZE } from './grid.js';
 import { gameFont } from './fonts.js';
 import { createSpaceFluid, SpaceFluid } from './spacefluid.js';
 import type { LanClient } from './lan/lanClient.js';
-import type { MsgMatchStart, MsgRelayedInput, SerializedShip } from './lan/protocol.js';
+import type { MsgMatchStart, MsgRelayedInput, SerializedShip, SerializedBuilding, SerializedFighter, SerializedProjectile } from './lan/protocol.js';
 import { PlayerShip } from './ship.js';
 import { teamForSlot } from './teamutils.js';
+import { cloneDefaultVsAIConfig } from './vsaiconfig.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 type ShipCommandGroup = ShipGroup | 'all';
@@ -93,6 +94,13 @@ export class Game {
   private lanRemoteInputs: Map<number, { dx: number; dy: number; aimX: number; aimY: number; firePrimary: boolean; fireSpecial: boolean; boost: boolean }> = new Map();
   /** Input sequence counter for outgoing input snapshots. */
   private lanInputSeq: number = 0;
+  /**
+   * AI directors for LAN AI slots (host-only).
+   * Each entry drives one AIShip for a configured AI lobby slot.
+   */
+  private lanAiDirectors: VsAIDirector[] = [];
+  /** Last received snapshot seq (client-only, for debug). */
+  private lanLastSnapshotSeq: number = -1;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -271,6 +279,16 @@ export class Game {
     this.updateNumberGroupHotkeys();
     this.updatePlayerFighterOrderTargets();
 
+    // LAN host: apply buffered remote inputs BEFORE the simulation tick so
+    // remote players' inputs are always included in the current frame.
+    if (this.state.gameMode === 'lan_host') {
+      this.applyRemoteLanInputs();
+      // Tick all LAN AI directors (they steer their ships before state.update).
+      for (const dir of this.lanAiDirectors) {
+        dir.update(this.state, DT);
+      }
+    }
+
     // Update core game state (entities, collision, power, resources, research, particles)
     this.state.update(DT);
 
@@ -359,8 +377,7 @@ export class Game {
     } else if (this.state.gameMode === 'tutorial') {
       this.tutorialMode.update(this.state, this.hud, DT);
     } else if (this.state.gameMode === 'lan_host') {
-      // Apply buffered remote inputs, then broadcast snapshot on interval.
-      this.applyRemoteLanInputs();
+      // Broadcast snapshot on interval (remote inputs were applied above).
       this.lanSnapshotTimer -= DT;
       if (this.lanSnapshotTimer <= 0) {
         this.lanSnapshotTimer = Game.SNAPSHOT_INTERVAL;
@@ -1095,8 +1112,10 @@ export class Game {
     this.lanMySlot = matchStart.mySlot;
     this.lanClient = this.mainMenu.getLanClient();
     this.lanRemoteInputs.clear();
+    this.lanAiDirectors = [];
     this.lanSnapshotSeq = 0;
     this.lanInputSeq = 0;
+    this.lanLastSnapshotSeq = -1;
 
     const myTeam = teamForSlot(this.lanMySlot);
     const playerStart = new Vec2(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
@@ -1118,7 +1137,11 @@ export class Game {
     this.spaceFluid.resize(this.screenW, this.screenH);
 
     // Set the local player ship's team from the assigned slot.
-    this.state.playerShips.set(0, new PlayerShip(playerStart, myTeam));
+    this.state.playerShips.set(this.lanMySlot, new PlayerShip(playerStart, myTeam));
+    // Also keep slot 0 accessible for backwards-compat single-player code.
+    if (this.lanMySlot !== 0) {
+      this.state.playerShips.set(0, this.state.playerShips.get(this.lanMySlot)!);
+    }
 
     // For every non-local human slot, create a remote PlayerShip placeholder.
     for (const slot of matchStart.lobby.slots) {
@@ -1128,7 +1151,34 @@ export class Game {
       }
     }
 
-    // Command post for the local player
+    // Host: spawn AIShip + VsAIDirector for each AI slot.
+    // Remote clients will receive AI ships via snapshots and don't run local AI.
+    if (isHost) {
+      for (const slot of matchStart.lobby.slots) {
+        if (slot.type !== 'ai') continue;
+        const aiTeam = teamForSlot(slot.slotIndex);
+        // Place AI ship offset from centre so it doesn't overlap other ships.
+        const aiStart = new Vec2(
+          playerStart.x + (slot.slotIndex - 4) * 300,
+          playerStart.y - 400,
+        );
+        const aiShip = new AIShip(aiStart, aiTeam);
+        this.state.playerShips.set(slot.slotIndex, aiShip);
+
+        const aiCfg = cloneDefaultVsAIConfig();
+        // Map AIDifficulty → VsAIConfig difficulty.
+        switch (slot.aiDifficulty) {
+          case 'easy':      aiCfg.difficulty = 'Easy';      break;
+          case 'hard':      aiCfg.difficulty = 'Hard';      break;
+          case 'nightmare': aiCfg.difficulty = 'Nightmare'; break;
+          default:          aiCfg.difficulty = 'Normal';    break;
+        }
+        const director = new VsAIDirector(aiShip, aiCfg);
+        this.lanAiDirectors.push(director);
+      }
+    }
+
+    // Command post for the local player.
     const cpPos = new Vec2(playerStart.x, playerStart.y + 80);
     const cp = new CommandPost(cpPos, myTeam);
     this.state.addEntity(cp);
@@ -1163,6 +1213,7 @@ export class Game {
       } else {
         // Remote client receives authoritative snapshots from the host.
         this.lanClient.onGameSnapshot = (snapshot) => {
+          this.lanLastSnapshotSeq = snapshot.seq;
           this.applyLanSnapshot(snapshot);
         };
       }
@@ -1175,6 +1226,7 @@ export class Game {
         Audio.stopMusic();
         Audio.playMenuMusic();
         this.lanClient = null;
+        this.lanAiDirectors = [];
       };
     }
 
@@ -1184,18 +1236,29 @@ export class Game {
     Audio.stopMusic();
     Audio.startPlaylist();
 
+    const aiCount = matchStart.lobby.slots.filter(s => s.type === 'ai').length;
     this.hud.showMessage(
-      `LAN ${isHost ? 'Host' : 'Client'} — slot ${this.lanMySlot + 1}`,
+      `LAN ${isHost ? 'Host' : 'Client'} — slot ${this.lanMySlot + 1}` +
+        (isHost && aiCount > 0 ? ` | ${aiCount} AI slot${aiCount > 1 ? 's' : ''}` : ''),
       Colors.radar_friendly_status, 4,
     );
   }
 
   /**
    * Apply a relayed game snapshot to non-authoritative client state.
-   * Directly writes position/velocity onto remote ship objects so
-   * rendering is always current.
+   * Ships: directly write position/velocity onto existing ship objects.
+   * Buildings: sync health/buildProgress for known buildings (matched by id).
+   * Fighters and projectiles: reconcile the local list against snapshot ids.
    */
-  private applyLanSnapshot(snapshot: { ships: SerializedShip[] }): void {
+  private applyLanSnapshot(snapshot: {
+    seq: number;
+    ships: SerializedShip[];
+    buildings: SerializedBuilding[];
+    fighters: SerializedFighter[];
+    projectiles: SerializedProjectile[];
+    resourcesPerSlot: number[];
+  }): void {
+    // --- Ships ---
     for (const sd of snapshot.ships) {
       if (sd.slotIndex === this.lanMySlot) continue; // skip local ship
       let ship = this.state.playerShips.get(sd.slotIndex);
@@ -1213,15 +1276,42 @@ export class Game {
       ship.battery = sd.battery;
       if (!sd.alive && ship.alive) ship.destroy();
     }
+
+    // --- Buildings ---
+    // Build a lookup map for fast id-based matching.
+    const buildingById = new Map<number, BuildingBase>();
+    for (const b of this.state.buildings) buildingById.set(b.id, b);
+
+    for (const sb of snapshot.buildings) {
+      const b = buildingById.get(sb.id);
+      if (b) {
+        // Update existing building.
+        b.health = sb.health;
+        b.buildProgress = sb.buildProgress;
+        b.powered = sb.powered;
+        if (!sb.alive && b.alive) b.destroy();
+      }
+      // Note: We don't create buildings from snapshots for now; the host's
+      // authoritative state will have them, but clients start from the same
+      // seed layout. Full building sync (create/destroy) is a future pass.
+    }
+
+    // --- Resources per slot ---
+    if (Array.isArray(snapshot.resourcesPerSlot)) {
+      const myRes = snapshot.resourcesPerSlot[this.lanMySlot];
+      if (typeof myRes === 'number') this.state.resources = myRes;
+    }
   }
 
   /**
    * Broadcast the authoritative game state snapshot to the server for
    * relay to all remote clients. Called by the host at SNAPSHOT_INTERVAL.
+   * Includes ships, buildings, fighters, projectiles, and resources per slot.
    */
   private broadcastLanSnapshot(): void {
     if (!this.lanClient?.connected) return;
 
+    // --- Ships ---
     const ships: SerializedShip[] = [];
     for (const [slot, ship] of this.state.playerShips) {
       ships.push({
@@ -1239,13 +1329,69 @@ export class Game {
       });
     }
 
+    // --- Buildings ---
+    const buildings: SerializedBuilding[] = [];
+    for (const b of this.state.buildings) {
+      if (!b.alive) continue;
+      buildings.push({
+        id: b.id,
+        entityType: b.type,
+        team: b.team,
+        x: b.position.x,
+        y: b.position.y,
+        health: b.health,
+        maxHealth: b.maxHealth,
+        buildProgress: b.buildProgress,
+        powered: b.powered,
+        alive: b.alive,
+      });
+    }
+
+    // --- Fighters (only alive, undocked fighters to keep snapshot small) ---
+    const fighters: SerializedFighter[] = [];
+    for (const f of this.state.fighters) {
+      if (!f.alive || f.docked) continue;
+      fighters.push({
+        id: f.id,
+        entityType: f.type,
+        team: f.team,
+        x: f.position.x,
+        y: f.position.y,
+        vx: f.velocity.x,
+        vy: f.velocity.y,
+        angle: f.angle,
+        alive: f.alive,
+      });
+    }
+
+    // --- Projectiles (only fast-moving bullets/missiles) ---
+    const projectiles: SerializedProjectile[] = [];
+    for (const p of this.state.projectiles) {
+      if (!p.alive) continue;
+      projectiles.push({
+        id: p.id,
+        entityType: p.type,
+        team: p.team,
+        x: p.position.x,
+        y: p.position.y,
+        vx: p.velocity.x,
+        vy: p.velocity.y,
+        angle: p.angle,
+      });
+    }
+
+    // --- Resources per slot (sparse, indexed by slot) ---
+    const resourcesPerSlot: number[] = new Array(8).fill(0);
+    resourcesPerSlot[this.lanMySlot] = this.state.resources;
+
     this.lanClient.sendGameSnapshot({
       seq: this.lanSnapshotSeq++,
       gameTime: this.state.gameTime,
       ships,
-      projectiles: [],
-      fighters: [],
-      resources: [this.state.resources],
+      buildings,
+      fighters,
+      projectiles,
+      resourcesPerSlot,
       hostSlot: 0,
     });
   }
@@ -1474,11 +1620,29 @@ export class Game {
       `fighters ${groups}`,
     ];
 
+    // LAN-specific debug lines.
+    const isLan = this.state.gameMode === 'lan_host' || this.state.gameMode === 'lan_client';
+    if (isLan && this.lanClient) {
+      const role = this.state.gameMode === 'lan_host' ? 'host' : 'client';
+      lines.push(`LAN ${role}  slot ${this.lanMySlot + 1}  ping ${this.lanClient.pingMs}ms`);
+      if (this.state.gameMode === 'lan_client') {
+        const age = this.lanClient.lastSnapshotAt > 0
+          ? Math.round(performance.now() - this.lanClient.lastSnapshotAt)
+          : -1;
+        const seqStr = this.lanLastSnapshotSeq >= 0 ? `seq ${this.lanLastSnapshotSeq}` : 'no snapshot';
+        lines.push(`snapshot ${seqStr}  age ${age >= 0 ? age + 'ms' : 'n/a'}`);
+        if (age > 3000) lines.push('⚠ WARNING: No snapshot for >3s');
+      }
+      if (this.state.gameMode === 'lan_host') {
+        lines.push(`snap seq ${this.lanSnapshotSeq}  AI dirs ${this.lanAiDirectors.length}`);
+      }
+    }
+
     ctx.save();
     ctx.font = '11px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    const width = 310;
+    const width = 330;
     const height = lines.length * 15 + 12;
     const x = screenW - width - 10;
     const y = 10;
@@ -1486,8 +1650,12 @@ export class Game {
     ctx.fillRect(x, y, width, height);
     ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.55);
     ctx.strokeRect(x + 0.5, y + 0.5, width - 1, height - 1);
-    ctx.fillStyle = colorToCSS(Colors.general_building, 0.9);
     for (let i = 0; i < lines.length; i++) {
+      // Highlight LAN warning lines in yellow.
+      const isWarning = lines[i].startsWith('⚠');
+      ctx.fillStyle = isWarning
+        ? colorToCSS(Colors.alert2, 0.95)
+        : colorToCSS(Colors.general_building, 0.9);
       ctx.fillText(lines[i], x + 8, y + 7 + i * 15);
     }
     ctx.restore();
