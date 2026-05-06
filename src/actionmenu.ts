@@ -816,8 +816,11 @@ class ShipMenu {
     if (!this.open) return false;
 
     if (Input.wheelDelta !== 0) {
-      state.player.cyclePrimaryWeapon(Input.wheelDelta > 0 ? 1 : -1, (id) => this.weaponUnlocked(state, id));
-      Audio.playSound('menucursor');
+      // Prevent weapon switching during gatling overheat / overdrive lockdown
+      if (state.player.canSwitchWeapon()) {
+        state.player.cyclePrimaryWeapon(Input.wheelDelta > 0 ? 1 : -1, (id) => this.weaponUnlocked(state, id));
+        Audio.playSound('menucursor');
+      }
     }
 
     if (Input.mousePressed) {
@@ -826,7 +829,7 @@ class ShipMenu {
           Input.mousePos.x >= rect.x && Input.mousePos.x <= rect.x + rect.w &&
           Input.mousePos.y >= rect.y && Input.mousePos.y <= rect.y + rect.h
         ) {
-          if (this.weaponUnlocked(state, rect.id)) {
+          if (this.weaponUnlocked(state, rect.id) && state.player.canSwitchWeapon()) {
             state.player.selectPrimaryWeapon(rect.id);
             Audio.playSound('menuselection');
           } else {
