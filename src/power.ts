@@ -26,7 +26,7 @@ import { Team, EntityType } from './entities.js';
 import type { GameState } from './gamestate.js';
 import { GRID_CELL_SIZE, cellKey, footprintOrigin } from './grid.js';
 import type { BuildingBase } from './building.js';
-import { footprintForBuildingType } from './builddefs.js';
+import { footprintForBuildingType } from './buildingfootprint.js';
 
 /** Per-team energized cell set. Keys are `cellKey(cx, cy)`. */
 export interface PowerSnapshot {

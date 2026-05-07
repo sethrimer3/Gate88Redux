@@ -16,8 +16,9 @@ import { WorldGrid, GRID_CELL_SIZE, cellKey, footprintOrigin } from './grid.js';
 import { PowerGraph } from './power.js';
 import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN } from './constants.js';
 import { WORLD_WIDTH, WORLD_HEIGHT, ENTITY_RADIUS } from './constants.js';
-import { buildCostForBuildingType, buildDefForEntityType, createBuildingFromDef, footprintForBuildingType, type BuildDef } from './builddefs.js';
+import { buildCostForBuildingType, buildDefForEntityType, createBuildingFromDef , type BuildDef } from './builddefs.js';
 import { Colors, colorToCSS } from './colors.js';
+import { footprintForBuildingType } from './buildingfootprint.js';
 
 export interface DestroyedBuildingRecord {
   type: EntityType;
