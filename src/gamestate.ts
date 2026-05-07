@@ -12,13 +12,14 @@ import { ParticleSystem } from './particles.js';
 import { RingEffectSystem } from './ringeffects.js';
 import { Camera } from './camera.js';
 import { Audio } from './audio.js';
-import { WorldGrid, GRID_CELL_SIZE, cellKey, footprintOrigin } from './grid.js';
+import { WorldGrid, GRID_CELL_SIZE, cellKey, footprintOrigin, footprintCenter } from './grid.js';
 import { PowerGraph } from './power.js';
 import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN } from './constants.js';
 import { WORLD_WIDTH, WORLD_HEIGHT, ENTITY_RADIUS } from './constants.js';
 import { buildCostForBuildingType, buildDefForEntityType, createBuildingFromDef , type BuildDef } from './builddefs.js';
 import { Colors, colorToCSS } from './colors.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
+import { type FactionType, type ConfluenceTerritoryCircle, CONFLUENCE_BASE_RADIUS, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_PARENT_EXPAND_DURATION, CONFLUENCE_NEW_CIRCLE_GROW_DURATION, CONFLUENCE_INCLUDE_MARGIN, isConfluenceFaction } from './confluence.js';
 
 export interface DestroyedBuildingRecord {
   type: EntityType;
@@ -119,6 +120,10 @@ export class GameState {
   selectedBuildType: string | null = null;
 
   gameMode: GameMode = 'menu';
+
+  factionByTeam: Map<Team, FactionType> = new Map();
+  territoryCirclesByTeam: Map<Team, ConfluenceTerritoryCircle[]> = new Map();
+  private nextTerritoryCircleId = 1;
   gameTime: number = 0;
 
   /** Entities that took damage this frame, used by radar for flash indicators. */
@@ -134,6 +139,8 @@ export class GameState {
   constructor(playerStart: Vec2 = new Vec2(0, 0)) {
     this.playerShips.set(0, new PlayerShip(playerStart, Team.Player));
     this.particles = new ParticleSystem();
+    this.factionByTeam.set(Team.Player, 'confluence');
+    this.factionByTeam.set(Team.Enemy, 'conduit');
   }
 
   // -----------------------------------------------------------------------
@@ -229,6 +236,16 @@ export class GameState {
     if (this.gameMode === 'menu') return;
 
     this.gameTime += dt;
+    for (const circles of this.territoryCirclesByTeam.values()) {
+      for (const c of circles) {
+        if (c.radius === c.targetRadius) continue;
+        if (c.growthDuration <= 0) { c.radius = c.targetRadius; continue; }
+        const t = Math.min(1, (this.gameTime - c.growthStartTime) / c.growthDuration);
+        const eased = 1 - (1 - t) * (1 - t);
+        c.radius = c.radius + (c.targetRadius - c.radius) * eased;
+        if (t >= 1) c.radius = c.targetRadius;
+      }
+    }
     this.recentlyDamaged.clear();
 
     // Update all player ships (slot 0 = local player, others = remote/AI)
@@ -1151,6 +1168,40 @@ export class GameState {
     return { docked, total: groupFighters.length };
   }
 
+
+  setFaction(team: Team, faction: FactionType): void {
+    this.factionByTeam.set(team, faction);
+  }
+
+  ensureConfluenceSeedCircle(team: Team, center: Vec2): void {
+    if (!isConfluenceFaction(this.factionByTeam, team)) return;
+    const circles = this.territoryCirclesByTeam.get(team) ?? [];
+    if (circles.length > 0) return;
+    circles.push({
+      id: `c${this.nextTerritoryCircleId++}`,
+      x: center.x,
+      y: center.y,
+      radius: CONFLUENCE_BASE_RADIUS,
+      targetRadius: CONFLUENCE_BASE_RADIUS,
+      createdAt: this.gameTime,
+      growthStartTime: this.gameTime,
+      growthDuration: 0,
+    });
+    this.territoryCirclesByTeam.set(team, circles);
+  }
+
+  private findNearestConfluenceCircle(team: Team, x: number, y: number): ConfluenceTerritoryCircle | null {
+    const circles = this.territoryCirclesByTeam.get(team) ?? [];
+    let best: ConfluenceTerritoryCircle | null = null;
+    let bestAbs = Infinity;
+    for (const c of circles) {
+      const d = Math.hypot(x - c.x, y - c.y) - c.radius;
+      const ad = Math.abs(d - CONFLUENCE_PLACEMENT_DISTANCE);
+      if (ad < bestAbs) { bestAbs = ad; best = c; }
+    }
+    return best;
+  }
+
   getPlacementStatus(def: BuildDef, cx: number, cy: number, team: Team): { valid: boolean; reason: string } {
     if (this.resources < def.cost && team === Team.Player) {
       return { valid: false, reason: 'Not enough resources' };
@@ -1182,8 +1233,44 @@ export class GameState {
       }
     }
     if (def.key === 'commandpost') return { valid: true, reason: 'OK' };
+    if (isConfluenceFaction(this.factionByTeam, team)) {
+      const center = footprintCenter(cx, cy, def.footprintCells);
+      const parent = this.findNearestConfluenceCircle(team, center.x, center.y);
+      if (!parent) return { valid: false, reason: 'No territory' };
+      const distanceFromCircleEdge = Math.hypot(center.x - parent.x, center.y - parent.y) - parent.radius;
+      const minBand = CONFLUENCE_PLACEMENT_DISTANCE - CONFLUENCE_PLACEMENT_TOLERANCE;
+      const maxBand = CONFLUENCE_PLACEMENT_DISTANCE + CONFLUENCE_PLACEMENT_TOLERANCE;
+      if (distanceFromCircleEdge < minBand || distanceFromCircleEdge > maxBand) return { valid: false, reason: 'Place on confluence frontier band' };
+      return { valid: true, reason: 'OK' };
+    }
     if (this.isNearPowerNetwork(origin.cx, origin.cy, def.footprintCells, team)) return { valid: true, reason: 'OK' };
     return { valid: false, reason: 'Build near command post, generator, or powered conduit' };
+  }
+
+
+  applyConfluencePlacement(team: Team, pos: Vec2, sourceBuildingId?: string): void {
+    if (!isConfluenceFaction(this.factionByTeam, team)) return;
+    const circles = this.territoryCirclesByTeam.get(team) ?? [];
+    if (circles.length === 0) return;
+    const parent = this.findNearestConfluenceCircle(team, pos.x, pos.y);
+    if (parent) {
+      parent.targetRadius = Math.max(parent.targetRadius, Math.hypot(pos.x - parent.x, pos.y - parent.y) + CONFLUENCE_INCLUDE_MARGIN);
+      parent.growthStartTime = this.gameTime;
+      parent.growthDuration = CONFLUENCE_PARENT_EXPAND_DURATION;
+    }
+    circles.push({
+      id: `c${this.nextTerritoryCircleId++}`,
+      x: pos.x,
+      y: pos.y,
+      radius: 2,
+      targetRadius: CONFLUENCE_BASE_RADIUS,
+      parentCircleId: parent?.id,
+      sourceBuildingId,
+      createdAt: this.gameTime,
+      growthStartTime: this.gameTime,
+      growthDuration: CONFLUENCE_NEW_CIRCLE_GROW_DURATION,
+    });
+    this.territoryCirclesByTeam.set(team, circles);
   }
 
   private isNearPowerNetwork(originCx: number, originCy: number, size: number, team: Team): boolean {

@@ -23,6 +23,7 @@ import { SHIP_WEAPON_OPTIONS, type ShipWeaponId } from './ship.js';
 import { worldToCell, cellKey, cellCenter, footprintCenter, footprintOrigin, GRID_CELL_SIZE } from './grid.js';
 import { defsByTier, BuildDef, getBuildDef } from './builddefs.js';
 import { drawDecodedText } from './decodeText.js';
+import { isConfluenceFaction, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_BASE_RADIUS } from './confluence.js';
 
 /** Radius (px) from the menu centre at which items are placed. */
 const ITEM_RADIUS = 110;
@@ -1123,7 +1124,7 @@ class QuickBuildMenu {
 
     items.push({ type: 'header', label: 'Structures' });
     addBuilding('commandpost');
-    items.push({ type: 'conduit', label: 'Conduit', cost: CONDUIT_COST });
+    if (!isConfluenceFaction(state.factionByTeam, Team.Player)) items.push({ type: 'conduit', label: 'Conduit', cost: CONDUIT_COST });
     addBuilding('powergenerator');
     addBuilding('factory');
     addBuilding('researchlab');
@@ -1237,6 +1238,26 @@ class QuickBuildMenu {
     const screen = camera.worldToScreen(center);
     const sizePx = def.footprintCells * GRID_CELL_SIZE * camera.zoom;
     const status = state.getPlacementStatus(def, cell.cx, cell.cy, Team.Player);
+    if (isConfluenceFaction(state.factionByTeam, Team.Player)) {
+      const circles = state.territoryCirclesByTeam.get(Team.Player) ?? [];
+      for (const c of circles) {
+        const cc = camera.worldToScreen(new Vec2(c.x, c.y));
+        const minR = (c.radius + CONFLUENCE_PLACEMENT_DISTANCE - CONFLUENCE_PLACEMENT_TOLERANCE) * camera.zoom;
+        const maxR = (c.radius + CONFLUENCE_PLACEMENT_DISTANCE + CONFLUENCE_PLACEMENT_TOLERANCE) * camera.zoom;
+        ctx.fillStyle = 'rgba(120,255,245,0.08)';
+        ctx.beginPath(); ctx.arc(cc.x, cc.y, maxR, 0, Math.PI * 2); ctx.arc(cc.x, cc.y, minR, 0, Math.PI * 2, true); ctx.fill();
+        ctx.strokeStyle = 'rgba(120,255,245,0.22)'; ctx.beginPath(); ctx.arc(cc.x, cc.y, maxR, 0, Math.PI * 2); ctx.stroke();
+      }
+      let parent = null as any;
+      let best = Infinity;
+      for (const c of circles) { const d=Math.hypot(center.x-c.x, center.y-c.y)-c.radius; const ad=Math.abs(d-CONFLUENCE_PLACEMENT_DISTANCE); if(ad<best){best=ad; parent=c;} }
+      if (parent) {
+        const p = camera.worldToScreen(new Vec2(parent.x, parent.y));
+        ctx.strokeStyle = status.valid ? 'rgba(120,255,245,0.45)' : 'rgba(255,90,90,0.45)';
+        ctx.setLineDash([5,4]); ctx.beginPath(); ctx.moveTo(p.x,p.y); ctx.lineTo(screen.x,screen.y); ctx.stroke(); ctx.setLineDash([]);
+      }
+      ctx.strokeStyle = 'rgba(120,255,245,0.25)'; ctx.beginPath(); ctx.arc(screen.x, screen.y, CONFLUENCE_BASE_RADIUS*camera.zoom, 0, Math.PI*2); ctx.stroke();
+    }
     const color = status.valid
       ? colorToCSS(Colors.radar_friendly_status, 0.9)
       : colorToCSS(Colors.alert1, 0.9);

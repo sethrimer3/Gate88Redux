@@ -34,9 +34,10 @@ import { worldToCell, footprintCenter, GRID_CELL_SIZE } from './grid.js';
 import { gameFont } from './fonts.js';
 import { createSpaceFluid, SpaceFluid } from './spacefluid.js';
 import type { LanClient } from './lan/lanClient.js';
-import type { MsgMatchStart, MsgRelayedInput, SerializedShip, SerializedBuilding, SerializedFighter, SerializedProjectile } from './lan/protocol.js';
+import type { MsgMatchStart, MsgRelayedInput, SerializedShip, SerializedBuilding, SerializedFighter, SerializedProjectile, SerializedTerritoryCircle } from './lan/protocol.js';
 import { PlayerShip } from './ship.js';
 import { teamForSlot } from './teamutils.js';
+import { isConfluenceFaction, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_BASE_RADIUS } from './confluence.js';
 import { cloneDefaultVsAIConfig } from './vsaiconfig.js';
 import { GlowLayer } from './glowlayer.js';
 import { DEFAULT_VISUAL_QUALITY, VISUAL_QUALITY_PRESETS, type VisualQuality, type VisualQualityPreset } from './visualquality.js';
@@ -853,6 +854,7 @@ export class Game {
     const building = createBuildingFromDef(def, worldPos, Team.Player);
     this.state.resources -= def.cost;
     this.state.addEntity(building);
+    this.state.applyConfluencePlacement(Team.Player, worldPos, String(building.id));
     this.state.selectedBuildType = type;
     Audio.playSound('build');
     this.hud.showMessage(`Building ${def.label}…`, Colors.general_building, 2);
@@ -1220,18 +1222,22 @@ export class Game {
     const cpPos = new Vec2(playerStart.x, playerStart.y + 80);
     const cp = new CommandPost(cpPos, Team.Player);
     this.state.addEntity(cp);
+    this.state.setFaction(Team.Player, 'confluence');
+    this.state.ensureConfluenceSeedCircle(Team.Player, cpPos);
 
     // Seed a small starter conduit network around the player CP so that
     // shipyards / labs / factories placed near the CP can be powered
     // immediately. Without this, post-PR8 power rules (shipyards no
     // longer self-power) would force the player to paint conduits
     // before their first shipyard could function.
-    const startCx = Math.floor(cpPos.x / GRID_CELL_SIZE);
-    const startCy = Math.floor(cpPos.y / GRID_CELL_SIZE);
-    for (let dx = -2; dx <= 2; dx++) {
-      for (let dy = -2; dy <= 2; dy++) {
-        if (Math.abs(dx) + Math.abs(dy) <= 2) {
-          this.state.grid.addConduit(startCx + dx, startCy + dy, Team.Player);
+    if (!isConfluenceFaction(this.state.factionByTeam, Team.Player)) {
+      const startCx = Math.floor(cpPos.x / GRID_CELL_SIZE);
+      const startCy = Math.floor(cpPos.y / GRID_CELL_SIZE);
+      for (let dx = -2; dx <= 2; dx++) {
+        for (let dy = -2; dy <= 2; dy++) {
+          if (Math.abs(dx) + Math.abs(dy) <= 2) {
+            this.state.grid.addConduit(startCx + dx, startCy + dy, Team.Player);
+          }
         }
       }
     }
@@ -1482,6 +1488,8 @@ export class Game {
     buildings: SerializedBuilding[];
     fighters: SerializedFighter[];
     projectiles: SerializedProjectile[];
+    factionsByTeam?: Array<{ team: number; faction: 'conduit' | 'confluence' }>;
+    territoryCircles?: SerializedTerritoryCircle[];
     resourcesPerSlot: number[];
   }): void {
     // --- Ships ---
@@ -1522,6 +1530,19 @@ export class Game {
       // seed layout. Full building sync (create/destroy) is a future pass.
     }
 
+
+    if (Array.isArray(snapshot.factionsByTeam)) {
+      this.state.factionByTeam.clear();
+      for (const f of snapshot.factionsByTeam) this.state.factionByTeam.set(f.team as Team, f.faction);
+    }
+    if (Array.isArray(snapshot.territoryCircles)) {
+      this.state.territoryCirclesByTeam.clear();
+      for (const c of snapshot.territoryCircles) {
+        const arr = this.state.territoryCirclesByTeam.get(c.team as Team) ?? [];
+        arr.push({ ...c });
+        this.state.territoryCirclesByTeam.set(c.team as Team, arr);
+      }
+    }
     // --- Resources per slot ---
     if (Array.isArray(snapshot.resourcesPerSlot)) {
       const myRes = snapshot.resourcesPerSlot[this.lanMySlot];
@@ -1557,6 +1578,11 @@ export class Game {
 
     // --- Buildings ---
     const buildings: SerializedBuilding[] = [];
+    const factionsByTeam = Array.from(this.state.factionByTeam.entries()).map(([team, faction]) => ({ team, faction }));
+    const territoryCircles: SerializedTerritoryCircle[] = [];
+    for (const [team, circles] of this.state.territoryCirclesByTeam.entries()) {
+      for (const c of circles) territoryCircles.push({ ...c, team });
+    }
     for (const b of this.state.buildings) {
       if (!b.alive) continue;
       buildings.push({
@@ -1697,6 +1723,7 @@ export class Game {
     // Advance the fluid simulation by the frame delta and draw it under the game world.
     this.spaceFluid.step(this.lastFrameMs);
     this.spaceFluid.render(ctx);
+    this.drawConfluenceTerritory(ctx);
     this.state.grid.draw(
       ctx,
       this.camera,
@@ -1971,6 +1998,23 @@ export class Game {
     }
   }
 
+
+  private drawConfluenceTerritory(ctx: CanvasRenderingContext2D): void {
+    const circles = this.state.territoryCirclesByTeam.get(Team.Player) ?? [];
+    for (const c of circles) {
+      const sc = this.camera.worldToScreen(new Vec2(c.x, c.y));
+      const rr = c.radius * this.camera.zoom;
+      const grad = ctx.createRadialGradient(sc.x, sc.y, rr * 0.2, sc.x, sc.y, rr);
+      grad.addColorStop(0, 'rgba(80,230,220,0.16)');
+      grad.addColorStop(1, 'rgba(80,230,220,0.03)');
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(sc.x, sc.y, rr, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(120,255,245,0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(sc.x, sc.y, rr, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+
   private drawScreenOverlays(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     if (this.overlayW !== w || this.overlayH !== h || !this.vignetteGradient) {
       this.overlayW = w;
@@ -2009,4 +2053,5 @@ export class Game {
     }
     ctx.restore();
   }
+
 }
