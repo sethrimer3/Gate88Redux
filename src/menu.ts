@@ -39,7 +39,7 @@ import {
   cloneDefaultVsAIConfig,
 } from './vsaiconfig.js';
 import { LanClient } from './lan/lanClient.js';
-import type { LobbyState, LobbySlot, AIDifficulty, MsgMatchStart } from './lan/protocol.js';
+import type { LobbyState, LobbySlot, AIDifficulty, MsgMatchStart, LanDiscoveredLobby } from './lan/protocol.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -54,6 +54,7 @@ export type MenuState =
   | 'pause'
   | 'lan_type'
   | 'lan_host_lobby'
+  | 'lan_browser'
   | 'lan_join'
   | 'lan_client_lobby'
   | 'none';
@@ -151,6 +152,10 @@ export class MainMenu {
 
   /** Pending match-start info passed to game.ts via MenuAction. */
   private _lanMatchStart: MsgMatchStart | null = null;
+
+  /** LAN browser discovered lobbies. */
+  private _discoveredLobbies: LanDiscoveredLobby[] = [];
+  private _lanDiscoveryError: string = '';
 
   /** Join screen: text being typed in the URL input field. */
   private _joinUrl: string = 'ws://192.168.1.';
@@ -333,7 +338,9 @@ export class MainMenu {
         return [
           { label: 'Host LAN Lobby', action: () => this.openHostLobby(),
             description: 'Create a lobby — other players join via your IP' },
-          { label: 'Join LAN Lobby', action: () => this.setState('lan_join'),
+          { label: 'Find LAN Games', action: () => this.openLanBrowser(),
+            description: 'Scan local LAN helpers for advertised lobbies' },
+          { label: 'Join Manually', action: () => this.setState('lan_join'),
             description: 'Enter the host IP/port to join' },
           { label: 'Back', action: () => this.setState('play') },
         ];
@@ -369,6 +376,7 @@ export class MainMenu {
       case 'pause':           this.drawPauseMenu(ctx, screenW, screenH); break;
       case 'lan_type':        this.drawPlayMenu(ctx, screenW, screenH); break; // re-use play menu draw (simple list)
       case 'lan_host_lobby':  this.drawLanHostLobby(ctx, screenW, screenH); break;
+      case 'lan_browser':     this.drawLanBrowser(ctx, screenW, screenH); break;
       case 'lan_join':        this.drawLanJoin(ctx, screenW, screenH); break;
       case 'lan_client_lobby':this.drawLanClientLobby(ctx, screenW, screenH); break;
     }
@@ -1161,6 +1169,62 @@ export class MainMenu {
       { label: 'Start Match', emphasis: allReady, action: () => {
         this.lanClient.sendStartMatch();
       }},
+    ], cx, h - 56);
+  }
+
+
+  private openLanBrowser(): void {
+    this._discoveredLobbies = [];
+    this._lanDiscoveryError = '';
+    this.setState('lan_browser');
+    void this.refreshLanDiscovery();
+  }
+
+  private async refreshLanDiscovery(): Promise<void> {
+    this._lanDiscoveryError = '';
+    try {
+      const res = await fetch('http://localhost:8788/lan/discovered');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json() as { lobbies?: LanDiscoveredLobby[] };
+      this._discoveredLobbies = Array.isArray(data.lobbies) ? data.lobbies : [];
+    } catch {
+      this._discoveredLobbies = [];
+      this._lanDiscoveryError = 'Automatic LAN discovery requires running the local Gate88 LAN helper. You can still enter the host URL manually.';
+    }
+  }
+
+  private drawLanBrowser(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    this.drawBackground(ctx, w, h);
+    this.drawBuildBadge(ctx, w);
+    const cx = w * 0.5;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = gameFont(28);
+    ctx.fillStyle = colorToCSS(TextColors.title);
+    ctx.fillText('FIND LAN GAMES', cx, 68);
+    ctx.font = gameFont(12);
+    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.8);
+    ctx.fillText('Detected lobbies from local discovery helper (localhost:8788)', cx, 96);
+    if (this._lanDiscoveryError) { ctx.fillStyle = colorToCSS(Colors.alert2, 0.9); ctx.fillText(this._lanDiscoveryError, cx, 122); }
+    const startY = 150;
+    this._discoveredLobbies.forEach((lobby, i) => {
+      const y = startY + i * 46;
+      const rect = { x: cx - 320, y: y - 16, w: 640, h: 38 };
+      const hover = pointInRect(Input.mousePos.x, Input.mousePos.y, rect);
+      ctx.fillStyle = colorToCSS(Colors.friendly_background, hover ? 0.35 : 0.2);
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      const age = Math.max(0, Math.floor((Date.now() - lobby.lastSeenAt) / 1000));
+      const status = lobby.matchStarted ? 'In progress' : 'Open';
+      ctx.font = gameFont(12);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = colorToCSS(TextColors.normal, 0.95);
+      ctx.fillText(`${lobby.hostName}  ${lobby.wsUrl}  ${lobby.openSlots}/${lobby.maxSlots} open  H:${lobby.occupiedHumanSlots} AI:${lobby.aiSlots}  ${status}  ${age}s ago`, rect.x + 8, y + 2);
+      if (this.handleClick(rect) && !lobby.matchStarted) { this._joinUrl = lobby.wsUrl; this.connectToJoinUrl(); }
+    });
+    this.drawButtonRow(ctx, [
+      { label: 'Back', action: () => this.setState('lan_type') },
+      { label: 'Join Manually', action: () => this.setState('lan_join') },
+      { label: 'Refresh LAN Games', emphasis: true, action: () => { void this.refreshLanDiscovery(); } },
     ], cx, h - 56);
   }
 
