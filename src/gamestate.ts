@@ -569,6 +569,10 @@ export class GameState {
     if (ready.length === 0) return;
     for (const { cx, cy } of ready) this.grid.promotePendingConduit(cx, cy);
     this.power.markDirty();
+    if (ready.length > 0) {
+      const first = ready[0];
+      this.ringEffects.spawn('build_complete_wave', new Vec2((first.cx + 0.5) * GRID_CELL_SIZE, (first.cy + 0.5) * GRID_CELL_SIZE), 8, 70, 0.55, 0.55);
+    }
     Audio.playSound('build');
   }
 
@@ -646,8 +650,8 @@ export class GameState {
   private emitFancyExplosion(pos: Vec2, blastRadius: number): void {
     this.particles.emitExplosion(pos, blastRadius * 0.45);
     this.particles.emitExplosion(pos, blastRadius * 0.22);
-    this.ringEffects.spawnPowerWave(pos, blastRadius * 0.15, blastRadius, 0.55, 1.65);
-    this.ringEffects.spawnBlackout(pos, blastRadius * 0.05, blastRadius * 0.72, 0.38, 0.55);
+    this.ringEffects.spawn('shockwave', pos, blastRadius * 0.08, blastRadius * 1.05, 0.55, 1.4);
+    this.ringEffects.spawn('emp_wave', pos, blastRadius * 0.15, blastRadius * 0.74, 0.36, 0.45);
     const playerDist = this.player.position.distanceTo(pos);
     Audio.playSoundAt(blastRadius > 70 ? 'explode2' : 'explode1', playerDist);
   }
@@ -916,6 +920,7 @@ export class GameState {
         position: b.position.clone(),
         maxHealth: b.maxHealth,
       });
+      this.ringEffects.spawn('shockwave', b.position, b.radius * 0.7, b.radius * 5.5, 0.75, b.team === Team.Player ? 0.85 : 1.05);
     }
     this.buildings = this.buildings.filter((b) => b.alive);
     if (this.buildings.length !== beforeBuildings) {

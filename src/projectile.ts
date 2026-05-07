@@ -450,25 +450,56 @@ export class Laser extends ProjectileBase {
     if (!this.alive) return;
     const from = camera.worldToScreen(this.position);
     const to = camera.worldToScreen(this.targetPos);
+    const fade = Math.max(0, this.lifetime / 0.1);
     const fireColor =
       this.team === Team.Player
-        ? colorToCSS(Colors.friendlyfire, 0.8)
-        : colorToCSS(Colors.enemyfire, 0.8);
+        ? colorToCSS(Colors.friendlyfire, 0.85 * fade)
+        : colorToCSS(Colors.enemyfire, 0.85 * fade);
 
-    ctx.strokeStyle = fireColor;
-    ctx.lineWidth = 2;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = this.team === Team.Player
+      ? colorToCSS(Colors.friendlyfire, 0.16 * fade)
+      : colorToCSS(Colors.enemyfire, 0.16 * fade);
+    ctx.lineWidth = 8;
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(to.x, to.y);
     ctx.stroke();
 
+    ctx.strokeStyle = fireColor;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+
+    const crawl = ((performance.now() * 0.12) % 12) - 12;
+    ctx.setLineDash([8, 10]);
+    ctx.lineDashOffset = crawl;
+    ctx.strokeStyle = fireColor;
+    ctx.lineWidth = 1.25;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
     // Bright core
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+    ctx.strokeStyle = `rgba(255,255,255,${0.72 * fade})`;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(to.x, to.y);
     ctx.stroke();
+
+    ctx.strokeStyle = `rgba(255,255,255,${0.35 * fade})`;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.arc(to.x, to.y, 5 * camera.zoom, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -879,7 +910,7 @@ export class ChargedLaserBurst extends ProjectileBase {
 
     // Outer glow
     ctx.strokeStyle = colorToCSS(burstColor, 0.28 * fade);
-    ctx.lineWidth = beamWidth * 3.5;
+    ctx.lineWidth = beamWidth * 4.2;
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(to.x, to.y);
@@ -893,12 +924,28 @@ export class ChargedLaserBurst extends ProjectileBase {
     ctx.lineTo(to.x, to.y);
     ctx.stroke();
 
+    ctx.setLineDash([14, 12]);
+    ctx.lineDashOffset = -this.lifetime * 90;
+    ctx.strokeStyle = colorToCSS(Colors.particles_switch, 0.32 * fade);
+    ctx.lineWidth = beamWidth * 0.55;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
     // Bright white core
     ctx.strokeStyle = `rgba(255,255,255,${0.65 * fade})`;
     ctx.lineWidth = beamWidth * 0.35;
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+
+    ctx.strokeStyle = colorToCSS(burstColor, 0.38 * fade);
+    ctx.lineWidth = Math.max(1, 2 * camera.zoom);
+    ctx.beginPath();
+    ctx.arc(to.x, to.y, (10 + this.chargeFraction * 12) * camera.zoom * fade, 0, Math.PI * 2);
     ctx.stroke();
 
     ctx.restore();

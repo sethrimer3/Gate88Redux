@@ -219,6 +219,7 @@ export class WorldGrid {
     screenH: number,
     time: number = 0,
     isEnergized?: (cx: number, cy: number, team: Team) => boolean,
+    conduitShimmer: boolean = true,
   ): void {
     // Visible cell range (inclusive). Pad by one cell for line continuity.
     const tl = camera.screenToWorld(new Vec2(0, 0));
@@ -239,7 +240,7 @@ export class WorldGrid {
         if (cx < cxMin || cx > cxMax || cy < cyMin || cy > cyMax) continue;
         const c = camera.worldToScreen(cellCenter(cx, cy));
         const energized = isEnergized ? isEnergized(cx, cy, entry.team) : true;
-        this.drawConduitPanel(ctx, c.x, c.y, cellPx, cx, cy, entry.team, energized, time, pulse);
+        this.drawConduitPanel(ctx, c.x, c.y, cellPx, cx, cy, entry.team, energized, time, pulse, conduitShimmer);
 
         // Inner glow square for friendly conduits — only for energized
     }
@@ -251,7 +252,8 @@ export class WorldGrid {
     for (const { cx, cy } of this.pendingConduits.values()) {
       if (cx < cxMin || cx > cxMax || cy < cyMin || cy > cyMax) continue;
       const c = camera.worldToScreen(cellCenter(cx, cy));
-      ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.35);
+      const phase = Math.sin(time * 5.5 + hash01(cx, cy, 0xb17d) * Math.PI * 2);
+      ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.24 + (conduitShimmer ? phase * 0.04 + 0.08 : 0));
       ctx.strokeRect(c.x - cellPx / 2 + 1, c.y - cellPx / 2 + 1, cellPx - 2, cellPx - 2);
     }
     ctx.setLineDash([]);
@@ -290,6 +292,7 @@ export class WorldGrid {
     energized: boolean,
     time: number,
     pulse: number,
+    conduitShimmer: boolean,
   ): void {
     const x = screenX - cellPx / 2;
     const y = screenY - cellPx / 2;
@@ -299,7 +302,7 @@ export class WorldGrid {
     const panelSize = Math.max(1, cellPx - inset * 2);
     const tilt = hash01(cx, cy, 0x51f15e);
     const glint = hash01(cx, cy, 0x9e3779);
-    const wave = sheenBand(cx * 0.031 + cy * 0.047 - time * 0.32 + tilt * 0.18, 0.13);
+    const wave = conduitShimmer ? sheenBand(cx * 0.031 + cy * 0.047 - time * 0.32 + tilt * 0.18, 0.13) : 0;
     const localFlash = Math.pow(wave, 2.8) * (0.65 + glint * 0.35);
 
     if (team === Team.Player) {

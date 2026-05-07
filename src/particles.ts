@@ -157,6 +157,21 @@ export class ParticleSystem {
   }
 
   emitExplosion(pos: Vec2, size: number): void {
+    {
+      const p = this.acquire();
+      p.active = true;
+      p.x = pos.x;
+      p.y = pos.y;
+      p.vx = 0;
+      p.vy = 0;
+      p.color = Colors.particles_explosion3;
+      p.alpha = 1;
+      p.life = 0.08;
+      p.maxLife = p.life;
+      p.size = Math.max(3, size * 0.55);
+      p.additive = true;
+    }
+
     // Primary fireball — large additive particles that bloom together.
     const primaryCount = Math.floor(18 + size * 2.5);
     const colors: Color[] = [
@@ -198,6 +213,26 @@ export class ParticleSystem {
       p.maxLife = p.life;
       p.size = randomRange(1.0, 2.5);
       p.additive = false;
+    }
+
+    // A small capped spark pass gives explosions brighter motion without
+    // increasing POOL_SIZE or doing any per-pixel work.
+    const sparkCount = Math.min(10, Math.floor(3 + size * 0.22));
+    for (let i = 0; i < sparkCount; i++) {
+      const p = this.acquire();
+      p.active = true;
+      p.x = pos.x;
+      p.y = pos.y;
+      const ang = randomRange(0, Math.PI * 2);
+      const spd = randomRange(140, 260) * Math.max(0.65, size / 45);
+      p.vx = Math.cos(ang) * spd;
+      p.vy = Math.sin(ang) * spd;
+      p.color = i % 3 === 0 ? Colors.particles_spark : Colors.particles_explosion3;
+      p.alpha = 1;
+      p.life = randomRange(0.10, 0.24);
+      p.maxLife = p.life;
+      p.size = randomRange(0.9, 1.8);
+      p.additive = true;
     }
   }
 

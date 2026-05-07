@@ -38,6 +38,8 @@ import type { MsgMatchStart, MsgRelayedInput, SerializedShip, SerializedBuilding
 import { PlayerShip } from './ship.js';
 import { teamForSlot } from './teamutils.js';
 import { cloneDefaultVsAIConfig } from './vsaiconfig.js';
+import { GlowLayer } from './glowlayer.js';
+import { DEFAULT_VISUAL_QUALITY, VISUAL_QUALITY_PRESETS, type VisualQuality, type VisualQualityPreset } from './visualquality.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 type ShipCommandGroup = ShipGroup | 'all';
@@ -76,6 +78,13 @@ export class Game {
   private waypointMarkers = new Map<ShipCommandGroup, WaypointMarker>();
   private activeGuidedMissile: GuidedMissile | null = null;
   private spaceFluid: SpaceFluid;
+  private glowLayer: GlowLayer;
+  private visualQuality: VisualQuality = DEFAULT_VISUAL_QUALITY;
+  private visualPreset: VisualQualityPreset = VISUAL_QUALITY_PRESETS[DEFAULT_VISUAL_QUALITY];
+  private vignetteGradient: CanvasGradient | null = null;
+  private scanlinePattern: CanvasPattern | null = null;
+  private overlayW = 0;
+  private overlayH = 0;
 
   /** Respawn timer: counts down after the player ship dies. */
   private playerRespawnTimer: number = 0;
@@ -123,8 +132,9 @@ export class Game {
     this.tutorialMode = new TutorialMode();
 
     this.spaceFluid = createSpaceFluid();
+    this.glowLayer = new GlowLayer();
     this.spaceFluid.resize(window.innerWidth, window.innerHeight);
-    this.spaceFluid.setLowGraphicsMode(false);
+    this.applyVisualQuality(this.visualQuality);
 
     this.resizeCanvas();
     window.addEventListener('resize', () => this.resizeCanvas());
@@ -137,6 +147,17 @@ export class Game {
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.camera.setScreenSize(window.innerWidth, window.innerHeight);
     this.spaceFluid.resize(window.innerWidth, window.innerHeight);
+    this.glowLayer.resize(window.innerWidth, window.innerHeight);
+    this.vignetteGradient = null;
+    this.scanlinePattern = null;
+  }
+
+  private applyVisualQuality(quality: VisualQuality): void {
+    this.visualQuality = quality;
+    this.visualPreset = VISUAL_QUALITY_PRESETS[quality];
+    this.spaceFluid.setLowGraphicsMode(this.visualPreset.fluidLowGraphics);
+    this.glowLayer.configure(this.visualPreset.glowEnabled, this.visualPreset.glowScale);
+    this.state?.ringEffects.setMaxLive(quality === 'low' ? 32 : quality === 'medium' ? 64 : 96);
   }
 
   private get screenW(): number {
@@ -258,6 +279,11 @@ export class Game {
 
   private updatePlaying(): void {
     // ESC -> pause
+    if (Input.wasPressed('F6')) {
+      const next: Record<VisualQuality, VisualQuality> = { low: 'medium', medium: 'high', high: 'low' };
+      this.applyVisualQuality(next[this.visualQuality]);
+      this.hud.showMessage(`Visual quality: ${this.visualQuality.toUpperCase()}`, Colors.general_building, 2);
+    }
     if (Input.wasPressed('Escape') && !this.actionMenu.open && !this.actionMenu.placementMode) {
       this.phase = 'paused';
       this.mainMenu.openPause();
@@ -1170,6 +1196,7 @@ export class Game {
     const playerStart = new Vec2(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
     this.state = new GameState(playerStart);
     this.state.gameMode = mode;
+    this.applyVisualQuality(this.visualQuality);
     // Reset any director from a previous match.
     this.vsAIDirector = null;
 
@@ -1318,6 +1345,7 @@ export class Game {
     // Build fresh game state for host slot 0.
     this.state = new GameState(playerStart);
     this.state.gameMode = isHost ? 'lan_host' : 'lan_client';
+    this.applyVisualQuality(this.visualQuality);
     this.vsAIDirector = null;
     this.playerDeathHandled = false;
     this.playerRespawnTimer = 0;
@@ -1657,6 +1685,8 @@ export class Game {
       return;
     }
 
+    this.glowLayer.begin();
+
     // Draw game world
     this.nebula.draw(ctx, this.camera, w, h);
     this.starfield.draw(ctx, this.camera, w, h);
@@ -1670,9 +1700,12 @@ export class Game {
       h,
       this.state.gameTime,
       (cx, cy, team) => this.state.power.isCellEnergized(team, cx, cy),
+      this.visualPreset.conduitShimmer,
     );
     this.state.drawEntities(ctx, this.camera);
     this.drawWaypointMarkers(ctx);
+    this.drawGlowLayer();
+    this.glowLayer.compositeTo(ctx);
 
     // Edge indicators (always)
     drawEdgeIndicators(ctx, this.camera, this.state, w, h);
@@ -1682,8 +1715,7 @@ export class Game {
       drawRadarOverlay(ctx, this.state, w, h);
     }
 
-    // Vignette — darkens the viewport edges to create a deep-space atmosphere.
-    this.drawVignette(ctx, w, h);
+    this.drawScreenOverlays(ctx, w, h);
 
     // Action menu
     this.actionMenu.draw(ctx, this.state, this.camera, w, h);
@@ -1860,22 +1892,75 @@ export class Game {
     ctx.restore();
   }
 
-  /**
-   * Draws a soft radial vignette over the entire viewport using a
-   * transparent-to-black radial gradient.  The effect deepens the sense of
-   * looking out into space from inside a cockpit.
-   */
-  private drawVignette(ctx: CanvasRenderingContext2D, w: number, h: number): void {
-    const cx = w * 0.5;
-    const cy = h * 0.5;
-    const outerR = Math.hypot(cx, cy);
-    const innerR = outerR * 0.55;
+  private drawGlowLayer(): void {
+    if (!this.visualPreset.glowEnabled) return;
+    const glow = this.glowLayer;
+    for (const p of this.state.projectiles) {
+      if (!p.alive || !this.camera.isOnScreen(p.position, 180)) continue;
+      if (p instanceof Laser || p instanceof ChargedLaserBurst) {
+        const target = p.targetPos;
+        const color = p.team === Team.Player ? Colors.friendlyfire : Colors.enemyfire;
+        const alpha = p instanceof ChargedLaserBurst ? 0.34 + p.chargeFraction * 0.2 : 0.22;
+        const width = p instanceof ChargedLaserBurst ? 18 + p.chargeFraction * 22 : 10;
+        glow.lineWorld(this.camera, p.position, target, color, alpha, width);
+        glow.circleWorld(this.camera, target, p instanceof ChargedLaserBurst ? 18 : 8, Colors.particles_switch, alpha * 0.65);
+      } else if (p instanceof GuidedMissile || p instanceof BomberMissile || p instanceof SwarmMissile) {
+        const exhaust = p.position.add(new Vec2(Math.cos(p.angle + Math.PI) * p.radius, Math.sin(p.angle + Math.PI) * p.radius));
+        glow.circleWorld(this.camera, exhaust, p.radius * 2.2, Colors.alert2, 0.16);
+      }
+    }
 
-    const grad = ctx.createRadialGradient(cx, cy, innerR, cx, cy, outerR);
-    grad.addColorStop(0.0, 'rgba(0,0,0,0)');
-    grad.addColorStop(1.0, 'rgba(0,0,0,0.55)');
+    for (const ship of this.state.playerShips.values()) {
+      if (!ship.alive || !this.camera.isOnScreen(ship.position, 220)) continue;
+      const r = ship.radius;
+      if (ship.isBoosting || ship.gatlingOverdriveTimer > 0) {
+        glow.circleWorld(this.camera, ship.position, r * 2.9, Colors.alert2, 0.11);
+      }
+      if (ship.gatlingOverheatTimer > 0) {
+        glow.circleWorld(this.camera, ship.position, r * 3.1, Colors.alert1, 0.12);
+      }
+      if (ship.shieldUnlocked && ship.shield > 0) {
+        glow.circleWorld(this.camera, ship.position, r * 1.8, Colors.radar_allied_status, 0.10, false, 5);
+      }
+    }
+  }
 
-    ctx.fillStyle = grad;
+  private drawScreenOverlays(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    if (this.overlayW !== w || this.overlayH !== h || !this.vignetteGradient) {
+      this.overlayW = w;
+      this.overlayH = h;
+      const cx = w * 0.5;
+      const cy = h * 0.5;
+      const outerR = Math.hypot(cx, cy);
+      this.vignetteGradient = ctx.createRadialGradient(cx, cy, outerR * 0.54, cx, cy, outerR);
+      this.vignetteGradient.addColorStop(0.0, 'rgba(0,0,0,0)');
+      this.vignetteGradient.addColorStop(1.0, 'rgba(0,0,0,0.42)');
+    }
+
+    const territory = Math.max(-1, Math.min(1, this.camera.position.x / (WORLD_WIDTH * 0.42)));
+    ctx.save();
+    ctx.fillStyle = territory >= 0
+      ? `rgba(255,70,34,${0.018 + territory * 0.022})`
+      : `rgba(50,190,210,${0.018 + -territory * 0.018})`;
     ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = this.vignetteGradient;
+    ctx.fillRect(0, 0, w, h);
+
+    if (this.visualPreset.scanlines) {
+      if (!this.scanlinePattern) {
+        const p = document.createElement('canvas');
+        p.width = 1;
+        p.height = 4;
+        const pctx = p.getContext('2d')!;
+        pctx.fillStyle = 'rgba(255,255,255,0.035)';
+        pctx.fillRect(0, 0, 1, 1);
+        this.scanlinePattern = ctx.createPattern(p, 'repeat');
+      }
+      if (this.scanlinePattern) {
+        ctx.fillStyle = this.scanlinePattern;
+        ctx.fillRect(0, 0, w, h);
+      }
+    }
+    ctx.restore();
   }
 }
