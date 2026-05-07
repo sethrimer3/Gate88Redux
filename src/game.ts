@@ -1937,6 +1937,25 @@ export class Game {
       }
     }
 
+    for (const b of this.state.buildings) {
+      if (!b.alive || b.buildProgress < 1 || !this.camera.isOnScreen(b.position, 180)) continue;
+      const powered = b.type === EntityType.CommandPost || b.type === EntityType.PowerGenerator || b.powered;
+      if (!powered) continue;
+      const friendly = b.team === Team.Player;
+      const color = friendly ? Colors.radar_friendly_status : Colors.enemyfire;
+      const pulse = 0.75 + 0.25 * Math.sin(this.state.gameTime * 2.2 + b.id * 0.37);
+      glow.circleWorld(this.camera, b.position, b.radius * 1.9, color, 0.035 * pulse);
+      if (
+        b.type === EntityType.MissileTurret ||
+        b.type === EntityType.ExciterTurret ||
+        b.type === EntityType.MassDriverTurret ||
+        b.type === EntityType.RegenTurret ||
+        b.type === EntityType.RepairTurret
+      ) {
+        glow.circleWorld(this.camera, b.position, b.radius * 1.25, color, 0.045 * pulse, false, 2);
+      }
+    }
+
     for (const ship of this.state.playerShips.values()) {
       if (!ship.alive || !this.camera.isOnScreen(ship.position, 220)) continue;
       const r = ship.radius;

@@ -30,6 +30,14 @@ const ITEM_RADIUS = 110;
 /** Radius (px) of each item circle. */
 const ITEM_CIRCLE_R = 40;
 
+function fillMenuPanel(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
+  const grad = ctx.createLinearGradient(0, y, 0, y + h);
+  grad.addColorStop(0, 'rgba(4,21,45,0.94)');
+  grad.addColorStop(1, 'rgba(18,7,37,0.94)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(x, y, w, h);
+}
+
 /**
  * Minimum distance (px) from the menu centre before any item is considered
  * hovered. Prevents an accidental click when the cursor is right on the ship.
@@ -714,8 +722,7 @@ class LeftHoldMenu {
     const panelH = headerH + Math.max(1, items.length) * (rowH + gap) + 14;
 
     ctx.save();
-    ctx.fillStyle = colorToCSS(Colors.menu_background, 0.78);
-    ctx.fillRect(x, y, w, panelH);
+    fillMenuPanel(ctx, x, y, w, panelH);
     ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.55);
     ctx.strokeRect(x + 0.5, y + 0.5, w - 1, panelH - 1);
     ctx.textAlign = 'left';
@@ -847,26 +854,26 @@ class ShipMenu {
   draw(ctx: CanvasRenderingContext2D, state: GameState, screenW: number, screenH: number): void {
     if (!this.open) return;
     this.weaponRects.length = 0;
-    const panelW = 260;
+    const panelW = Math.min(360, Math.max(300, screenW - 24));
     const x = 12;
-    const y = Math.max(72, screenH * 0.5 - 190);
+    const panelH = Math.min(screenH - 36, Math.max(560, screenH - 96));
+    const y = Math.max(18, Math.min(72, (screenH - panelH) * 0.5));
     ctx.save();
-    ctx.fillStyle = colorToCSS(Colors.menu_background, 0.78);
-    ctx.fillRect(x, y, panelW, 380);
+    fillMenuPanel(ctx, x, y, panelW, panelH);
     ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.55);
-    ctx.strokeRect(x + 0.5, y + 0.5, panelW - 1, 379);
+    ctx.strokeRect(x + 0.5, y + 0.5, panelW - 1, panelH - 1);
 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.font = '14px "Poiret One", sans-serif';
+    ctx.font = '20px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.95);
     ctx.fillText('[Z] Ship', x + 12, y + 12);
 
     const ship = state.player;
-    const statsY = y + 40;
+    const statsY = y + 52;
     const shieldText = ship.shieldUnlocked
       ? `${Math.ceil(ship.shield)}/${ship.maxShield}`
-      : 'locked';
+      : 'offline';
     const stats = [
       `HP ${Math.ceil(ship.health)}/${ship.maxHealth}`,
       `Shield ${shieldText}`,
@@ -876,14 +883,14 @@ class ShipMenu {
       `Fire Speed x${(1 / ship.fireCooldownMultiplier).toFixed(2)}`,
       `Resources $${Math.floor(state.resources)}`,
     ];
-    ctx.font = '11px "Poiret One", sans-serif';
+    ctx.font = '16px "Poiret One", sans-serif';
     for (let i = 0; i < stats.length; i++) {
-      ctx.fillStyle = colorToCSS(Colors.general_building, 0.78);
-      ctx.fillText(stats[i], x + 12, statsY + i * 16);
+      ctx.fillStyle = colorToCSS(Colors.general_building, 0.86);
+      ctx.fillText(stats[i], x + 12, statsY + i * 21);
     }
 
-    const upgradeY = statsY + stats.length * 16 + 18;
-    ctx.font = '12px "Poiret One", sans-serif';
+    const upgradeY = statsY + stats.length * 21 + 20;
+    ctx.font = '18px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
     ctx.fillText('Upgrades', x + 12, upgradeY);
     const upgrades = [
@@ -892,20 +899,24 @@ class ShipMenu {
       ['Fire Speed', 'shipFireSpeed'],
       ['Shield Aura', 'shipShield'],
     ] as const;
-    ctx.font = '10px "Poiret One", sans-serif';
-    for (let i = 0; i < upgrades.length; i++) {
-      const [label, key] = upgrades[i];
-      const done = state.researchedItems.has(key);
-      ctx.fillStyle = done ? colorToCSS(Colors.radar_friendly_status, 0.82) : colorToCSS(Colors.radar_gridlines, 0.56);
-      ctx.fillText(`${done ? 'ONLINE' : 'LOCKED'}  ${label}`, x + 12, upgradeY + 20 + i * 14);
+    const unlockedUpgrades = upgrades.filter(([, key]) => state.researchedItems.has(key));
+    ctx.font = '16px "Poiret One", sans-serif';
+    if (unlockedUpgrades.length === 0) {
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.7);
+      ctx.fillText('No upgrades unlocked', x + 12, upgradeY + 26);
+    } else {
+      for (let i = 0; i < unlockedUpgrades.length; i++) {
+        const [label] = unlockedUpgrades[i];
+        ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.9);
+        ctx.fillText(`- ${label}`, x + 12, upgradeY + 26 + i * 20);
+      }
     }
 
-    const weaponsY = upgradeY + 88;
-    ctx.font = '12px "Poiret One", sans-serif';
+    const weaponsY = upgradeY + 42 + Math.max(1, unlockedUpgrades.length) * 20;
+    ctx.font = '18px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
     ctx.fillText('Weapons', x + 12, weaponsY);
-    ctx.font = '10px "Poiret One", sans-serif';
-    const rowH = 38;
+    const rowH = Math.max(34, Math.min(62, (y + panelH - weaponsY - 54) / SHIP_WEAPON_OPTIONS.length - 6));
     for (let i = 0; i < SHIP_WEAPON_OPTIONS.length; i++) {
       const weapon = SHIP_WEAPON_OPTIONS[i];
       const wy = weaponsY + 20 + i * (rowH + 6);
@@ -913,26 +924,29 @@ class ShipMenu {
       const unlocked = this.weaponUnlocked(state, weapon.id);
       this.weaponRects.push({ id: weapon.id, x: x + 10, y: wy, w: panelW - 20, h: rowH });
       ctx.fillStyle = selected
-        ? colorToCSS(Colors.radar_friendly_status, 0.25)
-        : colorToCSS(Colors.friendly_background, 0.45);
+        ? colorToCSS(Colors.radar_friendly_status, 0.28)
+        : unlocked
+          ? 'rgba(8,32,58,0.72)'
+          : 'rgba(8,18,32,0.58)';
       ctx.fillRect(x + 10, wy, panelW - 20, rowH);
       ctx.strokeStyle = selected
         ? colorToCSS(Colors.radar_friendly_status, 0.9)
         : colorToCSS(Colors.radar_gridlines, unlocked ? 0.42 : 0.22);
       ctx.strokeRect(x + 10.5, wy + 0.5, panelW - 21, rowH - 1);
-      ctx.fillStyle = unlocked ? colorToCSS(Colors.general_building, 0.9) : colorToCSS(Colors.radar_gridlines, 0.42);
-      ctx.fillText(weapon.label, x + 20, wy + 6);
-      ctx.fillStyle = unlocked ? colorToCSS(Colors.radar_gridlines, 0.62) : colorToCSS(Colors.alert1, 0.62);
-      ctx.fillText(unlocked ? weapon.description : 'Research required', x + 20, wy + 21);
+      ctx.font = '16px "Poiret One", sans-serif';
+      ctx.fillStyle = unlocked ? colorToCSS(Colors.general_building, 0.95) : colorToCSS(Colors.radar_gridlines, 0.48);
+      ctx.fillText(weapon.label, x + 20, wy + 7);
+      if (rowH >= 46) {
+        ctx.font = '14px "Poiret One", sans-serif';
+        ctx.fillStyle = unlocked ? colorToCSS(Colors.radar_gridlines, 0.78) : colorToCSS(Colors.radar_gridlines, 0.44);
+        ctx.fillText(unlocked ? weapon.description : 'Research required', x + 20, wy + 29);
+      }
     }
 
-    ctx.font = '10px "Poiret One", sans-serif';
+    ctx.font = '14px "Poiret One", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.7);
-    ctx.fillText('click or mouse wheel changes weapon', x + panelW * 0.5, y + 362);
-    if (screenW < x + panelW + 20) {
-      ctx.fillText('release Z to close', x + panelW * 0.5, y + 348);
-    }
+    ctx.fillText('click or mouse wheel changes weapon', x + panelW * 0.5, y + panelH - 18);
     ctx.restore();
   }
 

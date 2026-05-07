@@ -80,6 +80,9 @@ const CLOUD_DEFS: NebulaCloudDef[] = [
 export class Nebula {
   private offscreen: HTMLCanvasElement;
   private offCtx: CanvasRenderingContext2D;
+  private screenWisps: HTMLCanvasElement;
+  private screenW = 0;
+  private screenH = 0;
 
   constructor() {
     const w = Math.ceil(WORLD_WIDTH / SCALE);
@@ -91,6 +94,7 @@ export class Nebula {
     const ctx = this.offscreen.getContext('2d');
     if (!ctx) throw new Error('Nebula: failed to get 2D context for offscreen canvas');
     this.offCtx = ctx;
+    this.screenWisps = document.createElement('canvas');
     this.bake();
   }
 
@@ -136,6 +140,8 @@ export class Nebula {
     screenW: number,
     screenH: number,
   ): void {
+    this.drawScreenWisps(ctx, screenW, screenH);
+
     // The nebula canvas represents the full world at 1/SCALE resolution.
     // We want world point (wx, wy) to appear at screen position:
     //   sx = (wx - camX * PARALLAX) * zoom + screenW/2
@@ -148,10 +154,61 @@ export class Nebula {
     const ty = screenH * 0.5 - camera.position.y * PARALLAX * camera.zoom;
 
     ctx.save();
+    ctx.globalCompositeOperation = 'screen';
     ctx.translate(tx, ty);
     ctx.scale(scale, scale);
-    ctx.globalAlpha = 1.0;
+    ctx.globalAlpha = 0.9;
     ctx.drawImage(this.offscreen, 0, 0);
+    // On ultrawide screens the parallax world texture can start to the right
+    // of x=0. Draw neighboring copies so the baked nebula always covers the
+    // full viewport instead of leaving a blank strip on the left edge.
+    const worldPixelsW = this.offscreen.width;
+    const worldPixelsH = this.offscreen.height;
+    if (tx > 0) ctx.drawImage(this.offscreen, -worldPixelsW, 0);
+    if (ty > 0) ctx.drawImage(this.offscreen, 0, -worldPixelsH);
+    if (tx > 0 && ty > 0) ctx.drawImage(this.offscreen, -worldPixelsW, -worldPixelsH);
+    ctx.restore();
+  }
+
+  private drawScreenWisps(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
+    if (this.screenW !== screenW || this.screenH !== screenH) {
+      this.screenW = screenW;
+      this.screenH = screenH;
+      const scale = 0.35;
+      this.screenWisps.width = Math.max(1, Math.ceil(screenW * scale));
+      this.screenWisps.height = Math.max(1, Math.ceil(screenH * scale));
+      const wctx = this.screenWisps.getContext('2d');
+      if (!wctx) return;
+      wctx.setTransform(1, 0, 0, 1, 0, 0);
+      wctx.clearRect(0, 0, this.screenWisps.width, this.screenWisps.height);
+      const w = this.screenWisps.width;
+      const h = this.screenWisps.height;
+
+      const base = wctx.createLinearGradient(0, 0, 0, h);
+      base.addColorStop(0, 'rgba(4,21,45,0.55)');
+      base.addColorStop(1, 'rgba(18,7,37,0.42)');
+      wctx.fillStyle = base;
+      wctx.fillRect(0, 0, w, h);
+
+      wctx.globalCompositeOperation = 'screen';
+      const blue = wctx.createRadialGradient(w * 0.34, h * 0.45, 0, w * 0.34, h * 0.45, Math.max(w, h) * 0.78);
+      blue.addColorStop(0, 'rgba(20,95,210,0.28)');
+      blue.addColorStop(0.5, 'rgba(0,135,185,0.10)');
+      blue.addColorStop(1, 'rgba(0,0,0,0)');
+      wctx.fillStyle = blue;
+      wctx.fillRect(0, 0, w, h);
+
+      const violet = wctx.createRadialGradient(w * 0.62, h * 0.72, 0, w * 0.62, h * 0.72, Math.max(w, h) * 0.62);
+      violet.addColorStop(0, 'rgba(80,25,140,0.16)');
+      violet.addColorStop(1, 'rgba(0,0,0,0)');
+      wctx.fillStyle = violet;
+      wctx.fillRect(0, 0, w, h);
+    }
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(this.screenWisps, 0, 0, screenW, screenH);
     ctx.restore();
   }
 }

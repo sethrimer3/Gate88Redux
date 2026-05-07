@@ -18,8 +18,8 @@ import { WORLD_WIDTH, WORLD_HEIGHT } from './constants.js';
 // Star data
 // ---------------------------------------------------------------------------
 
-/** 0 = cool blue-white, 1 = neutral white, 2 = warm yellow-orange */
-type StarColorType = 0 | 1 | 2;
+/** 0 = cool blue-white, 1 = neutral white, 2 = warm yellow-orange, 3 = faint violet */
+type StarColorType = 0 | 1 | 2 | 3;
 
 interface Star {
   x: number;
@@ -74,10 +74,11 @@ const STAR_COLORS: Record<StarColorType, string> = {
   0: 'rgba(170,200,255,',   // cool blue-white
   1: 'rgba(230,230,240,',   // neutral white
   2: 'rgba(255,230,170,',   // warm yellow-orange
+  3: 'rgba(210,185,255,',   // faint violet
 };
 
 /** Weight distribution for colour archetypes (cumulative). */
-const COLOR_WEIGHTS = [0.35, 0.80, 1.00]; // 35 % cool, 45 % white, 20 % warm
+const COLOR_WEIGHTS = [0.32, 0.74, 0.94, 1.00];
 
 /** Shooting-star speed range (world units / second). */
 const SHOOT_SPEED_MIN = 2000;
@@ -118,7 +119,8 @@ export class Starfield {
       let colorType: StarColorType;
       if (roll < COLOR_WEIGHTS[0])      colorType = 0;
       else if (roll < COLOR_WEIGHTS[1]) colorType = 1;
-      else                              colorType = 2;
+      else if (roll < COLOR_WEIGHTS[2]) colorType = 2;
+      else                              colorType = 3;
 
       const isGiant = Math.random() < GIANT_FRACTION;
       const depth = randomRange(0.08, 1.0);

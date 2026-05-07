@@ -28,4 +28,4 @@ Future work:
 - Add dedicated afterimage ribbons to AI player ships and elite fighters if profiling shows headroom.
 - Route building-specific power restore and blackout events to the newer ring variants more granularly.
 - Add a settings menu control for visual quality; runtime `F6` exists for quick comparison.
-
+- Add pooled smoke puffs and stronger shield-hit flashes as optional polish after a browser profiling pass.

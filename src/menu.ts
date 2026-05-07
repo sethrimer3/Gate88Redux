@@ -392,10 +392,13 @@ export class MainMenu {
   // -------------------------------------------------------------------
 
   private drawBackground(ctx: CanvasRenderingContext2D, w: number, h: number): void {
-    ctx.fillStyle = colorToCSS(Colors.friendly_background, 1.0);
+    const bg = ctx.createLinearGradient(0, 0, 0, h);
+    bg.addColorStop(0, '#04152d');
+    bg.addColorStop(1, '#120725');
+    ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, h);
     for (const star of this.bgStars) {
-      ctx.fillStyle = colorToCSS(Colors.friendly_starfield, star.brightness * 0.6);
+      ctx.fillStyle = colorToCSS(Colors.friendly_starfield, star.brightness * 0.78);
       ctx.beginPath();
       ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
       ctx.fill();
@@ -405,7 +408,7 @@ export class MainMenu {
   /** Draw the build-number badge in the top-right corner. */
   private drawBuildBadge(ctx: CanvasRenderingContext2D, w: number): void {
     const label = buildLabel();
-    ctx.font = '11px "Poiret One", sans-serif';
+    ctx.font = '15px "Poiret One", sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
     const padX = 14;
@@ -456,7 +459,7 @@ export class MainMenu {
     ctx.lineTo(cx + ruleW * 0.5, titleY - 36);
     ctx.stroke();
 
-    ctx.font = 'bold 52px "Poiret One", sans-serif';
+    ctx.font = 'bold 58px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.titledark);
     ctx.fillText('GATE 88', cx + 2, titleY + 2);
     ctx.fillStyle = colorToCSS(TextColors.title);
@@ -468,14 +471,14 @@ export class MainMenu {
     ctx.stroke();
 
     const subtitleAlpha = 0.35 + 0.25 * Math.sin(this.animTime * 1.8);
-    ctx.font = '13px "Poiret One", sans-serif';
+    ctx.font = '18px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.shadow, subtitleAlpha);
     ctx.fillText('A game of space strategy', cx, titleY + 56);
 
     const opts = this.currentSimpleOptions()!;
     this.drawClickableOptions(ctx, cx, h * 0.50, opts);
 
-    ctx.font = '10px "Poiret One", sans-serif';
+    ctx.font = '15px "Poiret One", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.35);
     ctx.fillText('Click an option, or use \u2191 \u2193 + Enter', cx, h - 18);
@@ -492,7 +495,7 @@ export class MainMenu {
     const cx = w * 0.5;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold 32px "Poiret One", sans-serif';
+    ctx.font = 'bold 38px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.title);
     const title = this.state === 'lan_type' ? 'LAN MULTIPLAYER' : 'PLAY';
     ctx.fillText(title, cx, h * 0.22);
@@ -515,7 +518,7 @@ export class MainMenu {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    ctx.font = 'bold 32px "Poiret One", sans-serif';
+    ctx.font = 'bold 38px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.title);
     ctx.fillText('PAUSED', cx, headerY);
     const tw = ctx.measureText('PAUSED').width;
@@ -543,8 +546,8 @@ export class MainMenu {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    const lineH = 46;
-    const barW = 320;
+    const lineH = 62;
+    const barW = 380;
     const mx = this.mouseXLatched;
     const my = this.mouseYLatched;
 
@@ -576,27 +579,27 @@ export class MainMenu {
         ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
 
         ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.9);
-        ctx.font = '18px "Poiret One", sans-serif';
+        ctx.font = '24px "Poiret One", sans-serif';
         ctx.textAlign = 'left';
         ctx.fillText('>', cx - barW * 0.5 + 12, y);
         ctx.textAlign = 'right';
         ctx.fillText('<', cx + barW * 0.5 - 12, y);
 
         ctx.textAlign = 'center';
-        ctx.font = 'bold 18px "Poiret One", sans-serif';
+        ctx.font = 'bold 24px "Poiret One", sans-serif';
         ctx.fillStyle = colorToCSS(Colors.radar_friendly_status);
-        drawDecodedText(ctx, options[i].label, cx, y - 4, 18, this.openedAt, 'center');
+        drawDecodedText(ctx, options[i].label, cx, y - 6, 24, this.openedAt, 'center');
 
         if (options[i].description) {
-          ctx.font = '11px "Poiret One", sans-serif';
-          ctx.fillStyle = colorToCSS(TextColors.shadow, 0.85);
-          drawDecodedText(ctx, options[i].description ?? '', cx, y + 14, 11, this.openedAt, 'center');
+          ctx.font = '15px "Poiret One", sans-serif';
+          ctx.fillStyle = colorToCSS(TextColors.normal, 0.78);
+          drawDecodedText(ctx, options[i].description ?? '', cx, y + 18, 15, this.openedAt, 'center');
         }
       } else {
-        ctx.font = '18px "Poiret One", sans-serif';
-        ctx.fillStyle = colorToCSS(TextColors.normal, 0.55);
+        ctx.font = '24px "Poiret One", sans-serif';
+        ctx.fillStyle = colorToCSS(TextColors.normal, 0.68);
         ctx.textAlign = 'center';
-        drawDecodedText(ctx, options[i].label, cx, y, 18, this.openedAt, 'center');
+        drawDecodedText(ctx, options[i].label, cx, y, 24, this.openedAt, 'center');
       }
 
       if (hovered && this.mousePressedLatched) {
@@ -621,7 +624,7 @@ export class MainMenu {
     const cx = w * 0.5;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold 28px "Poiret One", sans-serif';
+    ctx.font = 'bold 34px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.title);
     ctx.fillText('PRACTICE SETUP', cx, 70);
 
@@ -707,7 +710,7 @@ export class MainMenu {
     const cx = w * 0.5;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold 28px "Poiret One", sans-serif';
+    ctx.font = 'bold 34px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.title);
     ctx.fillText('VS. AI SETUP', cx, 70);
 
@@ -737,7 +740,7 @@ export class MainMenu {
       cfg.fogOfWar, (v) => cfg.fogOfWar = v);
 
     // Cheater section header
-    ctx.font = 'bold 14px "Poiret One", sans-serif';
+    ctx.font = 'bold 18px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
     ctx.fillText('CHEATER OPTIONS', right, yr + 8);
@@ -765,7 +768,7 @@ export class MainMenu {
     const cx = w * 0.5;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = gameFont(28);
+    ctx.font = gameFont(34);
     ctx.fillStyle = colorToCSS(TextColors.title);
     ctx.fillText('SETTINGS', cx, 90);
 
@@ -781,7 +784,7 @@ export class MainMenu {
       applyThemeColors();
     });
 
-    ctx.font = gameFont(12);
+    ctx.font = gameFont(16);
     ctx.textAlign = 'center';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.75);
     ctx.fillText('Text uses Poiret One. Opened menus decode from BJ Cree syllabics.', cx, y + 36);
@@ -809,7 +812,7 @@ export class MainMenu {
     const bodyRect: HitRect = { x: valX + arrowW, y: y - 14, w: valW - arrowW * 2, h: 28 };
     this.drawArrow(ctx, leftRect, '<');
     this.drawArrow(ctx, rightRect, '>');
-    ctx.font = gameFont(14);
+    ctx.font = gameFont(18);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.95);
@@ -867,7 +870,7 @@ export class MainMenu {
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '14px "Poiret One", sans-serif';
+      ctx.font = '18px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.95);
     const text = fmt ? fmt(value) : String(value);
     ctx.fillText(text, bodyRect.x + bodyRect.w / 2, y);
@@ -919,7 +922,7 @@ export class MainMenu {
     ctx.fill();
 
     // Value
-    ctx.font = '12px "Poiret One", sans-serif';
+    ctx.font = '16px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.85);
@@ -961,7 +964,7 @@ export class MainMenu {
   private drawRowLabel(
     ctx: CanvasRenderingContext2D, x: number, y: number, label: string,
   ): void {
-    ctx.font = '13px "Poiret One", sans-serif';
+    ctx.font = '17px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.9);
@@ -977,7 +980,7 @@ export class MainMenu {
     ctx.lineWidth = 1;
     ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
 
-    ctx.font = '14px "Poiret One", sans-serif';
+    ctx.font = '18px "Poiret One", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = colorToCSS(
