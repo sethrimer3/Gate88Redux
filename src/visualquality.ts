@@ -7,6 +7,12 @@ export interface VisualQualityPreset {
   readonly shockwaveScale: number;
   readonly scanlines: boolean;
   readonly fluidLowGraphics: boolean;
+  /** Adds glow halos to individual bullets and gatling rounds. */
+  readonly bulletGlow: boolean;
+  /** Draws an animated engine trail glow behind thrusting ships in the glow layer. */
+  readonly engineGlow: boolean;
+  /** Renders a subtle color-fringe gradient on screen edges (CRT lens effect). */
+  readonly colorFringe: boolean;
 }
 
 export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> = {
@@ -17,6 +23,9 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     shockwaveScale: 0.55,
     scanlines: false,
     fluidLowGraphics: true,
+    bulletGlow: false,
+    engineGlow: false,
+    colorFringe: false,
   },
   medium: {
     glowEnabled: true,
@@ -25,6 +34,9 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     shockwaveScale: 1,
     scanlines: false,
     fluidLowGraphics: true,
+    bulletGlow: true,
+    engineGlow: true,
+    colorFringe: true,
   },
   high: {
     glowEnabled: true,
@@ -33,6 +45,9 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     shockwaveScale: 1.2,
     scanlines: true,
     fluidLowGraphics: false,
+    bulletGlow: true,
+    engineGlow: true,
+    colorFringe: true,
   },
 };
 

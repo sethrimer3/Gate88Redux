@@ -86,6 +86,12 @@ export class Game {
   private scanlinePattern: CanvasPattern | null = null;
   private overlayW = 0;
   private overlayH = 0;
+  /** Counts down after the player takes damage; drives the red-edge damage flash. */
+  private damageFlashTimer: number = 0;
+  /** Player health at the end of the last fixed tick (used to detect damage events). */
+  private playerPrevHealth: number = -1;
+  /** Accumulated game time used for territory pulse animations. */
+  private territoryPulseTime: number = 0;
 
   /** Respawn timer: counts down after the player ship dies. */
   private playerRespawnTimer: number = 0;
@@ -322,6 +328,21 @@ export class Game {
 
     // Update core game state (entities, collision, power, resources, research, particles)
     this.state.update(DT);
+
+    // Detect player damage events to trigger the screen damage flash.
+    if (this.state.player.alive) {
+      const curHealth = this.state.player.health;
+      if (this.playerPrevHealth >= 0 && curHealth < this.playerPrevHealth) {
+        this.damageFlashTimer = 0.35;
+      }
+      this.playerPrevHealth = curHealth;
+    } else {
+      this.playerPrevHealth = -1;
+    }
+    if (this.damageFlashTimer > 0) this.damageFlashTimer -= DT;
+
+    // Advance territory pulse time for animated territory circle effects.
+    this.territoryPulseTime += DT;
 
     // Player respawn logic — trigger on death and revive after a short delay.
     this.updatePlayerRespawn();
@@ -1206,6 +1227,9 @@ export class Game {
     this.playerDeathHandled = false;
     this.playerRespawnTimer = 0;
     this.activeGuidedMissile = null;
+    this.damageFlashTimer = 0;
+    this.playerPrevHealth = -1;
+    this.territoryPulseTime = 0;
 
     // Reset subsystems
     this.camera = new Camera();
@@ -1356,6 +1380,9 @@ export class Game {
     this.playerDeathHandled = false;
     this.playerRespawnTimer = 0;
     this.activeGuidedMissile = null;
+    this.damageFlashTimer = 0;
+    this.playerPrevHealth = -1;
+    this.territoryPulseTime = 0;
     this.camera = new Camera();
     this.camera.setScreenSize(this.screenW, this.screenH);
     this.camera.position = playerStart.clone();
@@ -1995,12 +2022,54 @@ export class Game {
       if (ship.shieldUnlocked && ship.shield > 0) {
         glow.circleWorld(this.camera, ship.position, r * 1.8, Colors.radar_allied_status, 0.10, false, 5);
       }
+      // Engine exhaust glow: soft bloom behind the ship when thrusting.
+      if (this.visualPreset.engineGlow && ship.isThrusting) {
+        const td = ship.thrustDir;
+        const exhaustOffset = new Vec2(
+          ship.position.x - td.x * r * 1.2,
+          ship.position.y - td.y * r * 1.2,
+        );
+        const exhaustColor = ship.team === Team.Player ? Colors.particles_friendly_exhaust : Colors.particles_enemy_exhaust;
+        const exhaustAlpha = ship.isBoosting ? 0.22 : 0.11;
+        glow.circleWorld(this.camera, exhaustOffset, r * 2.4, exhaustColor, exhaustAlpha);
+        glow.circleWorld(this.camera, exhaustOffset, r * 1.1, Colors.particles_switch, exhaustAlpha * 0.4);
+      }
+    }
+
+    // Fighter engine glow — a soft colored bloom behind each airborne fighter.
+    if (this.visualPreset.engineGlow) {
+      for (const f of this.state.fighters) {
+        if (!f.alive || f.docked || !this.camera.isOnScreen(f.position, 60)) continue;
+        const r = f.radius;
+        const exhaustColor = f.team === Team.Player ? Colors.particles_friendly_exhaust : Colors.particles_enemy_exhaust;
+        // Position glow slightly behind the fighter's facing direction.
+        const exhaustPos = new Vec2(
+          f.position.x - Math.cos(f.angle) * r * 1.1,
+          f.position.y - Math.sin(f.angle) * r * 1.1,
+        );
+        const speed = Math.hypot(f.velocity.x, f.velocity.y);
+        const speedAlpha = Math.min(1, speed / 80) * 0.14;
+        glow.circleWorld(this.camera, exhaustPos, r * 2.8, exhaustColor, speedAlpha);
+      }
+    }
+
+    // Bullet glow — small bright dot on each live projectile.
+    if (this.visualPreset.bulletGlow) {
+      for (const p of this.state.projectiles) {
+        if (!p.alive || !this.camera.isOnScreen(p.position, 20)) continue;
+        if (p instanceof Laser || p instanceof ChargedLaserBurst) continue; // already handled above
+        if (p instanceof GuidedMissile || p instanceof BomberMissile || p instanceof SwarmMissile) continue; // handled above
+        const bulletColor = p.team === Team.Player ? Colors.friendlyfire : Colors.enemyfire;
+        glow.circleWorld(this.camera, p.position, p.radius * 5.5, bulletColor, 0.07);
+        glow.circleWorld(this.camera, p.position, p.radius * 2.2, Colors.particles_switch, 0.06);
+      }
     }
   }
 
 
   private drawConfluenceTerritory(ctx: CanvasRenderingContext2D): void {
     const circles = this.state.territoryCirclesByTeam.get(Team.Player) ?? [];
+    const t = this.territoryPulseTime;
     for (const c of circles) {
       const sc = this.camera.worldToScreen(new Vec2(c.x, c.y));
       const rr = c.radius * this.camera.zoom;
@@ -2012,6 +2081,35 @@ export class Game {
       ctx.strokeStyle = 'rgba(120,255,245,0.35)';
       ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(sc.x, sc.y, rr, 0, Math.PI * 2); ctx.stroke();
+
+      // Slowly rotating dashed inner ring — gives the territory a living feel.
+      const innerR = rr * 0.78;
+      const rotAngle = t * 0.22;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.setLineDash([14, 10]);
+      ctx.lineDashOffset = -rotAngle * 80;
+      ctx.strokeStyle = 'rgba(80,255,240,0.14)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(sc.x, sc.y, innerR, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+
+      // Periodic outward pulse ring: a ring that expands from the border edge
+      // and fades out, repeating every ~3 s per circle (offset by circle id).
+      const PULSE_PERIOD = 3.2;
+      const phaseOffset = (c.x * 0.007 + c.y * 0.013) % PULSE_PERIOD;
+      const pulseT = ((t + phaseOffset) % PULSE_PERIOD) / PULSE_PERIOD; // 0..1
+      if (pulseT < 0.55) {
+        const pulseR = rr * (1 + pulseT * 0.28);
+        const pulseAlpha = (1 - pulseT / 0.55) * 0.28;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = `rgba(80,255,240,${pulseAlpha.toFixed(3)})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(sc.x, sc.y, pulseR, 0, Math.PI * 2); ctx.stroke();
+        ctx.restore();
+      }
     }
   }
 
@@ -2035,6 +2133,36 @@ export class Game {
     ctx.fillRect(0, 0, w, h);
     ctx.fillStyle = this.vignetteGradient;
     ctx.fillRect(0, 0, w, h);
+
+    // Damage flash — red vignette that fades quickly after the player is hit.
+    if (this.damageFlashTimer > 0) {
+      const flashAlpha = Math.min(1, this.damageFlashTimer / 0.35) * 0.38;
+      const cx = w * 0.5;
+      const cy = h * 0.5;
+      const outerR = Math.hypot(cx, cy);
+      const flashGrad = ctx.createRadialGradient(cx, cy, outerR * 0.35, cx, cy, outerR * 1.05);
+      flashGrad.addColorStop(0, `rgba(255,0,0,0)`);
+      flashGrad.addColorStop(1, `rgba(255,0,0,${flashAlpha.toFixed(3)})`);
+      ctx.fillStyle = flashGrad;
+      ctx.fillRect(0, 0, w, h);
+    }
+
+    // Color fringe — subtle lens-distortion color split at the screen edges.
+    // Two linear gradient strips (left edge → red, right edge → blue) at very
+    // low opacity give a CRT-style chromatic-aberration impression.
+    if (this.visualPreset.colorFringe) {
+      const fringeW = Math.round(w * 0.12);
+      const lGrad = ctx.createLinearGradient(0, 0, fringeW, 0);
+      lGrad.addColorStop(0, 'rgba(255,30,0,0.055)');
+      lGrad.addColorStop(1, 'rgba(255,30,0,0)');
+      ctx.fillStyle = lGrad;
+      ctx.fillRect(0, 0, fringeW, h);
+      const rGrad = ctx.createLinearGradient(w, 0, w - fringeW, 0);
+      rGrad.addColorStop(0, 'rgba(0,60,255,0.045)');
+      rGrad.addColorStop(1, 'rgba(0,60,255,0)');
+      ctx.fillStyle = rGrad;
+      ctx.fillRect(w - fringeW, 0, fringeW, h);
+    }
 
     if (this.visualPreset.scanlines) {
       if (!this.scanlinePattern) {
