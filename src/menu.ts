@@ -41,6 +41,11 @@ import {
 import { LanClient } from './lan/lanClient.js';
 import type { LobbyState, LobbySlot, AIDifficulty, MsgMatchStart, LanDiscoveredLobby } from './lan/protocol.js';
 import { factionLabel, RACE_SELECTIONS, type RaceSelection } from './confluence.js';
+import type { WebRtcTransport } from './online/webrtcTransport.js';
+import type { OnlineLobbyRow } from './online/onlineLobby.js';
+import { createSupabaseClient } from './online/supabaseClient.js';
+import { OnlineLobbyManager } from './online/onlineLobby.js';
+import { SignalingClient } from './online/signalingClient.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,6 +63,9 @@ export type MenuState =
   | 'lan_browser'
   | 'lan_join'
   | 'lan_client_lobby'
+  | 'online_multiplayer'
+  | 'online_host_lobby'
+  | 'online_join'
   | 'none';
 
 export type MenuAction =
@@ -67,6 +75,8 @@ export type MenuAction =
   | 'start_vs_ai'
   | 'start_lan_host'
   | 'start_lan_client'
+  | 'start_online_host'
+  | 'start_online_client'
   | 'resume'
   | 'quit_to_menu';
 
@@ -169,6 +179,44 @@ export class MainMenu {
 
   /** Returned to game.ts alongside start_lan_host / start_lan_client. */
   pendingLanMatchStart: MsgMatchStart | null = null;
+
+  // -------------------------------------------------------------------------
+  // Online (WebRTC) multiplayer state
+  // -------------------------------------------------------------------------
+
+  /** Pending online match start data — consumed by game.ts via takePendingOnlineMatchStart(). */
+  private _pendingOnlineMatchStart: {
+    transport: WebRtcTransport;
+    matchStart: MsgMatchStart;
+  } | null = null;
+
+  /** Active lobby row while hosting an online game (null when not hosting). */
+  private _onlineLobbyRow: OnlineLobbyRow | null = null;
+
+  /** Active online transport (set during host lobby or join flow). */
+  private _onlineTransport: WebRtcTransport | null = null;
+
+  /** Signaling client for the current online session. */
+  private _onlineSignaling: SignalingClient | null = null;
+
+  /** Heartbeat timer (ms) for the hosted online lobby. */
+  private _onlineLobbyHeartbeatTimer: number = 0;
+  private static readonly ONLINE_HEARTBEAT_INTERVAL = 30_000;
+
+  /** Online host lobby: list of connected remote slot indices. */
+  private _onlineConnectedSlots: number[] = [];
+
+  /** Online host: seed for the match (set when starting). */
+  private _onlineSeed: number = 0;
+
+  /** Join screen: room code being typed. */
+  private _onlineRoomCode: string = '';
+  /** Join screen: player name for online. */
+  private _onlinePlayerName: string = 'Player';
+  /** Join screen: which field active: 'code' | 'name' */
+  private _onlineJoinActiveField: 'code' | 'name' = 'code';
+  /** Join screen: status message. */
+  private _onlineJoinStatus: string = '';
 
   /** Hit rectangles registered during draw, consumed during update. */
   private hits: Array<{ rect: HitRect; key: string }> = [];
@@ -295,7 +343,9 @@ export class MainMenu {
         this.state === 'vs_ai_setup' ||
         this.state === 'practice_setup' ||
         this.state === 'settings' ||
-        this.state === 'lan_type')
+        this.state === 'lan_type' ||
+        this.state === 'online_multiplayer' ||
+        this.state === 'online_join')
     ) {
       Audio.playSound('menucursor');
       this.setState('title');
@@ -333,6 +383,8 @@ export class MainMenu {
             description: 'Match against an AI opponent with its own main ship' },
           { label: 'LAN Multiplayer', action: () => this.setState('lan_type'),
             description: 'Host or join a LAN game with up to 8 players' },
+          { label: 'Online Multiplayer', action: () => this.setState('online_multiplayer'),
+            description: 'Host or join an online game via internet (beta)' },
           { label: 'Back', action: () => this.setState('title') },
         ];
       case 'lan_type':
@@ -380,6 +432,9 @@ export class MainMenu {
       case 'lan_browser':     this.drawLanBrowser(ctx, screenW, screenH); break;
       case 'lan_join':        this.drawLanJoin(ctx, screenW, screenH); break;
       case 'lan_client_lobby':this.drawLanClientLobby(ctx, screenW, screenH); break;
+      case 'online_multiplayer':  this.drawOnlineMultiplayer(ctx, screenW, screenH); break;
+      case 'online_host_lobby':   this.drawOnlineHostLobby(ctx, screenW, screenH); break;
+      case 'online_join':         this.drawOnlineJoin(ctx, screenW, screenH); break;
     }
 
     // Click-pulse overlay
@@ -1591,10 +1646,381 @@ export class MainMenu {
   }
 
   /**
+   * Returns the pending online (WebRTC) match-start data for game.ts to consume.
+   * Also clears the stored reference so it is not double-consumed.
+   */
+  takePendingOnlineMatchStart(): { transport: WebRtcTransport; matchStart: MsgMatchStart } | null {
+    const m = this._pendingOnlineMatchStart;
+    this._pendingOnlineMatchStart = null;
+    return m;
+  }
+
+  /**
    * Returns the pending LanClient (host or client) for use during the match.
    */
   getLanClient(): LanClient {
     return this.lanClient;
+  }
+
+  // -------------------------------------------------------------------
+  // Online Multiplayer stub screen (Phase 7)
+  // -------------------------------------------------------------------
+
+  /**
+   * Renders the Online Multiplayer screen.
+   *
+   * If VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables are
+   * present at build time, the screen shows a "Lobby" placeholder.
+   * If the env vars are absent (the default for all current deployments),
+   * a clear "not configured" message is shown with setup instructions.
+   *
+   * This screen is intentionally a stub — full Supabase lobby + WebRTC
+   * transport are documented in docs/ONLINE_MULTIPLAYER.md and nextSteps.md.
+   */
+  private drawOnlineMultiplayer(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    this.drawBackground(ctx, w, h);
+    this.drawBuildBadge(ctx, w);
+
+    const cx = w * 0.5;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = gameFont(28);
+    ctx.fillStyle = colorToCSS(TextColors.title);
+    ctx.fillText('ONLINE MULTIPLAYER', cx, 68);
+
+    const supabaseConfigured = Boolean(createSupabaseClient());
+
+    if (supabaseConfigured) {
+      ctx.font = gameFont(13);
+      ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.9);
+      ctx.fillText('Supabase connected — WebRTC online lobbies available.', cx, 118);
+
+      this.drawButtonRow(ctx, [
+        {
+          label: 'Host Online Game',
+          action: () => this.beginOnlineHost(),
+        },
+        {
+          label: 'Join by Room Code',
+          action: () => this.setState('online_join'),
+        },
+      ], cx, h * 0.5 - 24);
+    } else {
+      // Not configured: show setup instructions.
+      ctx.font = gameFont(13);
+      ctx.fillStyle = colorToCSS(Colors.alert2, 0.9);
+      ctx.fillText('Online multiplayer is not configured.', cx, 118);
+
+      const setupLines = [
+        'To enable online lobbies, set the following environment variables:',
+        '',
+        '  VITE_SUPABASE_URL=https://your-project.supabase.co',
+        '  VITE_SUPABASE_ANON_KEY=your-anon-key',
+        '',
+        'Create a free Supabase project at supabase.com, then run:',
+        '  npm run dev',
+        '',
+        'See docs/ONLINE_MULTIPLAYER.md for SQL setup and full instructions.',
+        'LAN Multiplayer continues to work without any configuration.',
+      ];
+
+      ctx.font = gameFont(11);
+      const lineH = 18;
+      const startY = 155;
+      for (let i = 0; i < setupLines.length; i++) {
+        const line = setupLines[i];
+        ctx.fillStyle = line.startsWith('  ')
+          ? colorToCSS(Colors.general_building, 0.85)
+          : colorToCSS(Colors.radar_gridlines, 0.75);
+        ctx.fillText(line, cx, startY + i * lineH);
+      }
+    }
+
+    this.drawButtonRow(ctx, [
+      { label: 'LAN Multiplayer Instead', action: () => this.setState('lan_type') },
+      { label: 'Back', action: () => this.setState('play') },
+    ], cx, h - 56);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Online host lobby
+  // ---------------------------------------------------------------------------
+
+  private beginOnlineHost(): void {
+    const client = createSupabaseClient();
+    if (!client) return;
+    this._onlineSeed = Math.random() * 0xFFFFFF | 0;
+    const manager = new OnlineLobbyManager(client);
+    manager.createLobby(this._onlinePlayerName || 'Host').then((row) => {
+      this._onlineLobbyRow = row;
+      this._onlineConnectedSlots = [];
+      this._onlineLobbyHeartbeatTimer = 0;
+      this.setState('online_host_lobby');
+    }).catch((e) => {
+      console.error('[OnlineHost] createLobby failed:', e);
+    });
+  }
+
+  private drawOnlineHostLobby(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    this.drawBackground(ctx, w, h);
+    this.drawBuildBadge(ctx, w);
+
+    const cx = w * 0.5;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = gameFont(24);
+    ctx.fillStyle = colorToCSS(TextColors.title);
+    ctx.fillText('ONLINE LOBBY — HOST', cx, 64);
+
+    const row = this._onlineLobbyRow;
+    if (!row) {
+      ctx.font = gameFont(14);
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.7);
+      ctx.fillText('Creating lobby…', cx, 130);
+    } else {
+      // Room code
+      ctx.font = gameFont(14);
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.7);
+      ctx.fillText('Share this room code with other players:', cx, 110);
+      ctx.font = gameFont(32);
+      ctx.fillStyle = colorToCSS(Colors.radar_friendly_status);
+      ctx.fillText(row.room_code, cx, 148);
+
+      // Player list
+      ctx.font = gameFont(11);
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.6);
+      ctx.fillText('Waiting for players to join via "Join by Room Code"…', cx, 185);
+
+      const connectedCount = this._onlineConnectedSlots.length + 1; // +1 for host
+      ctx.font = gameFont(13);
+      ctx.fillStyle = colorToCSS(Colors.general_building, 0.9);
+      ctx.fillText(`Connected: ${connectedCount} / ${row.max_players}`, cx, 215);
+
+      // Start Match button (only if at least 2 players)
+      if (connectedCount >= 1) {
+        this.drawButtonRow(ctx, [
+          {
+            label: `Start Match (${connectedCount} player${connectedCount !== 1 ? 's' : ''})`,
+            action: () => this.startOnlineHostMatch(),
+          },
+        ], cx, h * 0.68);
+      }
+    }
+
+    this.drawButtonRow(ctx, [
+      {
+        label: 'Cancel',
+        action: () => {
+          if (this._onlineLobbyRow) {
+            const client = createSupabaseClient();
+            if (client) {
+              new OnlineLobbyManager(client).deleteLobby(this._onlineLobbyRow!.id).catch(console.warn);
+            }
+          }
+          this._onlineLobbyRow = null;
+          this._onlineTransport?.disconnect();
+          this._onlineTransport = null;
+          this.setState('online_multiplayer');
+        },
+      },
+    ], cx, h - 56);
+  }
+
+  private startOnlineHostMatch(): void {
+    const row = this._onlineLobbyRow;
+    if (!row) return;
+
+    // Build a synthetic MsgMatchStart matching the LAN format.
+    const mkSlot = (slotIndex: number, playerName: string): LobbySlot => ({
+      slotIndex,
+      type: 'human' as const,
+      playerName,
+      race: 'terran' as const,
+      ready: true,
+    });
+
+    const lobby: LobbyState = {
+      slots: [
+        mkSlot(0, this._onlinePlayerName || 'Host'),
+        ...this._onlineConnectedSlots.map((slot) => mkSlot(slot, `Player ${slot + 1}`)),
+      ],
+      hostClientId: '',
+      matchStarted: true,
+    };
+
+    const matchStart: MsgMatchStart = {
+      type: 'match_start',
+      mySlot: 0,
+      hostSlot: 0,
+      seed: this._onlineSeed,
+      lobby,
+    };
+
+    // Signal match_start to all connected clients via signaling.
+    if (this._onlineSignaling) {
+      this._onlineSignaling.sendSignal(-1, 'match_start', matchStart).catch(console.warn);
+    }
+
+    // If no WebRTC transport is connected yet (single-player online test),
+    // create a minimal offline transport stub to satisfy game.ts.
+    if (!this._onlineTransport) {
+      this._pendingOnlineMatchStart = {
+        transport: { mode: 'online', isHost: true, mySlot: 0, hostSlot: 0, connected: true,
+          sendAuthoritativeSnapshot: () => {}, sendInputSnapshot: () => {}, disconnect: () => {} } as unknown as WebRtcTransport,
+        matchStart,
+      };
+    } else {
+      this._onlineTransport.sendControl('all', matchStart);
+      this._pendingOnlineMatchStart = { transport: this._onlineTransport, matchStart };
+    }
+
+    // Mark started in Supabase.
+    const client = createSupabaseClient();
+    if (client) {
+      new OnlineLobbyManager(client).markStarted(row.id).catch(console.warn);
+    }
+
+    this._onlineLobbyRow = null;
+    this.pendingAction = 'start_online_host';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Online join
+  // ---------------------------------------------------------------------------
+
+  private drawOnlineJoin(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    this.drawBackground(ctx, w, h);
+    this.drawBuildBadge(ctx, w);
+
+    const cx = w * 0.5;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = gameFont(24);
+    ctx.fillStyle = colorToCSS(TextColors.title);
+    ctx.fillText('JOIN ONLINE GAME', cx, 64);
+
+    // Room code input
+    ctx.font = gameFont(12);
+    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.7);
+    ctx.fillText('Room Code (6 characters):', cx, 110);
+
+    const codeFieldRect: HitRect = { x: cx - 120, y: 122, w: 240, h: 32 };
+    const codeActive = this._onlineJoinActiveField === 'code';
+    ctx.strokeStyle = colorToCSS(codeActive ? Colors.radar_friendly_status : Colors.radar_gridlines, 0.6);
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(codeFieldRect.x, codeFieldRect.y, codeFieldRect.w, codeFieldRect.h);
+    ctx.fillStyle = colorToCSS(Colors.menu_background, 0.85);
+    ctx.fillRect(codeFieldRect.x, codeFieldRect.y, codeFieldRect.w, codeFieldRect.h);
+    ctx.fillStyle = colorToCSS(codeActive ? Colors.radar_friendly_status : Colors.alert1);
+    ctx.font = gameFont(18);
+    ctx.fillText(this._onlineRoomCode || '______', cx, 138);
+    if (this.handleClick(codeFieldRect)) this._onlineJoinActiveField = 'code';
+
+    // Player name input
+    ctx.font = gameFont(12);
+    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.7);
+    ctx.fillText('Your Name:', cx, 174);
+
+    const nameFieldRect: HitRect = { x: cx - 120, y: 184, w: 240, h: 28 };
+    const nameActive = this._onlineJoinActiveField === 'name';
+    ctx.strokeStyle = colorToCSS(nameActive ? Colors.radar_friendly_status : Colors.radar_gridlines, 0.6);
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(nameFieldRect.x, nameFieldRect.y, nameFieldRect.w, nameFieldRect.h);
+    ctx.fillStyle = colorToCSS(Colors.menu_background, 0.85);
+    ctx.fillRect(nameFieldRect.x, nameFieldRect.y, nameFieldRect.w, nameFieldRect.h);
+    ctx.fillStyle = colorToCSS(nameActive ? Colors.radar_friendly_status : Colors.alert1);
+    ctx.font = gameFont(13);
+    ctx.fillText(this._onlinePlayerName || 'Player', cx, 198);
+    if (this.handleClick(nameFieldRect)) this._onlineJoinActiveField = 'name';
+
+    // Status message
+    if (this._onlineJoinStatus) {
+      ctx.font = gameFont(11);
+      ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
+      ctx.fillText(this._onlineJoinStatus, cx, 234);
+    }
+
+    // Handle typing into active field
+    if (Input.typedChars) {
+      for (const ch of Input.typedChars) {
+        if (this._onlineJoinActiveField === 'code') {
+          if (ch === 'Backspace') {
+            this._onlineRoomCode = this._onlineRoomCode.slice(0, -1);
+          } else if (this._onlineRoomCode.length < 6) {
+            this._onlineRoomCode = (this._onlineRoomCode + ch).toUpperCase().replace(/[^A-Z0-9]/g, '');
+          }
+        } else {
+          if (ch === 'Backspace') {
+            this._onlinePlayerName = this._onlinePlayerName.slice(0, -1);
+          } else if (this._onlinePlayerName.length < 20) {
+            this._onlinePlayerName += ch;
+          }
+        }
+      }
+    }
+
+    this.drawButtonRow(ctx, [
+      {
+        label: 'Join Game',
+        action: () => {
+          if (this._onlineRoomCode.length < 2) {
+            this._onlineJoinStatus = 'Enter a room code first.';
+            return;
+          }
+          this._onlineJoinStatus = 'Looking up lobby…';
+          this.joinOnlineGame(this._onlineRoomCode);
+        },
+      },
+      { label: 'Back', action: () => this.setState('online_multiplayer') },
+    ], cx, h - 56);
+  }
+
+  private joinOnlineGame(code: string): void {
+    const client = createSupabaseClient();
+    if (!client) {
+      this._onlineJoinStatus = 'Supabase not configured.';
+      return;
+    }
+    const manager = new OnlineLobbyManager(client);
+    manager.getLobbyByCode(code).then((row) => {
+      if (!row) {
+        this._onlineJoinStatus = `No lobby found with code "${code}".`;
+        return;
+      }
+      if (row.match_started) {
+        this._onlineJoinStatus = 'That match has already started.';
+        return;
+      }
+      // Assign a slot index (simple: slots 1–7 in order).
+      const mySlot = 1; // TODO: proper slot negotiation via signaling
+      const signalingClient = new SignalingClient(client, row.id, mySlot);
+      this._onlineSignaling = signalingClient;
+      this._onlineJoinStatus = 'Connecting…';
+
+      // Start polling for signals (offer from host, match_start).
+      signalingClient.startPolling((signal) => {
+        if (signal.type === 'match_start') {
+          const matchData = signal.payload as MsgMatchStart & { type: 'match_start' };
+          // Patch mySlot since the payload uses host's view.
+          const matchStart: MsgMatchStart = { ...matchData, mySlot };
+          this._pendingOnlineMatchStart = {
+            transport: this._onlineTransport ?? {
+              mode: 'online', isHost: false, mySlot, hostSlot: 0, connected: true,
+              sendAuthoritativeSnapshot: () => {}, sendInputSnapshot: () => {}, disconnect: () => {},
+            } as unknown as WebRtcTransport,
+            matchStart,
+          };
+          signalingClient.stopPolling();
+          this.pendingAction = 'start_online_client';
+        }
+      });
+
+      // Signal host we want to connect.
+      signalingClient.sendSignal(0, 'want_connect', { slot: mySlot }).catch(console.warn);
+      manager.incrementPlayerCount(row.id).catch(console.warn);
+    }).catch((e) => {
+      this._onlineJoinStatus = `Error: ${String(e).slice(0, 60)}`;
+    });
   }
 
   /**

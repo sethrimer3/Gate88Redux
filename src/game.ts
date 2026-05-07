@@ -30,7 +30,7 @@ import { TutorialMode } from './tutorial.js';
 import { AIShip, VsAIDirector } from './vsaibot.js';
 import { tryFireSpecial } from './special.js';
 import { GATLING_BATTERY_FIRE_COST, GUIDED_MISSILE_CONTROL_BATTERY_DRAIN, GUIDED_MISSILE_INITIAL_BATTERY_COST } from './ship.js';
-import { createBuildingFromDef, getBuildDef } from './builddefs.js';
+import { createBuildingFromDef, getBuildDef, buildDefForEntityType } from './builddefs.js';
 import { worldToCell, footprintCenter, GRID_CELL_SIZE } from './grid.js';
 import { gameFont } from './fonts.js';
 import { createSpaceFluid, SpaceFluid } from './spacefluid.js';
@@ -44,6 +44,8 @@ import { cloneDefaultVsAIConfig } from './vsaiconfig.js';
 import { GlowLayer } from './glowlayer.js';
 import { DEFAULT_VISUAL_QUALITY, VISUAL_QUALITY_PRESETS, type VisualQuality, type VisualQualityPreset } from './visualquality.js';
 import { drawConfluenceTerritory, drawDebugOverlay, drawWaypointMarkers, type ShipCommandGroup, type WaypointMarker } from './gameRender.js';
+import type { NetInputSnapshot, NetGameSnapshot } from './net/protocol.js';
+import type { WebRtcTransport } from './online/webrtcTransport.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 
@@ -98,6 +100,8 @@ export class Game {
 
   // LAN multiplayer
   private lanClient: LanClient | null = null;
+  /** Active online (WebRTC) transport, set when an online match is running. */
+  private onlineTransport: WebRtcTransport | null = null;
   /** Slot assigned to this client (0 = host). */
   private lanMySlot: number = 0;
   /** Snapshot sequence counter for outgoing snapshots. */
@@ -117,6 +121,67 @@ export class Game {
   private lanAiDirectors: VsAIDirector[] = [];
   /** Last received snapshot seq (client-only, for debug). */
   private lanLastSnapshotSeq: number = -1;
+  /**
+   * Client-side prediction correction vector.
+   * When the host authoritative position for our ship differs from our local
+   * prediction, this offset is added to the ship position and decayed to zero
+   * over LAN_PREDICTION_BLEND_SECS seconds for smooth visual correction.
+   */
+  private lanPredictionOffset: { x: number; y: number } = { x: 0, y: 0 };
+  /** Remaining fraction of prediction correction offset still to be blended out. */
+  private lanPredictionOffsetAlpha: number = 0;
+  /**
+   * Distance threshold (world units) above which the local ship position is
+   * snapped immediately to host state rather than being blended smoothly.
+   */
+  private static readonly LAN_PREDICTION_SNAP_THRESHOLD = 300;
+  /** Duration (seconds) over which prediction corrections are blended out. */
+  private static readonly LAN_PREDICTION_BLEND_SECS = 0.25;
+  /**
+   * Minimum error magnitude (world units) required to start accumulating a
+   * prediction correction offset.  Errors smaller than this are ignored to
+   * avoid micro-corrections from floating-point drift.
+   */
+  private static readonly LAN_PREDICTION_MIN_BLEND_THRESHOLD = 4;
+  /**
+   * How much of the new prediction error is added to the running blend offset
+   * each time a snapshot arrives.  Higher = converges faster but may look
+   * less smooth.
+   */
+  private static readonly LAN_PREDICTION_ALPHA_INCREMENT = 0.4;
+  /**
+   * Fraction of velocity difference applied per snapshot to nudge the local
+   * ship's velocity toward the host-authoritative value.
+   */
+  private static readonly LAN_PREDICTION_VELOCITY_BLEND = 0.15;
+  /**
+   * Fraction of projectile position error blended per snapshot update.
+   * 0.5 = half the error corrected each update (50 ms at 20 Hz).
+   */
+  private static readonly LAN_PROJECTILE_POSITION_BLEND = 0.5;
+  /**
+   * Maximum number of unacknowledged input frames kept for prediction replay.
+   * At 60 Hz, 120 frames = 2 seconds of history (generous for any realistic ping).
+   */
+  private static readonly LAN_INPUT_RING_MAX = 120;
+
+  /**
+   * Ring buffer of local inputs not yet acknowledged by the host (client-only).
+   * Each entry mirrors the fields sent in MsgInputSnapshot plus seq.
+   * On snapshot arrival the host's lastProcessedInputSeqBySlot is used to
+   * prune acknowledged entries, then remaining inputs are replayed on top of
+   * the corrected authoritative ship state.
+   */
+  private lanUnacknowledgedInputs: Array<{
+    seq: number; dx: number; dy: number;
+    aimX: number; aimY: number; boost: boolean;
+  }> = [];
+
+  /**
+   * Host-side: tracks the latest input seq acknowledged per slot.
+   * Used to populate lastProcessedInputSeqBySlot in the outgoing snapshot.
+   */
+  private lanLastProcessedSeqPerSlot: Map<number, number> = new Map();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -260,6 +325,14 @@ export class Game {
         }
         break;
       }
+      case 'start_online_host':
+      case 'start_online_client': {
+        const pending = this.mainMenu.takePendingOnlineMatchStart();
+        if (pending) {
+          this.startOnlineGame(pending.transport, pending.matchStart, action === 'start_online_host');
+        }
+        break;
+      }
       case 'resume':
         this.phase = 'playing';
         this.mainMenu.close();
@@ -312,9 +385,9 @@ export class Game {
     this.updateNumberGroupHotkeys();
     this.updatePlayerFighterOrderTargets();
 
-    // LAN host: apply buffered remote inputs BEFORE the simulation tick so
+    // LAN host OR online host: apply buffered remote inputs BEFORE the simulation tick so
     // remote players' inputs are always included in the current frame.
-    if (this.state.gameMode === 'lan_host') {
+    if (this.state.gameMode === 'lan_host' || this.state.gameMode === 'online_host') {
       this.applyRemoteLanInputs();
       // Tick all LAN AI directors (they steer their ships before state.update).
       for (const dir of this.lanAiDirectors) {
@@ -424,16 +497,36 @@ export class Game {
       this.practiceMode.update(this.state, this.hud, DT);
     } else if (this.state.gameMode === 'tutorial') {
       this.tutorialMode.update(this.state, this.hud, DT);
-    } else if (this.state.gameMode === 'lan_host') {
+    } else if (this.state.gameMode === 'lan_host' || this.state.gameMode === 'online_host') {
       // Broadcast snapshot on interval (remote inputs were applied above).
       this.lanSnapshotTimer -= DT;
       if (this.lanSnapshotTimer <= 0) {
         this.lanSnapshotTimer = Game.SNAPSHOT_INTERVAL;
-        this.broadcastLanSnapshot();
+        if (this.state.gameMode === 'online_host' && this.onlineTransport) {
+          this.broadcastOnlineSnapshot();
+        } else {
+          this.broadcastLanSnapshot();
+        }
       }
-    } else if (this.state.gameMode === 'lan_client') {
+    } else if (this.state.gameMode === 'lan_client' || this.state.gameMode === 'online_client') {
       // Send local input to the server every tick.
-      this.sendLanInput();
+      if (this.state.gameMode === 'online_client' && this.onlineTransport) {
+        this.sendOnlineInput();
+      } else {
+        this.sendLanInput();
+      }
+      // Decay the prediction correction offset toward zero.
+      if (this.lanPredictionOffsetAlpha > 0) {
+        const decay = DT / Game.LAN_PREDICTION_BLEND_SECS;
+        this.lanPredictionOffsetAlpha = Math.max(0, this.lanPredictionOffsetAlpha - decay);
+        if (this.lanPredictionOffsetAlpha > 0 && this.state.player.alive) {
+          // Apply the remaining fraction of the correction offset each tick.
+          this.state.player.position.x += this.lanPredictionOffset.x * decay;
+          this.state.player.position.y += this.lanPredictionOffset.y * decay;
+        } else {
+          this.lanPredictionOffset = { x: 0, y: 0 };
+        }
+      }
     }
 
     // Vs. AI bot-player: tick the strategic director every frame. The
@@ -1420,6 +1513,10 @@ export class Game {
     this.lanSnapshotSeq = 0;
     this.lanInputSeq = 0;
     this.lanLastSnapshotSeq = -1;
+    this.lanPredictionOffset = { x: 0, y: 0 };
+    this.lanPredictionOffsetAlpha = 0;
+    this.lanUnacknowledgedInputs = [];
+    this.lanLastProcessedSeqPerSlot.clear();
 
     const myTeam = teamForSlot(this.lanMySlot);
     const myLobbySlot = matchStart.lobby.slots.find((s) => s.slotIndex === this.lanMySlot);
@@ -1533,6 +1630,11 @@ export class Game {
             fireSpecial: msg.input.fireSpecial,
             boost: msg.input.boost,
           });
+          // Track the latest seq seen from this slot for prediction replay.
+          const prevSeq = this.lanLastProcessedSeqPerSlot.get(msg.fromSlot) ?? -1;
+          if (msg.input.seq > prevSeq) {
+            this.lanLastProcessedSeqPerSlot.set(msg.fromSlot, msg.input.seq);
+          }
         };
       } else {
         // Remote client receives authoritative snapshots from the host.
@@ -1568,11 +1670,212 @@ export class Game {
     );
   }
 
+  // -----------------------------------------------------------------------
+  // Online (WebRTC) match startup & networking
+  // -----------------------------------------------------------------------
+
+  /**
+   * Begin an online match using a WebRTC transport.
+   * Reuses the same game state setup as startLanGame but wires the
+   * transport callbacks instead of LAN client callbacks.
+   */
+  private startOnlineGame(
+    transport: WebRtcTransport,
+    matchStart: MsgMatchStart,
+    isHost: boolean,
+  ): void {
+    this.onlineTransport = transport;
+    this.lanClient = null;
+    this.lanMySlot = matchStart.mySlot;
+    this.lanRemoteInputs.clear();
+    this.lanAiDirectors = [];
+    this.lanSnapshotSeq = 0;
+    this.lanInputSeq = 0;
+    this.lanLastSnapshotSeq = -1;
+    this.lanPredictionOffset = { x: 0, y: 0 };
+    this.lanPredictionOffsetAlpha = 0;
+    this.lanUnacknowledgedInputs = [];
+    this.lanLastProcessedSeqPerSlot.clear();
+
+    const myTeam = teamForSlot(this.lanMySlot);
+    const playerStart = new Vec2(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
+
+    this.state = new GameState(playerStart);
+    this.state.gameMode = isHost ? 'online_host' : 'online_client';
+
+    for (const slot of matchStart.lobby.slots) {
+      if (slot.type === 'open' || slot.type === 'closed') continue;
+      this.state.setFaction(
+        teamForSlot(slot.slotIndex),
+        resolveRaceSelection(slot.race ?? 'terran', matchStart.seed + slot.slotIndex * 0.37),
+      );
+    }
+
+    this.applyVisualQuality(this.visualQuality);
+    this.vsAIDirector = null;
+    this.playerDeathHandled = false;
+    this.playerRespawnTimer = 0;
+    this.activeGuidedMissile = null;
+    this.damageFlashTimer = 0;
+    this.playerPrevHealth = -1;
+    this.territoryPulseTime = 0;
+    this.camera = new Camera();
+    this.camera.setScreenSize(this.screenW, this.screenH);
+    this.camera.position = playerStart.clone();
+    this.actionMenu = new ActionMenu();
+    this.hud = new HUD();
+    this.waypointMarkers.clear();
+    this.spaceFluid.reset();
+    this.spaceFluid.resize(this.screenW, this.screenH);
+
+    // Local player ship.
+    const myFaction = resolveRaceSelection(
+      matchStart.lobby.slots.find((s) => s.slotIndex === this.lanMySlot)?.race ?? 'terran',
+      matchStart.seed + this.lanMySlot * 0.37,
+    );
+    void myFaction; // set via setFaction above
+    this.state.playerShips.set(this.lanMySlot, new PlayerShip(playerStart, myTeam));
+    if (this.lanMySlot !== 0) {
+      this.state.playerShips.set(0, this.state.playerShips.get(this.lanMySlot)!);
+    }
+
+    // Placeholder ships for other human slots.
+    for (const slot of matchStart.lobby.slots) {
+      if (slot.type === 'human' && slot.slotIndex !== this.lanMySlot) {
+        this.state.playerShips.set(
+          slot.slotIndex,
+          new PlayerShip(playerStart.clone(), teamForSlot(slot.slotIndex)),
+        );
+      }
+    }
+
+    // Wire transport callbacks.
+    if (isHost) {
+      transport.onInputSnapshot = (fromSlot: number, input: NetInputSnapshot) => {
+        this.lanRemoteInputs.set(fromSlot, {
+          dx: input.dx,
+          dy: input.dy,
+          aimX: input.aimX,
+          aimY: input.aimY,
+          firePrimary: input.firePrimary,
+          fireSpecial: input.fireSpecial ?? false,
+          boost: input.boost,
+        });
+        const prevSeq = this.lanLastProcessedSeqPerSlot.get(fromSlot) ?? -1;
+        if (input.seq > prevSeq) {
+          this.lanLastProcessedSeqPerSlot.set(fromSlot, input.seq);
+        }
+      };
+    } else {
+      transport.onAuthoritativeSnapshot = (snapshot: NetGameSnapshot) => {
+        this.lanLastSnapshotSeq = snapshot.seq;
+        // NetGameSnapshot is structurally compatible with applyLanSnapshot's
+        // parameter (same field names and shapes for all used fields).
+        this.applyLanSnapshot(snapshot as unknown as Parameters<typeof this.applyLanSnapshot>[0]);
+      };
+    }
+
+    transport.onDisconnect = (reason: string) => {
+      this.hud.showMessage(`Disconnected: ${reason}`, Colors.alert1, 5);
+      this.phase = 'menu';
+      this.mainMenu.openTitle();
+      Audio.stopDriveLoop();
+      Audio.stopMusic();
+      Audio.playMenuMusic();
+      this.onlineTransport = null;
+    };
+
+    this.phase = 'playing';
+    this.mainMenu.close();
+    Audio.stopDriveLoop();
+    Audio.stopMusic();
+    Audio.startPlaylist();
+
+    this.hud.showMessage(
+      `Online ${isHost ? 'Host' : 'Client'} — slot ${this.lanMySlot + 1}`,
+      Colors.radar_friendly_status, 4,
+    );
+  }
+
+  /**
+   * Online host: broadcast authoritative snapshot to all connected clients via WebRTC.
+   * Reuses broadcastLanSnapshot's serialisation logic but sends through the transport.
+   */
+  private broadcastOnlineSnapshot(): void {
+    if (!this.onlineTransport) return;
+    const data = this.buildGameSnapshotData();
+    this.onlineTransport.sendAuthoritativeSnapshot({
+      seq: data.seq,
+      serverTimeMs: Date.now(),
+      gameTime: data.gameTime,
+      ships: data.ships,
+      buildings: data.buildings,
+      fighters: data.fighters,
+      projectiles: data.projectiles,
+      resourcesPerSlot: data.resourcesPerSlot,
+      hostSlot: data.hostSlot,
+      factionsByTeam: data.factionsByTeam,
+      territoryCircles: data.territoryCircles,
+      lastProcessedInputSeqBySlot: data.lastProcessedInputSeqBySlot,
+    });
+  }
+
+  /**
+   * Online client: send local input to the host via WebRTC.
+   */
+  private sendOnlineInput(): void {
+    if (!this.onlineTransport?.connected) return;
+    const aimWorld = this.camera.screenToWorld(Input.mousePos);
+    const seq = this.lanInputSeq++;
+    const dx = ((Input.isDown('d') ? 1 : 0) - (Input.isDown('a') ? 1 : 0)) as -1 | 0 | 1;
+    const dy = ((Input.isDown('s') ? 1 : 0) - (Input.isDown('w') ? 1 : 0)) as -1 | 0 | 1;
+    const boost = Input.isDown('Shift');
+
+    const input: NetInputSnapshot = {
+      protocolVersion: 1,
+      seq,
+      clientTimeMs: Date.now(),
+      dx,
+      dy,
+      aimX: aimWorld.x,
+      aimY: aimWorld.y,
+      firePrimary: Input.mouseDown,
+      fireSpecial: Input.mouse2Down,
+      boost,
+    };
+
+    this.onlineTransport.sendInputSnapshot(input);
+
+    // Buffer for prediction replay.
+    this.lanUnacknowledgedInputs.push({ seq, dx, dy, aimX: aimWorld.x, aimY: aimWorld.y, boost });
+    if (this.lanUnacknowledgedInputs.length > Game.LAN_INPUT_RING_MAX) {
+      this.lanUnacknowledgedInputs.shift();
+    }
+  }
+
   /**
    * Apply a relayed game snapshot to non-authoritative client state.
-   * Ships: directly write position/velocity onto existing ship objects.
-   * Buildings: sync health/buildProgress for known buildings (matched by id).
-   * Fighters and projectiles: reconcile the local list against snapshot ids.
+   *
+   * Ships:
+   *   - Remote ships: directly write position/velocity.
+   *   - Local ship (our slot): apply soft prediction correction — blend toward
+   *     host authoritative position rather than snapping, unless the error is
+   *     large enough that smoothing would look wrong.
+   *
+   * Fighters:
+   *   - Update position/velocity for existing fighters matched by id.
+   *   - Create lightweight placeholder FighterShip/BomberShip for new ones.
+   *   - Destroy fighters whose ids are absent from the snapshot.
+   *
+   * Projectiles:
+   *   - Update position/velocity for existing projectiles matched by id.
+   *   - Projectiles absent from the snapshot are allowed to expire naturally
+   *     (they have short lifetimes; removing them immediately could cause
+   *     visual pops). New projectiles are not created from snapshots on the
+   *     client to avoid duplicating damage effects.
+   *
+   * Buildings: sync health/buildProgress for known buildings; create new ones if absent.
+   * Factions, territory circles, resources: applied directly.
    */
   private applyLanSnapshot(snapshot: {
     seq: number;
@@ -1583,10 +1886,71 @@ export class Game {
     factionsByTeam?: Array<{ team: number; faction: FactionType }>;
     territoryCircles?: SerializedTerritoryCircle[];
     resourcesPerSlot: number[];
+    lastProcessedInputSeqBySlot?: number[];
   }): void {
     // --- Ships ---
     for (const sd of snapshot.ships) {
-      if (sd.slotIndex === this.lanMySlot) continue; // skip local ship
+      if (sd.slotIndex === this.lanMySlot) {
+        // Local ship prediction correction + replay:
+        // The host has simulated our ship (with our delayed inputs) and is
+        // telling us where it thinks we are. Apply a correction toward the host's
+        // authoritative position, then replay any inputs not yet acknowledged.
+        const localShip = this.state.playerShips.get(sd.slotIndex);
+        if (localShip && localShip.alive && sd.alive) {
+          const lastAck = snapshot.lastProcessedInputSeqBySlot?.[this.lanMySlot] ?? -1;
+
+          // Prune acknowledged inputs from the ring buffer.
+          this.lanUnacknowledgedInputs = this.lanUnacknowledgedInputs.filter(
+            (i) => i.seq > lastAck,
+          );
+
+          const errX = sd.x - localShip.position.x;
+          const errY = sd.y - localShip.position.y;
+          const errDist = Math.hypot(errX, errY);
+          if (errDist > Game.LAN_PREDICTION_SNAP_THRESHOLD) {
+            // Large error — snap immediately to host position and velocity.
+            localShip.position.x = sd.x;
+            localShip.position.y = sd.y;
+            localShip.velocity.x = sd.vx;
+            localShip.velocity.y = sd.vy;
+            this.lanPredictionOffset = { x: 0, y: 0 };
+            this.lanPredictionOffsetAlpha = 0;
+          } else {
+            // Set authoritative base state, then replay unacknowledged inputs
+            // so the local position reflects inputs the host has not yet seen.
+            localShip.position.x = sd.x;
+            localShip.position.y = sd.y;
+            localShip.velocity.x = sd.vx;
+            localShip.velocity.y = sd.vy;
+            for (const inp of this.lanUnacknowledgedInputs) {
+              const len = Math.hypot(inp.dx, inp.dy);
+              if (len > 0.01) {
+                const ux = inp.dx / len;
+                const uy = inp.dy / len;
+                localShip.velocity.x += ux * localShip.thrustPower * DT;
+                localShip.velocity.y += uy * localShip.thrustPower * DT;
+                localShip.position.x += localShip.velocity.x * DT;
+                localShip.position.y += localShip.velocity.y * DT;
+              }
+            }
+            if (errDist > Game.LAN_PREDICTION_MIN_BLEND_THRESHOLD) {
+              // Residual visual offset: blend remaining error out smoothly.
+              this.lanPredictionOffset.x += errX;
+              this.lanPredictionOffset.y += errY;
+              this.lanPredictionOffsetAlpha = Math.min(
+                1,
+                this.lanPredictionOffsetAlpha + Game.LAN_PREDICTION_ALPHA_INCREMENT,
+              );
+            }
+          }
+          // Sync health/battery regardless of position correction.
+          localShip.health = sd.health;
+          localShip.battery = sd.battery;
+          if (!sd.alive) localShip.destroy();
+        }
+        continue;
+      }
+
       let ship = this.state.playerShips.get(sd.slotIndex);
       if (!ship) {
         // Lazily create remote ship on first snapshot.
@@ -1616,12 +1980,94 @@ export class Game {
         b.buildProgress = sb.buildProgress;
         b.powered = sb.powered;
         if (!sb.alive && b.alive) b.destroy();
+      } else if (sb.alive) {
+        // Building not known locally — create it from snapshot so remote clients
+        // can see buildings placed after match start.
+        const def = buildDefForEntityType(sb.entityType as EntityType);
+        if (def) {
+          const newBuilding = createBuildingFromDef(def, new Vec2(sb.x, sb.y), sb.team as Team);
+          // Force id to match host's authoritative id so future snapshots find it.
+          (newBuilding as unknown as { id: number }).id = sb.id;
+          newBuilding.health = sb.health;
+          newBuilding.buildProgress = sb.buildProgress;
+          newBuilding.powered = sb.powered;
+          this.state.addEntity(newBuilding);
+          this.state.power.markDirty();
+        }
       }
-      // Note: We don't create buildings from snapshots for now; the host's
-      // authoritative state will have them, but clients start from the same
-      // seed layout. Full building sync (create/destroy) is a future pass.
+    }
+    // Remove buildings on this client that the host no longer reports.
+    // (Destroyed by host — not included in snapshot at all.)
+    const snapshotBuildingIds = new Set(snapshot.buildings.map((sb) => sb.id));
+    for (const b of this.state.buildings) {
+      if (b.alive && !snapshotBuildingIds.has(b.id)) {
+        b.destroy();
+      }
     }
 
+    // --- Fighters ---
+    // Build a set of ids present in the snapshot for quick membership tests.
+    const snapshotFighterIds = new Set<number>();
+    const snapshotFighterById = new Map<number, SerializedFighter>();
+    for (const sf of snapshot.fighters) {
+      snapshotFighterIds.add(sf.id);
+      snapshotFighterById.set(sf.id, sf);
+    }
+
+    // Update or remove existing client-side fighters.
+    for (const f of this.state.fighters) {
+      if (!f.alive) continue;
+      const sf = snapshotFighterById.get(f.id);
+      if (sf) {
+        // Update position/velocity from snapshot.
+        f.position.x = sf.x;
+        f.position.y = sf.y;
+        f.velocity.x = sf.vx;
+        f.velocity.y = sf.vy;
+        f.angle = sf.angle;
+        if (!sf.alive && f.alive) f.destroy();
+      } else {
+        // Fighter has been removed from host state (dead/docked) — destroy locally.
+        if (f.alive) f.destroy();
+      }
+    }
+
+    // Create placeholder fighters for ids that don't exist locally.
+    const existingFighterIds = new Set(this.state.fighters.map((f) => f.id));
+    for (const sf of snapshot.fighters) {
+      if (existingFighterIds.has(sf.id) || !sf.alive) continue;
+      const isBomber = sf.entityType === EntityType.Bomber;
+      const newFighter = isBomber
+        ? new BomberShip(new Vec2(sf.x, sf.y), sf.team as Team, ShipGroup.Red, null)
+        : new FighterShip(new Vec2(sf.x, sf.y), sf.team as Team, ShipGroup.Red, null);
+      // Force the id to match the host's id so future snapshots can find it.
+      (newFighter as unknown as { id: number }).id = sf.id;
+      newFighter.velocity.x = sf.vx;
+      newFighter.velocity.y = sf.vy;
+      newFighter.angle = sf.angle;
+      newFighter.docked = false;
+      this.state.addEntity(newFighter);
+    }
+
+    // --- Projectiles ---
+    // Only update position/velocity of existing projectiles.
+    // New projectiles are NOT created from snapshots to avoid duplicating
+    // collision/damage effects that the host simulation already owns.
+    // Projectiles that vanish from snapshots are left to expire naturally.
+    const snapshotProjectileById = new Map<number, SerializedProjectile>();
+    for (const sp of snapshot.projectiles) snapshotProjectileById.set(sp.id, sp);
+
+    for (const p of this.state.projectiles) {
+      if (!p.alive) continue;
+      const sp = snapshotProjectileById.get(p.id);
+      if (sp) {
+        // Nudge position toward host state (interpolation rather than snap).
+        p.position.x += (sp.x - p.position.x) * Game.LAN_PROJECTILE_POSITION_BLEND;
+        p.position.y += (sp.y - p.position.y) * Game.LAN_PROJECTILE_POSITION_BLEND;
+        p.velocity.x = sp.vx;
+        p.velocity.y = sp.vy;
+      }
+    }
 
     if (Array.isArray(snapshot.factionsByTeam)) {
       this.state.factionByTeam.clear();
@@ -1647,9 +2093,23 @@ export class Game {
    * relay to all remote clients. Called by the host at SNAPSHOT_INTERVAL.
    * Includes ships, buildings, fighters, projectiles, and resources per slot.
    */
-  private broadcastLanSnapshot(): void {
-    if (!this.lanClient?.connected) return;
-
+  /**
+   * Build the game snapshot data object. Used by both LAN and online transports.
+   * Returns an object with the serialized game state for broadcasting to clients.
+   */
+  private buildGameSnapshotData(): {
+    seq: number;
+    gameTime: number;
+    ships: SerializedShip[];
+    buildings: SerializedBuilding[];
+    fighters: SerializedFighter[];
+    projectiles: SerializedProjectile[];
+    resourcesPerSlot: number[];
+    hostSlot: number;
+    factionsByTeam: Array<{ team: number; faction: string }>;
+    territoryCircles: SerializedTerritoryCircle[];
+    lastProcessedInputSeqBySlot: number[] | undefined;
+  } {
     // --- Ships ---
     const ships: SerializedShip[] = [];
     for (const [slot, ship] of this.state.playerShips) {
@@ -1708,7 +2168,7 @@ export class Game {
       });
     }
 
-    // --- Projectiles (only fast-moving bullets/missiles) ---
+    // --- Projectiles ---
     const projectiles: SerializedProjectile[] = [];
     for (const p of this.state.projectiles) {
       if (!p.alive) continue;
@@ -1729,7 +2189,16 @@ export class Game {
     const resourcesPerSlot: number[] = new Array(MAX_LAN_SLOTS).fill(0);
     resourcesPerSlot[this.lanMySlot] = this.state.resources;
 
-    this.lanClient.sendGameSnapshot({
+    // Per-slot last processed input seq array for prediction replay.
+    let lastProcessedInputSeqBySlot: number[] | undefined;
+    if (this.lanLastProcessedSeqPerSlot.size > 0) {
+      lastProcessedInputSeqBySlot = [];
+      for (const [slot, seq] of this.lanLastProcessedSeqPerSlot) {
+        lastProcessedInputSeqBySlot[slot] = seq;
+      }
+    }
+
+    return {
       seq: this.lanSnapshotSeq++,
       gameTime: this.state.gameTime,
       ships,
@@ -1740,6 +2209,16 @@ export class Game {
       hostSlot: 0,
       factionsByTeam,
       territoryCircles,
+      lastProcessedInputSeqBySlot,
+    };
+  }
+
+  private broadcastLanSnapshot(): void {
+    if (!this.lanClient?.connected) return;
+    const data = this.buildGameSnapshotData();
+    this.lanClient.sendGameSnapshot({
+      ...data,
+      factionsByTeam: data.factionsByTeam as Array<{ team: number; faction: import('./lan/protocol.js').FactionType }>,
     });
   }
 
@@ -1781,16 +2260,27 @@ export class Game {
   private sendLanInput(): void {
     if (!this.lanClient?.connected) return;
     const aimWorld = this.camera.screenToWorld(Input.mousePos);
+    const seq = this.lanInputSeq++;
+    const dx = (Input.isDown('d') ? 1 : 0) - (Input.isDown('a') ? 1 : 0);
+    const dy = (Input.isDown('s') ? 1 : 0) - (Input.isDown('w') ? 1 : 0);
+    const boost = Input.isDown('Shift');
+
     this.lanClient.sendInputSnapshot({
-      seq: this.lanInputSeq++,
-      dx: (Input.isDown('d') ? 1 : 0) - (Input.isDown('a') ? 1 : 0),
-      dy: (Input.isDown('s') ? 1 : 0) - (Input.isDown('w') ? 1 : 0),
+      seq,
+      dx,
+      dy,
       aimX: aimWorld.x,
       aimY: aimWorld.y,
       firePrimary: Input.mouseDown,
       fireSpecial: Input.mouse2Down,
-      boost: Input.isDown('Shift'),
+      boost,
     });
+
+    // Buffer this input for prediction replay (trimmed to ring size).
+    this.lanUnacknowledgedInputs.push({ seq, dx, dy, aimX: aimWorld.x, aimY: aimWorld.y, boost });
+    if (this.lanUnacknowledgedInputs.length > Game.LAN_INPUT_RING_MAX) {
+      this.lanUnacknowledgedInputs.shift();
+    }
   }
 
   /**
@@ -1814,7 +2304,25 @@ export class Game {
       } else {
         ship.isThrusting = false;
       }
+      // Fire a basic bullet on behalf of the remote player when they press LMB.
+      // This keeps firing host-authoritative while giving remote players a weapon.
+      if (inp.firePrimary) {
+        this.fireRemotePlayerWeapon(ship);
+      }
     }
+  }
+
+  /**
+   * Host fires a basic bullet on behalf of a remote player ship.
+   * This is intentionally simple (always fires the base Bullet) to avoid
+   * duplicating weapon logic; per-weapon remote firing can be added later.
+   */
+  private fireRemotePlayerWeapon(ship: PlayerShip): void {
+    if (!ship.canFirePrimary()) return;
+    const aim = ship.aimWorld;
+    const angle = Math.atan2(aim.y - ship.position.y, aim.x - ship.position.x);
+    ship.consumePrimaryFire(PLAYER_FIRE_COOLDOWN * ship.fireCooldownMultiplier);
+    this.state.addEntity(new Bullet(ship.team, ship.position.clone(), angle, ship));
   }
 
   // -----------------------------------------------------------------------
@@ -1924,6 +2432,9 @@ export class Game {
         lanLastSnapshotSeq: this.lanLastSnapshotSeq,
         lanSnapshotSeq: this.lanSnapshotSeq,
         lanAiDirectorCount: this.lanAiDirectors.length,
+        lanPredictionError: this.lanPredictionOffsetAlpha > 0
+          ? Math.hypot(this.lanPredictionOffset.x, this.lanPredictionOffset.y)
+          : 0,
       });
     }
 

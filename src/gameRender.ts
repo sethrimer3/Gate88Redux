@@ -86,6 +86,8 @@ export function drawDebugOverlay(ctx: CanvasRenderingContext2D, args: {
   lanLastSnapshotSeq: number;
   lanSnapshotSeq: number;
   lanAiDirectorCount: number;
+  /** Current prediction error magnitude (px) for the local player ship. */
+  lanPredictionError?: number;
 }): void {
   const { state } = args;
   const playerBuildings = state.buildings.filter((b) => b.alive && b.team === Team.Player);
@@ -123,6 +125,8 @@ export function drawDebugOverlay(ctx: CanvasRenderingContext2D, args: {
       const seqStr = args.lanLastSnapshotSeq >= 0 ? `seq ${args.lanLastSnapshotSeq}` : 'no snapshot';
       lines.push(`snapshot ${seqStr}  age ${age >= 0 ? age + 'ms' : 'n/a'}`);
       if (age > 3000) lines.push('WARNING: No snapshot for >3s');
+      const predErr = args.lanPredictionError ?? 0;
+      if (predErr > 0) lines.push(`prediction error ${Math.round(predErr)}px`);
     }
     if (state.gameMode === 'lan_host') {
       lines.push(`snap seq ${args.lanSnapshotSeq}  AI dirs ${args.lanAiDirectorCount}`);

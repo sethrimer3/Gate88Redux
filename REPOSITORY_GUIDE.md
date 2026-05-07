@@ -22,6 +22,7 @@ This document maps the repository structure and gives a concise, broad summary o
 
 | File | Short summary | Broad contents |
 |---|---|---|
+| `.env.example` | Environment variable template. | Documents `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` placeholders for online multiplayer setup. |
 | `.github/copilot-instructions.md` | Markdown project documentation/spec. | Headings, prose guidance, constraints, and reference details for contributors/users. |
 | `.github/workflows/static.yml` | Repository file. | File-specific data/content. |
 | `.gitignore` | Repository file. | File-specific data/content. |
@@ -97,6 +98,7 @@ This document maps the repository structure and gives a concise, broad summary o
 | `ORIGINAL/Gate88_Mar19_05/textcolours.conf` | Original legacy Gate88 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
 | `ORIGINAL/Gate88_Mar19_05/video.conf` | Original legacy Gate88 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
 | `docs/LAN.md` | Project documentation. | Headings, prose guidance, constraints, and reference details for contributors/users. |
+| `docs/ONLINE_MULTIPLAYER.md` | Online multiplayer architecture, Supabase setup, WebRTC notes, and testing checklist. | Describes host-authoritative snapshot model, phase status table, Supabase SQL schema, and nextStep guidance. |
 | `docs/visual-polish.md` | Project documentation. | Headings, prose guidance, constraints, and reference details for contributors/users. |
 | `index.html` | HTML entry or reference document. | HTML markup defining document structure/content. |
 | `package-lock.json` | JSON configuration/metadata file. | Structured key/value settings consumed by npm, TypeScript, or tooling. |
@@ -168,13 +170,16 @@ This document maps the repository structure and gives a concise, broad summary o
 | `src/grid.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/hud.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/input.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
-| `src/lan/lanClient.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
-| `src/lan/protocol.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
+| `src/lan/lanClient.ts` | TypeScript gameplay/client module. | WebSocket client for the LAN relay; exposes callbacks for lobby updates, match start, snapshots, and inputs. |
+| `src/lan/lanTransport.ts` | LAN transport adapter implementing `MultiplayerTransport`. | Wraps `LanClient` to satisfy the `MultiplayerTransport` interface; converts between LAN protocol and `src/net/protocol.ts` types. |
+| `src/lan/protocol.ts` | TypeScript gameplay/client module. | LAN WebSocket message types (lobby, slots, snapshots, inputs) used by `LanClient` and `lanServer.ts`. |
 | `src/main.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/math.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
-| `src/menu.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
+| `src/menu.ts` | TypeScript gameplay/client module. | All menu screens: title, play, LAN lobby, online multiplayer stub, pause, settings, VS AI setup, practice setup. |
 | `src/mine.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/nebula.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
+| `src/net/protocol.ts` | Versioned canonical network protocol types (Phase 2). | `NetInputSnapshot`, `NetGameSnapshot`, and all sub-types with `protocolVersion`, seq, timestamps. Includes `validateInputSnapshot`/`validateGameSnapshot` helpers. |
+| `src/net/transport.ts` | `MultiplayerTransport` interface and snapshot-rate constants (Phase 1). | Interface defining the contract between game logic and any multiplayer transport (LAN, WebRTC, etc.). `NET_SNAPSHOT_HZ = 20`, `NET_SNAPSHOT_INTERVAL`. |
 | `src/particles.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/power.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/practiceconfig.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
