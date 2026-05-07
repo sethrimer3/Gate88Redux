@@ -268,4 +268,30 @@ export type ServerMessage =
   | MsgChat
   | MsgPong;
 
+
 export const DEFAULT_LAN_PORT = 8787;
+export const DISCOVERY_PROTOCOL_VERSION = 1;
+
+export interface LanDiscoveryAdvertisement {
+  type: 'gate88_lan_advertise';
+  protocolVersion: number;
+  game: 'Gate88Redux';
+  lobbyId: string;
+  hostName: string;
+  wsUrl: string;
+  httpUrl: string;
+  lanPort: number;
+  maxSlots: number;
+  openSlots: number;
+  occupiedHumanSlots: number;
+  aiSlots: number;
+  matchStarted: boolean;
+  build: string;
+  timestamp: number;
+}
+
+export interface LanDiscoveredLobby extends LanDiscoveryAdvertisement {
+  sourceIp: string;
+  lastSeenAt: number;
+  expiresAt: number;
+}

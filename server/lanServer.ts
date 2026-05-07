@@ -36,6 +36,7 @@ import type {
   AIDifficulty,
   SlotType,
 } from '../src/lan/protocol.js';
+import { createLanDiscovery } from './lanDiscovery.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -78,6 +79,7 @@ let lobbySlots: LobbySlot[] = initSlots();
 let hostClientId: string | null = null;
 let matchStarted = false;
 let matchSeed = 0;
+const lobbyId = `lobby_${Math.random().toString(36).slice(2, 10)}`;
 
 function initSlots(): LobbySlot[] {
   const slots: LobbySlot[] = [];
@@ -187,6 +189,15 @@ setInterval(() => {
 const wss = new WebSocketServer({ port: PORT });
 
 console.log(`[Gate88 LAN] Server listening on ws://0.0.0.0:${PORT}`);
+
+const lanDiscovery = createLanDiscovery({
+  lanPort: PORT,
+  maxSlots: MAX_SLOTS,
+  lobbyId,
+  getLobby: () => getLobbyState(),
+  isHostActive: () => hostClientId !== null,
+});
+lanDiscovery.start();
 
 wss.on('connection', (ws: WebSocket) => {
   const clientId = newClientId();
@@ -498,6 +509,7 @@ function handleClientDisconnect(clientId: string): void {
 
 process.on('SIGINT', () => {
   console.log('\n[Gate88 LAN] Shutting down.');
+  lanDiscovery.stop();
   wss.close();
   process.exit(0);
 });
