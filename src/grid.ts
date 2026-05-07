@@ -305,6 +305,17 @@ export class WorldGrid {
     const wave = conduitShimmer ? sheenBand(cx * 0.031 + cy * 0.047 - time * 0.32 + tilt * 0.18, 0.13) : 0;
     const localFlash = Math.pow(wave, 2.8) * (0.65 + glint * 0.35);
 
+    // Very subtle directional "sun" reflection and tiny lens ghosts when a
+    // conduit panel passes through the screen-space glint corridor.
+    const sunX = ctx.canvas.width * 0.84;
+    const sunY = ctx.canvas.height * 0.16;
+    const toSunX = screenX - sunX;
+    const toSunY = screenY - sunY;
+    const sunDist = Math.hypot(toSunX, toSunY);
+    const sunFalloff = Math.max(0, 1 - sunDist / (Math.min(ctx.canvas.width, ctx.canvas.height) * 0.72));
+    const alignment = Math.max(0, (toSunX * -0.78 + toSunY * 0.62) / Math.max(1, sunDist));
+    const solarGlare = conduitShimmer ? Math.pow(sunFalloff, 2.1) * Math.pow(alignment, 2.7) : 0;
+
     if (team === Team.Player) {
       const baseA = energized ? 0.42 + tilt * 0.10 : 0.16 + tilt * 0.05;
       ctx.fillStyle = `rgba(${Math.floor(6 + tilt * 18)}, ${Math.floor(80 + tilt * 50)}, ${Math.floor(112 + tilt * 80)}, ${baseA})`;
@@ -324,6 +335,28 @@ export class WorldGrid {
         ctx.lineTo(panelX + offset + panelSize, panelY);
         ctx.lineTo(panelX + offset + panelSize - stripeW, panelY);
         ctx.closePath();
+        ctx.fill();
+      }
+
+      if (energized && solarGlare > 0.002) {
+        const glareAlpha = 0.012 + solarGlare * 0.095;
+        const glare = ctx.createLinearGradient(panelX, panelY + panelSize, panelX + panelSize, panelY);
+        glare.addColorStop(0, `rgba(168, 236, 255, ${glareAlpha * 0.14})`);
+        glare.addColorStop(0.42, `rgba(230, 252, 255, ${glareAlpha})`);
+        glare.addColorStop(1, `rgba(255, 255, 255, ${glareAlpha * 0.08})`);
+        ctx.fillStyle = glare;
+        ctx.fillRect(panelX, panelY, panelSize, panelSize);
+
+        const ghostAlpha = Math.min(0.07, solarGlare * 0.06);
+        const ghostR1 = Math.max(0.8, panelSize * (0.085 + tilt * 0.04));
+        const ghostR2 = ghostR1 * 0.52;
+        ctx.fillStyle = `rgba(205, 245, 255, ${ghostAlpha})`;
+        ctx.beginPath();
+        ctx.arc(panelX + panelSize * 0.74, panelY + panelSize * 0.22, ghostR1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = `rgba(255, 255, 255, ${ghostAlpha * 0.85})`;
+        ctx.beginPath();
+        ctx.arc(panelX + panelSize * 0.67, panelY + panelSize * 0.30, ghostR2, 0, Math.PI * 2);
         ctx.fill();
       }
 
