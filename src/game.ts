@@ -2053,15 +2053,24 @@ export class Game {
       }
     }
 
-    // Bullet glow — small bright dot on each live projectile.
+    // Bullet glow — lightweight shader-like streak + core bloom on live rounds.
     if (this.visualPreset.bulletGlow) {
       for (const p of this.state.projectiles) {
-        if (!p.alive || !this.camera.isOnScreen(p.position, 20)) continue;
+        if (!p.alive || !this.camera.isOnScreen(p.position, 26)) continue;
         if (p instanceof Laser || p instanceof ChargedLaserBurst) continue; // already handled above
         if (p instanceof GuidedMissile || p instanceof BomberMissile || p instanceof SwarmMissile) continue; // handled above
         const bulletColor = p.team === Team.Player ? Colors.friendlyfire : Colors.enemyfire;
-        glow.circleWorld(this.camera, p.position, p.radius * 5.5, bulletColor, 0.07);
-        glow.circleWorld(this.camera, p.position, p.radius * 2.2, Colors.particles_switch, 0.06);
+        const speed = Math.hypot(p.velocity.x, p.velocity.y);
+        const speedFactor = Math.min(1, speed / 520);
+        const trailLen = p.radius * (7.5 + speedFactor * 7.5);
+        const tail = new Vec2(
+          p.position.x - Math.cos(p.angle) * trailLen,
+          p.position.y - Math.sin(p.angle) * trailLen,
+        );
+        // Additive line bloom acts like a tiny post-process streak without per-pixel shaders.
+        glow.lineWorld(this.camera, tail, p.position, bulletColor, 0.045 + speedFactor * 0.06, p.radius * (2.8 + speedFactor * 1.5));
+        glow.circleWorld(this.camera, p.position, p.radius * (5.2 + speedFactor * 1.6), bulletColor, 0.055 + speedFactor * 0.03);
+        glow.circleWorld(this.camera, p.position, p.radius * (2.1 + speedFactor * 0.4), Colors.particles_switch, 0.06);
       }
     }
   }
