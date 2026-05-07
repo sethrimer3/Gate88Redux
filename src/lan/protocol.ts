@@ -101,6 +101,8 @@ export interface MsgGameSnapshot {
   projectiles: SerializedProjectile[];
   fighters: SerializedFighter[];
   buildings: SerializedBuilding[];
+  factionsByTeam?: Array<{ team: number; faction: 'conduit' | 'confluence' }>;
+  territoryCircles?: SerializedTerritoryCircle[];
   /** Resources indexed by slot (sparse — only active slots included). */
   resourcesPerSlot: number[];
   hostSlot: number;
@@ -137,6 +139,20 @@ export interface SerializedFighter {
   vx: number; vy: number;
   angle: number;
   alive: boolean;
+}
+
+export interface SerializedTerritoryCircle {
+  id: string;
+  team: number;
+  x: number;
+  y: number;
+  radius: number;
+  targetRadius: number;
+  parentCircleId?: string;
+  sourceBuildingId?: string;
+  createdAt: number;
+  growthStartTime: number;
+  growthDuration: number;
 }
 
 export interface SerializedBuilding {
@@ -210,6 +226,8 @@ export interface MsgRelayedSnapshot {
   projectiles: SerializedProjectile[];
   fighters: SerializedFighter[];
   buildings: SerializedBuilding[];
+  factionsByTeam?: Array<{ team: number; faction: 'conduit' | 'confluence' }>;
+  territoryCircles?: SerializedTerritoryCircle[];
   resourcesPerSlot: number[];
   hostSlot: number;
 }
