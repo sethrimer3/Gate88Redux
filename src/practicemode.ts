@@ -265,13 +265,21 @@ export class PracticeMode {
   }
 
   private updateEnemyFighters(state: GameState): void {
+    // Determine the best strategic target based on the planner's doctrine.
+    let doctrineTarget: { position: Vec2 } | null = null;
+    if (this.planner) {
+      const harassPos = this.planner.getSuggestedHarassTarget(state);
+      if (harassPos) doctrineTarget = { position: harassPos };
+    }
+
     for (const f of state.fighters) {
       if (!f.alive || f.docked || f.team !== Team.Enemy) continue;
       // Skip builder drones — they are utility units, not combatants.
       if (isBuilderDrone(f)) continue;
 
       if (f.order === 'idle' || !f.targetPos) {
-        const target = this.findNearestPlayerBuilding(state, f.position);
+        // Use doctrine-based target when available; fall back to nearest building.
+        const target = doctrineTarget ?? this.findNearestPlayerBuilding(state, f.position);
         if (target) {
           f.order = 'attack';
           f.targetPos = target.position.clone();
@@ -314,6 +322,11 @@ export class PracticeMode {
   /** Optional: planner snapshot for debug overlays. */
   getPlannerSnapshot() {
     return this.planner?.snapshot() ?? null;
+  }
+
+  /** Returns the base planner for coordinator-interface access by VsAIDirector. */
+  getPlanner(): EnemyBasePlanner | null {
+    return this.planner;
   }
 }
 
