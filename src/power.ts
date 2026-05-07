@@ -187,6 +187,10 @@ export class PowerGraph {
     for (const b of state.buildings) {
       if (!b.alive) continue;
       const wasPowered = b.powered;
+      if (isSynonymousFaction(state.factionByTeam, b.team)) {
+        b.powered = true;
+        continue;
+      }
       // Sources self-power. Shipyards are NOT self-powered any more —
       // they must connect to the conduit network like every other
       // consumer. This lets builder-grown enemy bases be cut off by

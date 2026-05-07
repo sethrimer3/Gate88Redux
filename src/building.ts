@@ -82,9 +82,10 @@ export abstract class BuildingBase extends Entity {
     const r = v.half * (this.synonymousVisualKind === 'base' ? 1.08 : 0.88);
     const color = teamColor(this.team);
     ctx.save();
-    ctx.globalAlpha = Math.max(0.15, this.buildProgress);
+    const integrityAlpha = 0.32 + 0.48 * this.healthFraction;
+    ctx.globalAlpha = Math.max(0.15, this.buildProgress * integrityAlpha);
     ctx.fillStyle = this.synonymousVisualKind === 'base' ? 'rgba(7,10,12,0.96)' : 'rgba(14,17,18,0.46)';
-    ctx.strokeStyle = colorToCSS(color, this.powered ? 0.78 : 0.28);
+    ctx.strokeStyle = colorToCSS(color, 0.35 + 0.43 * this.healthFraction);
     ctx.lineWidth = Math.max(1, v.side * 0.025);
     ctx.beginPath();
     for (let i = 0; i < sides; i++) {

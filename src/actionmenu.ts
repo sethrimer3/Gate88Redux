@@ -24,6 +24,8 @@ import { worldToCell, cellKey, cellCenter, footprintCenter, footprintOrigin, GRI
 import { defsByTier, BuildDef, getBuildDef } from './builddefs.js';
 import { drawDecodedText } from './decodeText.js';
 import { isConfluenceFaction, isSynonymousFaction, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_BASE_RADIUS } from './confluence.js';
+import { MENU_CANVAS_FONT } from './fonts.js';
+import { SYNONYMOUS_BUILD_COST, SYNONYMOUS_CURRENCY_SYMBOL } from './synonymous.js';
 
 /** Radius (px) from the menu centre at which items are placed. */
 const ITEM_RADIUS = 110;
@@ -137,12 +139,33 @@ function getHoveredIndex(items: RadialItem[], centre: Vec2, mouse: Vec2): number
 
 /** Convert a BuildDef to a RadialItem, gating affordability against `state`. */
 function defToRadialItem(def: BuildDef, state: GameState): RadialItem {
+  const cost = buildCostForState(def.key, def.cost, state);
   return {
     label: def.radialLabel ?? def.label,
-    sublabel: `$${def.cost}`,
+    sublabel: formatCost(cost, state),
     buildingType: def.key,
-    disabled: state.resources < def.cost,
+    disabled: !canAffordAmount(cost, state),
   };
+}
+
+function isPlayerSynonymous(state: GameState): boolean {
+  return isSynonymousFaction(state.factionByTeam, Team.Player);
+}
+
+function buildCostForState(key: string, fallback: number, state: GameState): number {
+  return isPlayerSynonymous(state) ? SYNONYMOUS_BUILD_COST[key] ?? 0 : fallback;
+}
+
+function formatCost(amount: number, state: GameState): string {
+  return isPlayerSynonymous(state) ? `${amount} ${SYNONYMOUS_CURRENCY_SYMBOL}` : `$${amount}`;
+}
+
+function canAffordAmount(amount: number, state: GameState): boolean {
+  return isPlayerSynonymous(state) ? state.synonymous.canSpend(Team.Player, amount) : state.resources >= amount;
+}
+
+function usesSynonymousSymbol(text: string): boolean {
+  return text.includes(SYNONYMOUS_CURRENCY_SYMBOL);
 }
 
 function isBuildDefAvailable(def: BuildDef, state: GameState): boolean {
@@ -206,9 +229,9 @@ function buildResearchRoot(state: GameState): RadialItem[] {
     const researchKey = key as keyof typeof RESEARCH_COST;
     return {
       label: RESEARCH_LABELS[key] ?? key,
-      sublabel: `$${RESEARCH_COST[researchKey]}`,
+      sublabel: formatCost(RESEARCH_COST[researchKey], state),
       researchItem: key,
-      disabled: state.resources < RESEARCH_COST[researchKey],
+      disabled: !canAffordAmount(RESEARCH_COST[researchKey], state),
     };
   };
   const category = (label: string, keys: string[], extras: RadialItem[] = []): RadialItem => ({
@@ -463,7 +486,7 @@ class HoldMenu {
       }
 
       if (item.sublabel) {
-        ctx.font = '9px "Poiret One", sans-serif';
+        ctx.font = usesSynonymousSymbol(item.sublabel) ? `9px ${MENU_CANVAS_FONT}` : '9px "Poiret One", sans-serif';
         ctx.fillStyle = item.disabled
           ? colorToCSS(Colors.radar_gridlines, 0.3)
           : hovered
@@ -775,6 +798,7 @@ class LeftHoldMenu {
       drawDecodedText(ctx, item.label.replace(/\n/g, ' '), x + 20, rowY + rowH * 0.5, 10, this.openedAt);
       ctx.textAlign = 'right';
       if (item.sublabel) {
+        ctx.font = usesSynonymousSymbol(item.sublabel) ? `12px ${MENU_CANVAS_FONT}` : '12px "Poiret One", sans-serif';
         ctx.fillStyle = item.disabled
           ? colorToCSS(Colors.radar_gridlines, 0.3)
           : active
@@ -884,7 +908,9 @@ class ShipMenu {
       `Energy ${Math.floor(ship.battery)}/${ship.maxBattery}`,
       `Energy Regen ${ship.baseBatteryRegenRate.toFixed(1)}/s`,
       `Fire Speed x${(1 / ship.fireCooldownMultiplier).toFixed(2)}`,
-      `Resources $${Math.floor(state.resources)}`,
+      isPlayerSynonymous(state)
+        ? `Nanobots ${state.synonymous.getUnallocatedCount(Team.Player)} ${SYNONYMOUS_CURRENCY_SYMBOL}`
+        : `Resources $${Math.floor(state.resources)}`,
     ];
     ctx.font = '16px "Poiret One", sans-serif';
     for (let i = 0; i < stats.length; i++) {
@@ -1059,7 +1085,7 @@ class QuickBuildMenu {
 
     if (selected?.type === 'shape') {
       const worldPos = camera.screenToWorld(Input.mousePos);
-      if (Input.mouseDown) state.synonymous.shapeLine(Team.Player, worldPos);
+      if (Input.mouseDown) state.synonymous.shapeLine(Team.Player, worldPos, state.gameTime);
       if (Input.mouse2Down) state.synonymous.recallAt(Team.Player, worldPos);
       return { action: 'none' };
     }
@@ -1215,7 +1241,7 @@ class QuickBuildMenu {
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
     ctx.fillText(
       isSynonymousFaction(state.factionByTeam, Team.Player)
-        ? `nanobots: ${state.synonymous.droneCount(Team.Player)} free / ${state.synonymous.totalDroneCount(Team.Player)} total - cell ${cell.cx},${cell.cy}`
+        ? `nanobots: ${state.synonymous.getUnallocatedCount(Team.Player)} ${SYNONYMOUS_CURRENCY_SYMBOL} / ${state.synonymous.totalDroneCount(Team.Player)} total - cell ${cell.cx},${cell.cy}`
         : `conduits: ${state.grid.conduitCount()} - queued: ${state.grid.pendingConduitCount()} - cell ${cell.cx},${cell.cy} - resources: $${Math.floor(state.resources)}`,
       screenW * 0.5,
       40,
@@ -1325,7 +1351,7 @@ class QuickBuildMenu {
         continue;
       }
       const selected = i === this.selectedIndex;
-      const cost = item.type === 'conduit' || item.type === 'shape' ? item.cost : item.def.cost;
+      const cost = item.type === 'conduit' || item.type === 'shape' ? item.cost : buildCostForState(item.def.key, item.def.cost, state);
       const label = item.type === 'conduit'
         ? item.label
         : item.type === 'shape'
@@ -1340,12 +1366,15 @@ class QuickBuildMenu {
         ? colorToCSS(Colors.radar_friendly_status, 0.95)
         : colorToCSS(Colors.radar_gridlines, 0.45);
       ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-      ctx.fillStyle = item.type === 'shape' || state.resources >= cost
+      ctx.fillStyle = item.type === 'shape' || canAffordAmount(cost, state)
         ? colorToCSS(Colors.general_building, selected ? 1.0 : 0.82)
         : colorToCSS(Colors.alert1, 0.7);
       ctx.fillText(label, x + 8, y + h * 0.5);
       ctx.textAlign = 'right';
-      ctx.fillText(item.type === 'shape' ? 'free' : `$${cost}`, x + w - 8, y + h * 0.5);
+      const price = item.type === 'shape' ? 'free' : formatCost(cost, state);
+      ctx.font = usesSynonymousSymbol(price) ? `10px ${MENU_CANVAS_FONT}` : '10px "Poiret One", sans-serif';
+      ctx.fillText(price, x + w - 8, y + h * 0.5);
+      ctx.font = '10px "Poiret One", sans-serif';
       ctx.textAlign = 'left';
     }
     ctx.restore();

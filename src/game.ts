@@ -39,7 +39,7 @@ import type { MsgMatchStart, MsgRelayedInput, SerializedShip, SerializedBuilding
 import { PlayerShip } from './ship.js';
 import { teamForSlot } from './teamutils.js';
 import { isConfluenceFaction, isSynonymousFaction, resolveRaceSelection, type FactionType, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_BASE_RADIUS } from './confluence.js';
-import { SYNONYMOUS_BUILD_COST } from './synonymous.js';
+import { SYNONYMOUS_BUILD_COST, SYNONYMOUS_CURRENCY_SYMBOL } from './synonymous.js';
 import { cloneDefaultVsAIConfig } from './vsaiconfig.js';
 import { GlowLayer } from './glowlayer.js';
 import { DEFAULT_VISUAL_QUALITY, VISUAL_QUALITY_PRESETS, type VisualQuality, type VisualQualityPreset } from './visualquality.js';
@@ -878,7 +878,7 @@ export class Game {
         building.range = 240;
       }
       if (cost > 0 && !this.state.synonymous.allocateToBuilding(Team.Player, building.id, kind, worldPos, cost, this.state.gameTime)) {
-        this.hud.showMessage(`Need ${cost} nanobots`, Colors.alert1, 3);
+        this.hud.showMessage(`Need ${cost} ${SYNONYMOUS_CURRENCY_SYMBOL}`, Colors.alert1, 3);
         return;
       }
     } else {
@@ -966,12 +966,19 @@ export class Game {
     if (cost === undefined || time === undefined) return;
     if (!(ACTIVE_RESEARCH_ITEMS as readonly string[]).includes(item)) return;
 
-    if (this.state.resources < cost) {
-      this.hud.showMessage('Not enough resources for research!', Colors.alert1, 3);
-      return;
+    if (isSynonymousFaction(this.state.factionByTeam, Team.Player)) {
+      if (!this.state.synonymous.canSpend(Team.Player, cost)) {
+        this.hud.showMessage(`Need ${cost} ${SYNONYMOUS_CURRENCY_SYMBOL} for research!`, Colors.alert1, 3);
+        return;
+      }
+      this.state.synonymous.spendFreeDrones(Team.Player, cost, this.state.player.position);
+    } else {
+      if (this.state.resources < cost) {
+        this.hud.showMessage('Not enough resources for research!', Colors.alert1, 3);
+        return;
+      }
+      this.state.resources -= cost;
     }
-
-    this.state.resources -= cost;
     this.state.researchProgress = {
       item,
       progress: 0,
@@ -1819,23 +1826,34 @@ export class Game {
 
     // HUD
     this.hud.draw(ctx, w, h);
-    this.hud.drawResources(ctx, this.state.resources, this.state.getPlayerIncomePerSecond(), w, h);
+    const synonymousPlayer = isSynonymousFaction(this.state.factionByTeam, Team.Player);
+    this.hud.drawResources(
+      ctx,
+      synonymousPlayer ? this.state.synonymous.getUnallocatedCount(Team.Player) : this.state.resources,
+      this.state.getPlayerIncomePerSecond(),
+      w,
+      h,
+      synonymousPlayer
+        ? { currencySymbol: SYNONYMOUS_CURRENCY_SYMBOL, symbolOnRight: true, symbolFont: 'menu' }
+        : undefined,
+    );
     if (this.state.player.alive) {
-      this.hud.drawSelectedBuild(ctx, this.state.selectedBuildType, this.state.resources, w, h);
       this.hud.drawPlayerEnergy(ctx, this.state.player.battery, this.state.player.maxBattery, w, h);
       this.hud.drawResearchStatus(ctx, this.state.researchProgress, this.state.researchedItems.size, h);
-      // Count unpowered player buildings, excluding only power sources.
-      let unpowered = 0;
-      for (const b of this.state.buildings) {
-        if (!b.alive || b.team !== Team.Player) continue;
-        if (b.buildProgress < 1) continue;
-        if (
-          b.type === EntityType.CommandPost ||
-          b.type === EntityType.PowerGenerator
-        ) continue;
-        if (!b.powered) unpowered++;
+      if (!synonymousPlayer) {
+        // Count unpowered player buildings, excluding only power sources.
+        let unpowered = 0;
+        for (const b of this.state.buildings) {
+          if (!b.alive || b.team !== Team.Player) continue;
+          if (b.buildProgress < 1) continue;
+          if (
+            b.type === EntityType.CommandPost ||
+            b.type === EntityType.PowerGenerator
+          ) continue;
+          if (!b.powered) unpowered++;
+        }
+        this.hud.drawPowerStatus(ctx, unpowered, h);
       }
-      this.hud.drawPowerStatus(ctx, unpowered, h);
     }
 
     // Practice / Vs. AI mode HUD

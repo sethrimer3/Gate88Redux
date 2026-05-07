@@ -1,8 +1,10 @@
+import type { BuildingBase } from './building.js';
 import { Camera } from './camera.js';
 import { Colors, colorToCSS, type Color } from './colors.js';
+import { WORLD_HEIGHT, WORLD_WIDTH } from './constants.js';
 import { Team } from './entities.js';
 import { GRID_CELL_SIZE } from './grid.js';
-import { Vec2 } from './math.js';
+import { clamp, Vec2 } from './math.js';
 import { teamColor } from './teamutils.js';
 
 export const SYNONYMOUS_DRONE_DIAMETER = GRID_CELL_SIZE * 0.75;
@@ -10,6 +12,7 @@ export const SYNONYMOUS_DRONE_RADIUS = SYNONYMOUS_DRONE_DIAMETER * 0.5;
 export const SYNONYMOUS_DRONE_HP = 5;
 export const SYNONYMOUS_BASE_PRODUCTION = 1;
 export const SYNONYMOUS_FACTORY_PRODUCTION = 1;
+export const SYNONYMOUS_CURRENCY_SYMBOL = 'ᐃ';
 
 export const SYNONYMOUS_BUILD_COST: Record<string, number> = {
   factory: 50,
@@ -18,6 +21,23 @@ export const SYNONYMOUS_BUILD_COST: Record<string, number> = {
 };
 
 export type SynonymousShapeKind = 'swarm' | 'factory' | 'researchlab' | 'laserturret';
+
+const FREE_DRONE_MAX_SPEED = 105;
+const ALLOCATED_MAX_SPEED = 225;
+const RETURN_MAX_SPEED = 185;
+const FREE_DRONE_DAMPING = 0.965;
+const TARGET_DAMPING = 0.78;
+const BASE_ATTRACTION_STRENGTH = 12;
+const NEIGHBOR_ATTRACTION_STRENGTH = 5.5;
+const SEPARATION_STRENGTH = 520;
+const SEPARATION_RADIUS = SYNONYMOUS_DRONE_DIAMETER * 1.1;
+const NEIGHBOR_ATTRACTION_RADIUS = SYNONYMOUS_DRONE_DIAMETER * 5.5;
+const MANUAL_CONTROL_GRACE_SECONDS = 0.45;
+const TARGET_DEAD_ZONE = SYNONYMOUS_DRONE_RADIUS * 0.45;
+const SPAWN_CHAIN_DURATION = 0.42;
+const SPAWN_FLASH_DURATION = 0.5;
+const MAX_CHAIN_SEGMENTS = 12;
+const BUILDING_ABSORB_RADIUS = SYNONYMOUS_DRONE_DIAMETER * 2.5;
 
 interface Drone {
   id: number;
@@ -28,7 +48,10 @@ interface Drone {
   bornAt: number;
   awakenedAt: number;
   allocatedTo?: number;
+  formationIndex?: number;
   returning?: boolean;
+  soldReturn?: boolean;
+  manualShapeUntil?: number;
 }
 
 interface Formation {
@@ -36,14 +59,35 @@ interface Formation {
   kind: SynonymousShapeKind;
   team: Team;
   center: Vec2;
-  droneIds: number[];
+  cost: number;
+  visibleRequired: number;
+  visibleDroneIds: number[];
+  reserveCount: number;
+  destroyedCount: number;
   createdAt: number;
+}
+
+interface SpawnChainEffect {
+  team: Team;
+  points: Vec2[];
+  bornAt: number;
+  duration: number;
+}
+
+interface SpawnFlashEffect {
+  team: Team;
+  pos: Vec2;
+  bornAt: number;
+  duration: number;
 }
 
 export class SynonymousSwarmSystem {
   private dronesByTeam = new Map<Team, Drone[]>();
   private formationsByBuilding = new Map<number, Formation>();
   private baseByTeam = new Map<Team, Vec2>();
+  private spawnChains: SpawnChainEffect[] = [];
+  private spawnFlashes: SpawnFlashEffect[] = [];
+  private collapsedBuildingIds = new Set<number>();
   private nextDroneId = 1;
 
   setBase(team: Team, center: Vec2): void {
@@ -57,18 +101,39 @@ export class SynonymousSwarmSystem {
     for (const [id, f] of this.formationsByBuilding) {
       if (f.team === team) this.formationsByBuilding.delete(id);
     }
+    this.spawnChains = this.spawnChains.filter((e) => e.team !== team);
+    this.spawnFlashes = this.spawnFlashes.filter((e) => e.team !== team);
   }
 
   droneCount(team: Team): number {
-    return this.dronesByTeam.get(team)?.filter((d) => !d.allocatedTo).length ?? 0;
+    return this.getUnallocatedCount(team);
+  }
+
+  getUnallocatedCount(team: Team): number {
+    return this.liveDrones(team).filter((d) => !d.allocatedTo).length;
   }
 
   totalDroneCount(team: Team): number {
-    return this.dronesByTeam.get(team)?.length ?? 0;
+    let count = this.liveDrones(team).length;
+    for (const f of this.formationsByBuilding.values()) {
+      if (f.team === team) count += f.reserveCount;
+    }
+    return count;
   }
 
   canSpend(team: Team, amount: number): boolean {
-    return this.droneCount(team) >= amount;
+    return this.getUnallocatedCount(team) >= amount;
+  }
+
+  spendFreeDrones(team: Team, amount: number, near?: Vec2): boolean {
+    const drones = this.dronesByTeam.get(team) ?? [];
+    const free = drones
+      .filter((d) => d.hp > 0 && !d.allocatedTo)
+      .sort((a, b) => (near ? a.pos.distanceTo(near) - b.pos.distanceTo(near) : a.id - b.id));
+    if (free.length < amount) return false;
+    const spendIds = new Set(free.slice(0, amount).map((d) => d.id));
+    this.dronesByTeam.set(team, drones.filter((d) => !spendIds.has(d.id)));
+    return true;
   }
 
   spawnAtBase(team: Team, amount: number, time: number): void {
@@ -82,18 +147,21 @@ export class SynonymousSwarmSystem {
   }
 
   produce(team: Team, amount: number, origin: Vec2, time: number): void {
+    const start = this.baseByTeam.get(team) ?? origin;
     for (let i = 0; i < amount; i++) {
-      const a = ((this.nextDroneId * 97.31) % 360) * Math.PI / 180;
-      const p = origin.add(new Vec2(Math.cos(a) * 10, Math.sin(a) * 10));
-      this.addDrone(team, p, time);
+      const spawn = this.findOpenSpawnPosition(team, start, i);
+      this.spawnChains.push({ team, points: this.buildSpawnChain(team, start, spawn), bornAt: time, duration: SPAWN_CHAIN_DURATION });
+      this.spawnFlashes.push({ team, pos: spawn.clone(), bornAt: time, duration: SPAWN_FLASH_DURATION });
+      const d = this.addDrone(team, spawn, time);
+      d.awakenedAt = time + 0.08;
     }
   }
 
-  shapeLine(team: Team, target: Vec2): void {
+  shapeLine(team: Team, target: Vec2, time: number = 0): void {
     const base = this.baseByTeam.get(team);
     const drones = this.dronesByTeam.get(team);
     if (!base || !drones) return;
-    const free = drones.filter((d) => !d.allocatedTo);
+    const free = drones.filter((d) => d.hp > 0 && !d.allocatedTo);
     const dist = Math.max(1, base.distanceTo(target));
     const dir = target.sub(base).normalize();
     const perp = new Vec2(-dir.y, dir.x);
@@ -102,8 +170,11 @@ export class SynonymousSwarmSystem {
       const t = wanted <= 1 ? 0 : i / (wanted - 1);
       const width = Math.max(SYNONYMOUS_DRONE_RADIUS * 0.6, SYNONYMOUS_DRONE_RADIUS * 4.5 * (1 - t));
       const wave = Math.sin(i * 2.17 + dist * 0.01) * width;
-      free[i].target = base.add(dir.scale(dist * t)).add(perp.scale(wave));
-      free[i].returning = false;
+      const d = free[i];
+      d.target = base.add(dir.scale(dist * t)).add(perp.scale(wave));
+      d.returning = false;
+      d.soldReturn = false;
+      d.manualShapeUntil = time + MANUAL_CONTROL_GRACE_SECONDS;
     }
   }
 
@@ -117,6 +188,7 @@ export class SynonymousSwarmSystem {
       if (d.pos.distanceTo(pos) <= SYNONYMOUS_DRONE_RADIUS * 2.5) {
         d.target = base.clone();
         d.returning = true;
+        d.manualShapeUntil = 0;
         changed = true;
       }
     }
@@ -125,83 +197,192 @@ export class SynonymousSwarmSystem {
 
   allocateToBuilding(team: Team, buildingId: number, kind: SynonymousShapeKind, center: Vec2, cost: number, time: number): boolean {
     const drones = this.dronesByTeam.get(team) ?? [];
-    const free = drones.filter((d) => !d.allocatedTo).sort((a, b) => a.pos.distanceTo(center) - b.pos.distanceTo(center));
+    const free = drones
+      .filter((d) => d.hp > 0 && !d.allocatedTo)
+      .sort((a, b) => a.pos.distanceTo(center) - b.pos.distanceTo(center));
     if (free.length < cost) return false;
-    const visibleCount = Math.min(cost, kind === 'laserturret' ? 18 : kind === 'factory' ? 24 : 20);
+    const visibleRequired = Math.min(cost, this.visibleRequiredForKind(kind));
     const selected = free.slice(0, cost);
-    const visible = selected.slice(0, visibleCount);
+    const visible = selected.slice(0, visibleRequired);
+    const reserveIds = new Set(selected.slice(visibleRequired).map((d) => d.id));
     const visibleIds: number[] = [];
-    for (let i = 0; i < selected.length; i++) {
-      const d = selected[i];
+
+    for (let i = 0; i < visible.length; i++) {
+      const d = visible[i];
       d.allocatedTo = buildingId;
-      if (i < visibleCount) {
-        d.target = this.formationPoint(kind, center, i, visibleCount);
-        d.awakenedAt = time + i * 0.018;
-        visibleIds.push(d.id);
-      } else {
-        d.hp = 0;
-      }
+      d.formationIndex = i;
+      d.returning = false;
+      d.soldReturn = false;
+      d.manualShapeUntil = 0;
+      d.target = this.formationPoint(kind, center, i, visibleRequired);
+      d.awakenedAt = time + i * 0.018;
+      d.hp = SYNONYMOUS_DRONE_HP;
+      visibleIds.push(d.id);
     }
-    this.formationsByBuilding.set(buildingId, { buildingId, kind, team, center: center.clone(), droneIds: visibleIds, createdAt: time });
+
+    this.dronesByTeam.set(team, drones.filter((d) => !reserveIds.has(d.id)));
+    this.formationsByBuilding.set(buildingId, {
+      buildingId,
+      kind,
+      team,
+      center: center.clone(),
+      cost,
+      visibleRequired,
+      visibleDroneIds: visibleIds,
+      reserveCount: cost - visibleRequired,
+      destroyedCount: 0,
+      createdAt: time,
+    });
     return true;
   }
 
-  releaseBuilding(buildingId: number, time: number): number {
+  releaseBuilding(buildingId: number, time: number, options: { sold?: boolean } = {}): number {
     const f = this.formationsByBuilding.get(buildingId);
     if (!f) return 0;
-    const cost = SYNONYMOUS_BUILD_COST[f.kind === 'laserturret' ? 'missileturret' : f.kind] ?? 0;
     this.formationsByBuilding.delete(buildingId);
+    const base = this.baseByTeam.get(f.team) ?? f.center;
     const drones = this.dronesByTeam.get(f.team) ?? [];
+    let reclaimed = 0;
+
     for (const d of drones) {
-      if (d.allocatedTo === buildingId) d.hp = 0;
+      if (d.allocatedTo !== buildingId) continue;
+      d.allocatedTo = undefined;
+      d.formationIndex = undefined;
+      d.hp = Math.max(1, d.hp);
+      d.target = options.sold ? base.clone() : d.pos.clone();
+      d.returning = !!options.sold;
+      d.soldReturn = !!options.sold;
+      d.manualShapeUntil = 0;
+      d.vel = d.vel.add(this.seededJitter(d.id, time, 24));
+      reclaimed++;
     }
-    this.dronesByTeam.set(f.team, drones.filter((d) => d.hp > 0 && d.allocatedTo !== buildingId));
-    this.produce(f.team, cost, f.center, time);
-    return cost;
+
+    for (let i = 0; i < f.reserveCount; i++) {
+      const p = f.center.add(this.seededJitter(this.nextDroneId + i, time, SYNONYMOUS_DRONE_RADIUS * 1.5));
+      const d = this.addDrone(f.team, p, time);
+      d.target = options.sold ? base.clone() : p.clone();
+      d.returning = !!options.sold;
+      d.soldReturn = !!options.sold;
+      d.vel = this.seededJitter(d.id, time, 28);
+      reclaimed++;
+    }
+    return reclaimed;
   }
 
   update(dt: number, time: number): void {
+    this.spawnChains = this.spawnChains.filter((e) => time - e.bornAt <= e.duration);
+    this.spawnFlashes = this.spawnFlashes.filter((e) => time - e.bornAt <= e.duration);
+
+    for (const f of this.formationsByBuilding.values()) {
+      this.refreshFormationTargets(f);
+    }
+
     for (const [team, drones] of this.dronesByTeam) {
-      const base = this.baseByTeam.get(team);
       for (let i = drones.length - 1; i >= 0; i--) {
-        const d = drones[i];
-        if (d.hp <= 0) { drones.splice(i, 1); continue; }
-        const to = d.target.sub(d.pos);
-        const dist = Math.max(0.001, Math.hypot(to.x, to.y));
-        const speed = d.allocatedTo ? 210 : d.returning ? 190 : 125;
-        const desired = to.scale(speed / dist);
-        d.vel = d.vel.scale(0.84).add(desired.scale(0.16));
-        d.pos = d.pos.add(d.vel.scale(dt));
-        if (!d.allocatedTo && base && d.returning && d.pos.distanceTo(base) < 16) d.returning = false;
+        if (drones[i].hp <= 0) drones.splice(i, 1);
       }
-      if (base) {
-        const free = drones.filter((d) => !d.allocatedTo && !d.returning);
-        for (let i = 0; i < free.length; i++) {
-          const a = i * 2.399 + time * 0.18;
-          const r = 26 + Math.sqrt(i) * SYNONYMOUS_DRONE_RADIUS * 1.8;
-          const idle = base.add(new Vec2(Math.cos(a) * r, Math.sin(a) * r));
-          free[i].target = free[i].target.scale(0.97).add(idle.scale(0.03));
+      const free = drones.filter((d) => d.hp > 0 && !d.allocatedTo);
+      const swarmForces = this.computeFreeSwarmForces(team, free);
+
+      for (const d of drones) {
+        if (d.hp <= 0) continue;
+        if (d.allocatedTo) {
+          this.moveTowardTarget(d, dt, ALLOCATED_MAX_SPEED, TARGET_DAMPING);
+        } else if (d.returning || (d.manualShapeUntil ?? 0) > time) {
+          const speed = d.returning ? RETURN_MAX_SPEED : FREE_DRONE_MAX_SPEED * 1.55;
+          this.moveTowardTarget(d, dt, speed, TARGET_DAMPING);
+        } else {
+          const force = swarmForces.get(d.id) ?? new Vec2(0, 0);
+          d.vel = d.vel.add(force.scale(dt));
+          d.vel = d.vel.scale(Math.pow(FREE_DRONE_DAMPING, dt * 60));
+          d.vel = this.capVelocity(d.vel, FREE_DRONE_MAX_SPEED);
+          if (Math.abs(d.vel.x) < 0.03 && Math.abs(d.vel.y) < 0.03) d.vel.set(0, 0);
+          d.pos = d.pos.add(d.vel.scale(dt));
+          d.target = d.pos.clone();
         }
+        const base = this.baseByTeam.get(team);
+        if (base && d.returning && d.pos.distanceTo(base) < 18) {
+          d.returning = false;
+          d.soldReturn = false;
+        }
+      }
+      this.absorbFreeDronesIntoDamagedBuildings(team, time);
+    }
+  }
+
+  updateBuildingIntegrity(buildings: BuildingBase[]): void {
+    const byId = new Map<number, BuildingBase>();
+    for (const b of buildings) byId.set(b.id, b);
+    for (const id of this.collapsedBuildingIds) {
+      byId.get(id)?.destroy();
+    }
+    this.collapsedBuildingIds.clear();
+    for (const f of Array.from(this.formationsByBuilding.values())) {
+      const b = byId.get(f.buildingId);
+      if (!b || !b.alive) {
+        this.formationsByBuilding.delete(f.buildingId);
+        continue;
+      }
+      b.powered = true;
+      const liveVisible = this.liveFormationDrones(f).length;
+      const surviving = liveVisible + f.reserveCount;
+      b.health = b.maxHealth * clamp(surviving / Math.max(1, f.cost), 0, 1);
+      if (liveVisible < f.visibleRequired && f.reserveCount <= 0) {
+        this.collapseFormation(f, 0);
+        b.destroy();
       }
     }
   }
 
-  damageDroneAt(team: Team, pos: Vec2, amount: number): boolean {
+  consumeCollapsedBuildingIds(): number[] {
+    const ids = Array.from(this.collapsedBuildingIds);
+    this.collapsedBuildingIds.clear();
+    return ids;
+  }
+
+  damageDroneAt(team: Team, pos: Vec2, amount: number, options: { buildingId?: number; time?: number; fallbackToBuilding?: boolean } = {}): boolean {
     const drones = this.dronesByTeam.get(team);
     if (!drones) return false;
     let best: Drone | null = null;
-    let bestDist = SYNONYMOUS_DRONE_RADIUS * 1.25;
-    for (const d of drones) {
-      if (d.allocatedTo) continue;
+    let bestDist = SYNONYMOUS_DRONE_RADIUS * 1.65;
+
+    const consider = (d: Drone, radius: number) => {
       const dist = d.pos.distanceTo(pos);
-      if (dist < bestDist) { best = d; bestDist = dist; }
+      if (dist < bestDist && dist <= radius) {
+        best = d;
+        bestDist = dist;
+      }
+    };
+
+    for (const d of drones) {
+      if (d.hp <= 0 || !d.allocatedTo) continue;
+      if (options.buildingId !== undefined && d.allocatedTo !== options.buildingId) continue;
+      consider(d, SYNONYMOUS_DRONE_RADIUS * 1.65);
     }
+
+    if (!best && options.fallbackToBuilding && options.buildingId !== undefined) {
+      const f = this.formationsByBuilding.get(options.buildingId);
+      const visible = f ? this.liveFormationDrones(f) : [];
+      best = visible.sort((a, b) => a.pos.distanceTo(pos) - b.pos.distanceTo(pos))[0] ?? null;
+    }
+
+    if (!best) {
+      for (const d of drones) {
+        if (d.hp <= 0 || d.allocatedTo) continue;
+        consider(d, SYNONYMOUS_DRONE_RADIUS * 1.25);
+      }
+    }
+
     if (!best) return false;
     best.hp -= amount;
+    if (best.hp <= 0 && best.allocatedTo) {
+      this.handleVisibleDroneDestroyed(best, options.time ?? 0);
+    }
     return true;
   }
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera, time: number): void {
+    this.drawSpawnEffects(ctx, camera, time);
     for (const [team, drones] of this.dronesByTeam) {
       const color = teamColor(team);
       for (const f of this.formationsByBuilding.values()) {
@@ -218,7 +399,7 @@ export class SynonymousSwarmSystem {
     return true;
   }
 
-  private addDrone(team: Team, pos: Vec2, time: number): void {
+  private addDrone(team: Team, pos: Vec2, time: number): Drone {
     const base = this.baseByTeam.get(team) ?? pos;
     const d: Drone = {
       id: this.nextDroneId++,
@@ -232,6 +413,224 @@ export class SynonymousSwarmSystem {
     const drones = this.dronesByTeam.get(team) ?? [];
     drones.push(d);
     this.dronesByTeam.set(team, drones);
+    return d;
+  }
+
+  private liveDrones(team: Team): Drone[] {
+    return (this.dronesByTeam.get(team) ?? []).filter((d) => d.hp > 0);
+  }
+
+  private visibleRequiredForKind(kind: SynonymousShapeKind): number {
+    if (kind === 'factory') return 24;
+    if (kind === 'researchlab') return 20;
+    if (kind === 'laserturret') return 18;
+    return 18;
+  }
+
+  private maxReserve(f: Formation): number {
+    return Math.max(0, f.cost - f.visibleRequired);
+  }
+
+  private nextOpenFormationIndex(f: Formation): number {
+    const used = new Set(this.liveFormationDrones(f).map((d) => d.formationIndex ?? 0));
+    for (let i = 0; i < f.visibleRequired; i++) {
+      if (!used.has(i)) return i;
+    }
+    return Math.min(f.visibleRequired - 1, used.size);
+  }
+
+  private liveFormationDrones(f: Formation): Drone[] {
+    const ids = new Set(f.visibleDroneIds);
+    return (this.dronesByTeam.get(f.team) ?? []).filter((d) => d.hp > 0 && d.allocatedTo === f.buildingId && ids.has(d.id));
+  }
+
+  private refreshFormationTargets(f: Formation): void {
+    f.visibleDroneIds = this.liveFormationDrones(f).map((d) => d.id);
+    for (const d of this.liveFormationDrones(f)) {
+      const idx = clamp(d.formationIndex ?? 0, 0, f.visibleRequired - 1);
+      d.target = this.formationPoint(f.kind, f.center, idx, f.visibleRequired);
+    }
+  }
+
+  private handleVisibleDroneDestroyed(d: Drone, time: number): void {
+    const f = d.allocatedTo !== undefined ? this.formationsByBuilding.get(d.allocatedTo) : undefined;
+    if (!f) return;
+    const missingIndex = d.formationIndex ?? this.nextOpenFormationIndex(f);
+    f.visibleDroneIds = f.visibleDroneIds.filter((id) => id !== d.id);
+    f.destroyedCount++;
+    d.allocatedTo = undefined;
+    d.formationIndex = undefined;
+    if (f.reserveCount > 0) {
+      f.reserveCount--;
+      const idx = missingIndex;
+      const replacement = this.addDrone(f.team, f.center.add(this.seededJitter(this.nextDroneId, time, SYNONYMOUS_DRONE_RADIUS * 1.5)), time);
+      replacement.allocatedTo = f.buildingId;
+      replacement.formationIndex = idx;
+      replacement.target = this.formationPoint(f.kind, f.center, idx, f.visibleRequired);
+      replacement.awakenedAt = time;
+      f.visibleDroneIds.push(replacement.id);
+      return;
+    }
+    if (this.liveFormationDrones(f).length < f.visibleRequired) {
+      this.collapseFormation(f, time);
+    }
+  }
+
+  private collapseFormation(f: Formation, time: number): void {
+    this.formationsByBuilding.delete(f.buildingId);
+    this.collapsedBuildingIds.add(f.buildingId);
+    const drones = this.dronesByTeam.get(f.team) ?? [];
+    for (const d of drones) {
+      if (d.allocatedTo !== f.buildingId) continue;
+      d.allocatedTo = undefined;
+      d.formationIndex = undefined;
+      d.returning = false;
+      d.soldReturn = false;
+      d.manualShapeUntil = 0;
+      d.target = d.pos.clone();
+      d.vel = d.vel.add(this.seededJitter(d.id, time, 36));
+    }
+  }
+
+  private absorbFreeDronesIntoDamagedBuildings(team: Team, time: number): void {
+    const drones = this.dronesByTeam.get(team);
+    if (!drones) return;
+    for (const f of this.formationsByBuilding.values()) {
+      if (f.team !== team) continue;
+      const needsVisible = this.liveFormationDrones(f).length < f.visibleRequired;
+      const needsReserve = f.reserveCount < this.maxReserve(f);
+      if (!needsVisible && !needsReserve) continue;
+      for (let i = drones.length - 1; i >= 0; i--) {
+        const d = drones[i];
+        if (d.hp <= 0 || d.allocatedTo || d.returning) continue;
+        if (d.pos.distanceTo(f.center) > BUILDING_ABSORB_RADIUS) continue;
+        if (this.liveFormationDrones(f).length < f.visibleRequired) {
+          const idx = this.nextOpenFormationIndex(f);
+          d.allocatedTo = f.buildingId;
+          d.formationIndex = idx;
+          d.target = this.formationPoint(f.kind, f.center, idx, f.visibleRequired);
+          d.awakenedAt = time;
+          d.hp = SYNONYMOUS_DRONE_HP;
+          f.visibleDroneIds.push(d.id);
+        } else if (f.reserveCount < this.maxReserve(f)) {
+          drones.splice(i, 1);
+          f.reserveCount++;
+        }
+        if (this.liveFormationDrones(f).length >= f.visibleRequired && f.reserveCount >= this.maxReserve(f)) break;
+      }
+    }
+  }
+
+  private computeFreeSwarmForces(team: Team, free: Drone[]): Map<number, Vec2> {
+    const forces = new Map<number, Vec2>();
+    const base = this.baseByTeam.get(team);
+    for (const d of free) forces.set(d.id, new Vec2(0, 0));
+    if (base) {
+      const surfaceRadius = 26 + Math.sqrt(Math.max(1, free.length)) * SYNONYMOUS_DRONE_RADIUS * 1.55;
+      for (const d of free) {
+        const toBase = base.sub(d.pos);
+        const dist = Math.max(0.001, toBase.length());
+        const dir = toBase.scale(1 / dist);
+        const inward = dist > surfaceRadius ? (dist - surfaceRadius) * BASE_ATTRACTION_STRENGTH : 0;
+        const outward = dist < surfaceRadius * 0.34 ? (surfaceRadius * 0.34 - dist) * BASE_ATTRACTION_STRENGTH * 0.2 : 0;
+        forces.set(d.id, forces.get(d.id)!.add(dir.scale(inward - outward)));
+      }
+    }
+
+    for (let i = 0; i < free.length; i++) {
+      for (let j = i + 1; j < free.length; j++) {
+        const a = free[i];
+        const b = free[j];
+        const delta = b.pos.sub(a.pos);
+        const dist = Math.max(0.001, delta.length());
+        if (dist > NEIGHBOR_ATTRACTION_RADIUS) continue;
+        const dir = delta.scale(1 / dist);
+        let strength = 0;
+        if (dist < SEPARATION_RADIUS) {
+          strength = -(SEPARATION_RADIUS - dist) * SEPARATION_STRENGTH;
+        } else {
+          strength = Math.min(36, (dist - SEPARATION_RADIUS) * NEIGHBOR_ATTRACTION_STRENGTH);
+        }
+        const force = dir.scale(strength);
+        forces.set(a.id, forces.get(a.id)!.add(force));
+        forces.set(b.id, forces.get(b.id)!.add(force.scale(-1)));
+      }
+    }
+    return forces;
+  }
+
+  private moveTowardTarget(d: Drone, dt: number, maxSpeed: number, damping: number): void {
+    const to = d.target.sub(d.pos);
+    const dist = to.length();
+    if (dist < TARGET_DEAD_ZONE) {
+      d.vel = d.vel.scale(0.45);
+      if (d.vel.length() < 0.08) d.vel.set(0, 0);
+      d.pos = d.pos.add(d.vel.scale(dt));
+      return;
+    }
+    const desiredSpeed = Math.min(maxSpeed, dist * 7);
+    const desired = to.scale(desiredSpeed / Math.max(0.001, dist));
+    d.vel = d.vel.scale(damping).add(desired.scale(1 - damping));
+    d.vel = this.capVelocity(d.vel, maxSpeed);
+    d.pos = d.pos.add(d.vel.scale(dt));
+  }
+
+  private capVelocity(v: Vec2, maxSpeed: number): Vec2 {
+    const speed = v.length();
+    return speed > maxSpeed ? v.scale(maxSpeed / speed) : v;
+  }
+
+  private findOpenSpawnPosition(team: Team, origin: Vec2, salt: number): Vec2 {
+    const free = this.liveDrones(team).filter((d) => !d.allocatedTo);
+    const center = free.length > 0
+      ? free.reduce((sum, d) => sum.add(d.pos), new Vec2(0, 0)).scale(1 / free.length)
+      : origin;
+    const minDist = SYNONYMOUS_DRONE_DIAMETER * 1.1;
+    const startRadius = 18 + Math.sqrt(Math.max(1, free.length)) * SYNONYMOUS_DRONE_RADIUS * 0.85;
+    for (let i = 0; i < 140; i++) {
+      const a = (i + salt * 0.37) * 2.399963;
+      const r = startRadius + Math.sqrt(i) * SYNONYMOUS_DRONE_RADIUS * 1.35;
+      const p = this.clampToWorld(center.add(new Vec2(Math.cos(a) * r, Math.sin(a) * r)));
+      if (free.every((d) => d.pos.distanceTo(p) >= minDist)) return p;
+    }
+    return this.clampToWorld(origin.add(this.seededJitter(this.nextDroneId + salt, 0, startRadius + 20)));
+  }
+
+  private buildSpawnChain(team: Team, start: Vec2, target: Vec2): Vec2[] {
+    const free = this.liveDrones(team).filter((d) => !d.allocatedTo);
+    if (free.length === 0) return [start.clone(), target.clone()];
+    const points = [start.clone()];
+    const used = new Set<number>();
+    let cur = start.clone();
+    for (let step = 0; step < MAX_CHAIN_SEGMENTS; step++) {
+      const curTargetDist = cur.distanceTo(target);
+      let best: Drone | null = null;
+      let bestScore = Infinity;
+      for (const d of free) {
+        if (used.has(d.id)) continue;
+        const toTarget = d.pos.distanceTo(target);
+        if (toTarget >= curTargetDist) continue;
+        const score = cur.distanceTo(d.pos) + toTarget * 0.35;
+        if (score < bestScore) {
+          bestScore = score;
+          best = d;
+        }
+      }
+      if (!best) break;
+      points.push(best.pos.clone());
+      used.add(best.id);
+      cur = best.pos;
+      if (cur.distanceTo(target) <= SYNONYMOUS_DRONE_DIAMETER * 2) break;
+    }
+    points.push(target.clone());
+    return points;
+  }
+
+  private clampToWorld(p: Vec2): Vec2 {
+    return new Vec2(
+      clamp(p.x, SYNONYMOUS_DRONE_RADIUS, WORLD_WIDTH - SYNONYMOUS_DRONE_RADIUS),
+      clamp(p.y, SYNONYMOUS_DRONE_RADIUS, WORLD_HEIGHT - SYNONYMOUS_DRONE_RADIUS),
+    );
   }
 
   private formationPoint(kind: SynonymousShapeKind, center: Vec2, i: number, n: number): Vec2 {
@@ -244,12 +643,52 @@ export class SynonymousSwarmSystem {
     return center.add(new Vec2(Math.cos(a) * radius, Math.sin(a) * radius));
   }
 
+  private seededJitter(id: number, salt: number, radius: number): Vec2 {
+    const a = ((id * 137.508 + salt * 61.3) % 360) * Math.PI / 180;
+    const r = radius * (0.35 + (((id * 9301 + 49297) % 233280) / 233280) * 0.65);
+    return new Vec2(Math.cos(a) * r, Math.sin(a) * r);
+  }
+
+  private drawSpawnEffects(ctx: CanvasRenderingContext2D, camera: Camera, time: number): void {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const e of this.spawnChains) {
+      const t = clamp((time - e.bornAt) / e.duration, 0, 1);
+      const color = teamColor(e.team);
+      ctx.lineCap = 'round';
+      for (let i = 0; i < e.points.length - 1; i++) {
+        const a = camera.worldToScreen(e.points[i]);
+        const b = camera.worldToScreen(e.points[i + 1]);
+        const flicker = 0.45 + 0.35 * Math.sin(time * 54 + i * 1.7);
+        ctx.strokeStyle = colorToCSS(color, (1 - t) * 0.22 * flicker);
+        ctx.lineWidth = Math.max(1, camera.zoom * (1.2 + flicker));
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+    }
+    for (const e of this.spawnFlashes) {
+      const t = clamp((time - e.bornAt) / e.duration, 0, 1);
+      const p = camera.worldToScreen(e.pos);
+      const r = SYNONYMOUS_DRONE_RADIUS * camera.zoom * (1.2 + t * 2.4);
+      ctx.strokeStyle = colorToCSS(teamColor(e.team), (1 - t) * 0.55);
+      ctx.lineWidth = Math.max(1, 1.4 * camera.zoom);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   private drawDrone(ctx: CanvasRenderingContext2D, camera: Camera, d: Drone, color: Color, time: number): void {
+    if (d.hp <= 0) return;
     const s = camera.worldToScreen(d.pos);
     const r = SYNONYMOUS_DRONE_RADIUS * camera.zoom;
     const awake = Math.max(0, Math.min(1, (time - d.awakenedAt) / 0.35));
+    const blink = d.soldReturn ? 0.48 + 0.34 * Math.sin(time * 5 + d.id * 0.41) : 1;
     ctx.save();
-    ctx.globalAlpha = d.allocatedTo && d.hp <= 0 ? 0 : 1;
+    ctx.globalAlpha = blink;
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.62);
     ctx.beginPath();
     ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
@@ -270,14 +709,14 @@ export class SynonymousSwarmSystem {
   }
 
   private drawFormationLines(ctx: CanvasRenderingContext2D, camera: Camera, f: Formation, color: Color): void {
-    const drones = (this.dronesByTeam.get(f.team) ?? []).filter((d) => f.droneIds.includes(d.id));
+    const drones = this.liveFormationDrones(f);
     if (drones.length < 2) return;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    ctx.strokeStyle = colorToCSS(color, 0.55);
+    ctx.strokeStyle = colorToCSS(color, 0.45 + 0.18 * (f.reserveCount / Math.max(1, this.maxReserve(f))));
     ctx.lineWidth = Math.max(1, 1.2 * camera.zoom);
     ctx.beginPath();
-    const sorted = drones.slice().sort((a, b) => Math.atan2(a.pos.y - f.center.y, a.pos.x - f.center.x) - Math.atan2(b.pos.y - f.center.y, b.pos.x - f.center.x));
+    const sorted = drones.slice().sort((a, b) => (a.formationIndex ?? 0) - (b.formationIndex ?? 0));
     for (let i = 0; i < sorted.length; i++) {
       const a = camera.worldToScreen(sorted[i].pos);
       const b = camera.worldToScreen(sorted[(i + 1) % sorted.length].pos);

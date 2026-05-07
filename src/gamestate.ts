@@ -20,7 +20,7 @@ import { buildCostForBuildingType, buildDefForEntityType, createBuildingFromDef 
 import { Colors, colorToCSS } from './colors.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
 import { type FactionType, type ConfluenceTerritoryCircle, CONFLUENCE_BASE_RADIUS, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_PARENT_EXPAND_DURATION, CONFLUENCE_NEW_CIRCLE_GROW_DURATION, CONFLUENCE_INCLUDE_MARGIN, isConfluenceFaction, isSynonymousFaction } from './confluence.js';
-import { SynonymousSwarmSystem, SYNONYMOUS_BASE_PRODUCTION, SYNONYMOUS_BUILD_COST, SYNONYMOUS_FACTORY_PRODUCTION } from './synonymous.js';
+import { SynonymousSwarmSystem, SYNONYMOUS_BASE_PRODUCTION, SYNONYMOUS_BUILD_COST, SYNONYMOUS_CURRENCY_SYMBOL, SYNONYMOUS_FACTORY_PRODUCTION } from './synonymous.js';
 
 export interface DestroyedBuildingRecord {
   type: EntityType;
@@ -270,6 +270,7 @@ export class GameState {
     // Update buildings and power status
     this.updateBuildingPower();
     for (const b of this.buildings) b.update(dt);
+    this.synonymous.updateBuildingIntegrity(this.buildings);
 
     this.applyFighterSeparation(dt);
 
@@ -289,6 +290,7 @@ export class GameState {
     // First let enemy bullets intercept swarm missiles (GOAL 3C)
     this.resolveProjectileInterceptions();
     this.resolveCollisions();
+    this.synonymous.updateBuildingIntegrity(this.buildings);
 
     // Resources from factories
     this.accumulateResources(dt);
@@ -367,10 +369,17 @@ export class GameState {
     // Normal projectile: only hit enemies
     if (proj.team === target.team) return false;
 
-    if (isSynonymousFaction(this.factionByTeam, target.team) && this.synonymous.damageDroneAt(target.team, proj.position, proj.damage)) {
-      this.recentlyDamaged.add(target.id);
-      proj.destroy();
-      return true;
+    if (isSynonymousFaction(this.factionByTeam, target.team)) {
+      const handled = this.synonymous.damageDroneAt(target.team, proj.position, proj.damage, {
+        buildingId: target instanceof BuildingBase ? target.id : undefined,
+        fallbackToBuilding: target instanceof BuildingBase,
+        time: this.gameTime,
+      });
+      if (handled) {
+        this.recentlyDamaged.add(target.id);
+        proj.destroy();
+        return true;
+      }
     }
 
     const dist = proj.position.distanceTo(target.position);
@@ -464,7 +473,6 @@ export class GameState {
           b.alive &&
           b.type === EntityType.Factory &&
           b.team === Team.Player &&
-          b.powered &&
           b.buildProgress >= 1
         ) {
           income += SYNONYMOUS_FACTORY_PRODUCTION;
@@ -500,7 +508,7 @@ export class GameState {
 
     for (const b of this.buildings) {
       if (!b.alive || b.type !== EntityType.Factory || !isSynonymousFaction(this.factionByTeam, b.team)) continue;
-      if (!b.powered || b.buildProgress < 1) continue;
+      if (b.buildProgress < 1) continue;
       const next = (this.synonymousFactoryAccumulator.get(b.id) ?? 0) + SYNONYMOUS_FACTORY_PRODUCTION * dt;
       const whole = Math.floor(next);
       this.synonymousFactoryAccumulator.set(b.id, next - whole);
@@ -960,7 +968,7 @@ export class GameState {
       if (!b.alive || !b.deleting || b.deletionProgress < 1) continue;
       if (b.team === Team.Player) {
         if (isSynonymousFaction(this.factionByTeam, b.team)) {
-          this.synonymous.releaseBuilding(b.id, this.gameTime);
+          this.synonymous.releaseBuilding(b.id, this.gameTime, { sold: true });
         } else {
           this.resources += buildCostForBuildingType(b.type) * b.healthFraction;
         }
@@ -984,8 +992,8 @@ export class GameState {
         b.alive &&
         b.type === EntityType.ResearchLab &&
         b.team === Team.Player &&
-        b.powered &&
-        b.buildProgress >= 1,
+            (isSynonymousFaction(this.factionByTeam, b.team) || b.powered) &&
+            b.buildProgress >= 1,
     );
     if (!hasLab) return;
 
@@ -1282,7 +1290,7 @@ export class GameState {
     if (isSynonymousFaction(this.factionByTeam, team)) {
       const cost = SYNONYMOUS_BUILD_COST[def.key] ?? 0;
       if (team === Team.Player && cost > 0 && !this.synonymous.canSpend(team, cost)) {
-        return { valid: false, reason: `Need ${cost} nanobots` };
+        return { valid: false, reason: `Need ${cost} ${SYNONYMOUS_CURRENCY_SYMBOL}` };
       }
     } else if (this.resources < def.cost && team === Team.Player) {
       return { valid: false, reason: 'Not enough resources' };

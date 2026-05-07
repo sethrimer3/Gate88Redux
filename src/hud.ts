@@ -1,7 +1,7 @@
 /** Heads-up display for Gate88 — minimal, message-based */
 
 import { Colors, colorToCSS, Color } from './colors.js';
-import { getBuildDef } from './builddefs.js';
+import { gameFont, menuFont } from './fonts.js';
 
 // ---------------------------------------------------------------------------
 // HUD message
@@ -83,48 +83,16 @@ export class HUD {
     incomePerSecond: number,
     screenW: number,
     screenH: number,
+    options: { currencySymbol?: string; symbolOnRight?: boolean; symbolFont?: 'menu' | 'main' } = {},
   ): void {
-    ctx.font = `${HUD_FONT_SIZE}px "Poiret One", sans-serif`;
+    ctx.font = options.symbolFont === 'menu' ? menuFont(HUD_FONT_SIZE) : gameFont(HUD_FONT_SIZE);
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
     ctx.fillText(`(+${Math.round(incomePerSecond)}/sec)`, screenW - 10, screenH - 44);
-    ctx.fillText(`$${Math.floor(resources)}`, screenW - 10, screenH - 10);
-  }
-
-  /** Draw the selected-build slot just above the energy bar (bottom-left). */
-  drawSelectedBuild(
-    ctx: CanvasRenderingContext2D,
-    buildType: string | null,
-    resources: number,
-    _screenW: number,
-    screenH: number,
-  ): void {
-    // Label sits just above the ENERGY label drawn by drawPlayerEnergy.
-    const x = 10;
-    const y = screenH - 92;
-
-    ctx.font = `${HUD_FONT_SIZE}px "Poiret One", sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'bottom';
-
-    if (!buildType) {
-      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.32);
-      ctx.fillText('No Build Selection', x, y);
-      return;
-    }
-
-    const def = getBuildDef(buildType);
-    const cost = def?.cost ?? 0;
-    const displayName = def?.label ?? buildType;
-    const canAfford = resources >= cost;
-
-    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.45);
-    ctx.fillText('BUILD:', x, y - 34);
-    ctx.fillStyle = canAfford
-      ? colorToCSS(Colors.general_building, 0.85)
-      : colorToCSS(Colors.alert1, 0.8);
-    ctx.fillText(`${displayName}  $${cost}`, x, y);
+    const symbol = options.currencySymbol ?? '$';
+    const amount = Math.floor(resources);
+    ctx.fillText(options.symbolOnRight ? `${amount} ${symbol}` : `${symbol}${amount}`, screenW - 10, screenH - 10);
   }
 
   /** Draw the player energy/battery indicator at the bottom-left. */
