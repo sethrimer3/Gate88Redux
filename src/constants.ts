@@ -292,3 +292,55 @@ export const LASER_BURST_BASE_MULTIPLIER = 3.0;
 /** Maximum additional damage multiplier from full energy × full charge. */
 export const LASER_BURST_ENERGY_SCALING = 8.0;
 
+// ---------------------------------------------------------------------------
+// Cross-Laser Mine special ability constants
+// ---------------------------------------------------------------------------
+
+/** Number of mines deployed per use. */
+export const MINE_COUNT = 5;
+
+/** Lifetime of each mine before it auto-detonates (seconds). */
+export const MINE_LIFETIME_SECS = 20;
+
+/** Length of each detection laser beam (world units). */
+export const MINE_LASER_RANGE = 300;
+
+/**
+ * Half-width of the laser beam detection zone (world units).
+ * A target whose edge comes within this distance of the beam segment triggers the mine.
+ */
+export const MINE_LASER_THICKNESS = 9;
+
+/** Speed of the trap missile launched when a mine is triggered (world units/sec). */
+export const MINE_MISSILE_SPEED = 900;
+
+/** AOE blast radius for mine detonation and triggered trap missiles. */
+export const MINE_BLAST_RADIUS = 40;
+
+/** Damage dealt by mine explosions and trap missiles. */
+export const MINE_DAMAGE = 28;
+
+/** Cooldown (seconds) between mine deployments. */
+export const MINE_COOLDOWN_SECS = 15;
+
+/** Battery cost to deploy the mine cluster. */
+export const MINE_BATTERY_COST = 25;
+
+/**
+ * Deceleration applied to mines after deployment (world units/sec²).
+ * High value so mines slow to a stop quickly.
+ */
+export const MINE_DECELERATION = 480;
+
+/** Minimum initial outward launch speed of each mine (world units/sec). */
+export const MINE_INITIAL_SPEED_MIN = 90;
+
+/** Maximum initial outward launch speed of each mine (world units/sec). */
+export const MINE_INITIAL_SPEED_MAX = 160;
+
+/** Minimum visual rotation speed for a mine (radians/sec). */
+export const MINE_ROTATION_SPEED_MIN = 0.8;
+
+/** Maximum visual rotation speed for a mine (radians/sec). */
+export const MINE_ROTATION_SPEED_MAX = 2.0;
+

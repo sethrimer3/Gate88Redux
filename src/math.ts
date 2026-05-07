@@ -92,3 +92,20 @@ export function lerpAngle(a: number, b: number, t: number): number {
   return wrapAngle(a + diff * t);
 }
 
+/**
+ * Shortest distance from point p to the finite line segment [a, b].
+ * Avoids Vec2 allocations for use in hot update loops.
+ */
+export function pointToSegmentDistance(p: Vec2, a: Vec2, b: Vec2): number {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const len2 = abx * abx + aby * aby;
+  if (len2 === 0) return p.distanceTo(a);
+  const t = Math.max(0, Math.min(1, ((p.x - a.x) * abx + (p.y - a.y) * aby) / len2));
+  const px = a.x + t * abx;
+  const py = a.y + t * aby;
+  const dx = p.x - px;
+  const dy = p.y - py;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
