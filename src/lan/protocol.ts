@@ -20,7 +20,7 @@
 
 export type SlotType = 'open' | 'human' | 'ai' | 'closed';
 export type AIDifficulty = 'easy' | 'normal' | 'hard' | 'nightmare';
-export type FactionType = 'terran' | 'concentroid';
+export type FactionType = 'terran' | 'concentroid' | 'synonymous';
 export type RaceSelection = FactionType | 'random';
 
 export interface LobbySlot {

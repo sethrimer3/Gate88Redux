@@ -11,6 +11,7 @@ import {
 } from './constants.js';
 import { GRID_CELL_SIZE } from './grid.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
+import { teamColor } from './teamutils.js';
 
 interface BaseVisual {
   side: number;
@@ -26,6 +27,7 @@ export abstract class BuildingBase extends Entity {
   deletionProgress = 0;
   deletionDurationSeconds = 3;
   deleting = false;
+  synonymousVisualKind: 'base' | 'factory' | 'researchlab' | 'laserturret' | null = null;
 
   constructor(type: EntityType, team: Team, position: Vec2, health: number, radius: number = ENTITY_RADIUS.building) {
     super(type, team, position, health, radius);
@@ -41,6 +43,10 @@ export abstract class BuildingBase extends Entity {
 
   protected drawBuildingBase(ctx: CanvasRenderingContext2D, screen: Vec2, detailColor: string, camera: Camera): BaseVisual {
     const v = this.getBaseVisual(camera);
+    if (this.synonymousVisualKind) {
+      this.drawSynonymousBuildingBase(ctx, screen, camera, v);
+      return v;
+    }
     const x = screen.x - v.half;
     const y = screen.y - v.half;
     ctx.save();
@@ -69,6 +75,50 @@ export abstract class BuildingBase extends Entity {
     if (this.deleting) this.drawDeletionOverlay(ctx, x, y, v.side);
     ctx.restore();
     return v;
+  }
+
+  private drawSynonymousBuildingBase(ctx: CanvasRenderingContext2D, screen: Vec2, camera: Camera, v: BaseVisual): void {
+    const sides = this.synonymousVisualKind === 'base' ? 6 : this.synonymousVisualKind === 'factory' ? 8 : this.synonymousVisualKind === 'researchlab' ? 5 : 3;
+    const r = v.half * (this.synonymousVisualKind === 'base' ? 1.08 : 0.88);
+    const color = teamColor(this.team);
+    ctx.save();
+    ctx.globalAlpha = Math.max(0.15, this.buildProgress);
+    ctx.fillStyle = this.synonymousVisualKind === 'base' ? 'rgba(7,10,12,0.96)' : 'rgba(14,17,18,0.46)';
+    ctx.strokeStyle = colorToCSS(color, this.powered ? 0.78 : 0.28);
+    ctx.lineWidth = Math.max(1, v.side * 0.025);
+    ctx.beginPath();
+    for (let i = 0; i < sides; i++) {
+      const a = -Math.PI / 2 + (Math.PI * 2 * i) / sides;
+      const x = screen.x + Math.cos(a) * r;
+      const y = screen.y + Math.sin(a) * r;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = colorToCSS(color, 0.42);
+    ctx.lineWidth = Math.max(1, v.side * 0.012);
+    ctx.beginPath();
+    for (let i = 0; i < sides; i++) {
+      const a = -Math.PI / 2 + (Math.PI * 2 * i) / sides;
+      const x = screen.x + Math.cos(a) * r * 0.78;
+      const y = screen.y + Math.sin(a) * r * 0.78;
+      ctx.moveTo(screen.x, screen.y);
+      ctx.lineTo(x, y);
+      const b = a + Math.PI * 2 / sides;
+      ctx.moveTo(x, y);
+      ctx.lineTo(screen.x + Math.cos(b) * r * 0.58, screen.y + Math.sin(b) * r * 0.58);
+    }
+    ctx.stroke();
+    ctx.globalCompositeOperation = 'source-over';
+    const x = screen.x - v.half;
+    const y = screen.y - v.half;
+    this.drawSquareHealthFrame(ctx, x, y, v.side);
+    if (this.buildProgress < 1) this.drawConstructionOverlay(ctx, x, y, v.side);
+    if (this.deleting) this.drawDeletionOverlay(ctx, x, y, v.side);
+    ctx.restore();
   }
 
   private drawSquareHealthFrame(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {

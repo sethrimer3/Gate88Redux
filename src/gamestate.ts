@@ -19,7 +19,8 @@ import { WORLD_WIDTH, WORLD_HEIGHT, ENTITY_RADIUS } from './constants.js';
 import { buildCostForBuildingType, buildDefForEntityType, createBuildingFromDef , type BuildDef } from './builddefs.js';
 import { Colors, colorToCSS } from './colors.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
-import { type FactionType, type ConfluenceTerritoryCircle, CONFLUENCE_BASE_RADIUS, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_PARENT_EXPAND_DURATION, CONFLUENCE_NEW_CIRCLE_GROW_DURATION, CONFLUENCE_INCLUDE_MARGIN, isConfluenceFaction } from './confluence.js';
+import { type FactionType, type ConfluenceTerritoryCircle, CONFLUENCE_BASE_RADIUS, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_PARENT_EXPAND_DURATION, CONFLUENCE_NEW_CIRCLE_GROW_DURATION, CONFLUENCE_INCLUDE_MARGIN, isConfluenceFaction, isSynonymousFaction } from './confluence.js';
+import { SynonymousSwarmSystem, SYNONYMOUS_BASE_PRODUCTION, SYNONYMOUS_BUILD_COST, SYNONYMOUS_FACTORY_PRODUCTION } from './synonymous.js';
 
 export interface DestroyedBuildingRecord {
   type: EntityType;
@@ -82,6 +83,9 @@ export class GameState {
   grid: WorldGrid = new WorldGrid();
   /** PR5: graph-based power network (lazy, dirty-flag cached). */
   power: PowerGraph = new PowerGraph();
+  synonymous: SynonymousSwarmSystem = new SynonymousSwarmSystem();
+  private synonymousBaseAccumulator: Map<Team, number> = new Map();
+  private synonymousFactoryAccumulator: Map<number, number> = new Map();
 
   /**
    * Countdown until the next pending conduit is promoted to the active grid.
@@ -153,8 +157,16 @@ export class GameState {
     } else if (entity instanceof FighterShip) {
       this.fighters.push(entity);
     } else if (entity instanceof BuildingBase) {
+      if (isSynonymousFaction(this.factionByTeam, entity.team) && !entity.synonymousVisualKind) {
+        if (entity.type === EntityType.CommandPost) entity.synonymousVisualKind = 'base';
+        else if (entity.type === EntityType.Factory) entity.synonymousVisualKind = 'factory';
+        else if (entity.type === EntityType.ResearchLab) entity.synonymousVisualKind = 'researchlab';
+        else if (entity.type === EntityType.MissileTurret) entity.synonymousVisualKind = 'laserturret';
+      }
       this.buildings.push(entity);
-      this.addAutomaticBuildingConduits(entity);
+      if (!isSynonymousFaction(this.factionByTeam, entity.team)) {
+        this.addAutomaticBuildingConduits(entity);
+      }
       this.power.markDirty();
     }
   }
@@ -252,6 +264,7 @@ export class GameState {
     for (const ship of this.playerShips.values()) {
       if (ship.alive) ship.update(dt);
     }
+    this.synonymous.update(dt, this.gameTime);
     this.updatePlayerShieldAura();
 
     // Update buildings and power status
@@ -354,6 +367,12 @@ export class GameState {
     // Normal projectile: only hit enemies
     if (proj.team === target.team) return false;
 
+    if (isSynonymousFaction(this.factionByTeam, target.team) && this.synonymous.damageDroneAt(target.team, proj.position, proj.damage)) {
+      this.recentlyDamaged.add(target.id);
+      proj.destroy();
+      return true;
+    }
+
     const dist = proj.position.distanceTo(target.position);
     const combinedRadius = proj.radius + target.radius;
     if (dist < combinedRadius) {
@@ -414,6 +433,9 @@ export class GameState {
   // -----------------------------------------------------------------------
 
   private accumulateResources(dt: number): void {
+    this.accumulateSynonymousDrones(dt);
+    if (isSynonymousFaction(this.factionByTeam, Team.Player)) return;
+
     // Baseline resource gain — player automatically gains resources over time
     if (this.player.alive) {
       this.resources += BASELINE_RESOURCE_GAIN * dt;
@@ -435,6 +457,21 @@ export class GameState {
 
   /** Current player income rate (resources per second). */
   getPlayerIncomePerSecond(): number {
+    if (isSynonymousFaction(this.factionByTeam, Team.Player)) {
+      let income = SYNONYMOUS_BASE_PRODUCTION;
+      for (const b of this.buildings) {
+        if (
+          b.alive &&
+          b.type === EntityType.Factory &&
+          b.team === Team.Player &&
+          b.powered &&
+          b.buildProgress >= 1
+        ) {
+          income += SYNONYMOUS_FACTORY_PRODUCTION;
+        }
+      }
+      return income;
+    }
     let income = this.player.alive ? BASELINE_RESOURCE_GAIN : 0;
     for (const b of this.buildings) {
       if (
@@ -448,6 +485,27 @@ export class GameState {
       }
     }
     return income;
+  }
+
+  private accumulateSynonymousDrones(dt: number): void {
+    for (const [team, faction] of this.factionByTeam) {
+      if (faction !== 'synonymous') continue;
+      const cp = this.getCommandPostForTeam(team);
+      if (!cp?.alive) continue;
+      const next = (this.synonymousBaseAccumulator.get(team) ?? 0) + SYNONYMOUS_BASE_PRODUCTION * dt;
+      const whole = Math.floor(next);
+      this.synonymousBaseAccumulator.set(team, next - whole);
+      if (whole > 0) this.synonymous.produce(team, whole, cp.position, this.gameTime);
+    }
+
+    for (const b of this.buildings) {
+      if (!b.alive || b.type !== EntityType.Factory || !isSynonymousFaction(this.factionByTeam, b.team)) continue;
+      if (!b.powered || b.buildProgress < 1) continue;
+      const next = (this.synonymousFactoryAccumulator.get(b.id) ?? 0) + SYNONYMOUS_FACTORY_PRODUCTION * dt;
+      const whole = Math.floor(next);
+      this.synonymousFactoryAccumulator.set(b.id, next - whole);
+      if (whole > 0) this.synonymous.produce(b.team, whole, b.position, this.gameTime);
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -901,7 +959,11 @@ export class GameState {
     for (const b of this.buildings) {
       if (!b.alive || !b.deleting || b.deletionProgress < 1) continue;
       if (b.team === Team.Player) {
-        this.resources += buildCostForBuildingType(b.type) * b.healthFraction;
+        if (isSynonymousFaction(this.factionByTeam, b.team)) {
+          this.synonymous.releaseBuilding(b.id, this.gameTime);
+        } else {
+          this.resources += buildCostForBuildingType(b.type) * b.healthFraction;
+        }
       }
       b.destroy();
       this.power.markDirty();
@@ -1072,6 +1134,7 @@ export class GameState {
   drawEntities(ctx: CanvasRenderingContext2D, camera: Camera): void {
     this.drawBlueprintOutlines(ctx, camera);
     for (const b of this.buildings) b.draw(ctx, camera);
+    this.synonymous.draw(ctx, camera, this.gameTime);
     for (const f of this.fighters) f.draw(ctx, camera);
     for (const p of this.projectiles) p.draw(ctx, camera);
     for (const ship of this.playerShips.values()) {
@@ -1175,6 +1238,15 @@ export class GameState {
     if (!isConfluenceFaction(this.factionByTeam, team)) {
       this.territoryCirclesByTeam.delete(team);
     }
+    if (faction !== 'synonymous') this.synonymous.clearTeam(team);
+  }
+
+  ensureSynonymousSeedSwarm(team: Team, center: Vec2): void {
+    if (!isSynonymousFaction(this.factionByTeam, team)) return;
+    this.synonymous.setBase(team, center);
+    if (this.synonymous.totalDroneCount(team) === 0) {
+      this.synonymous.spawnAtBase(team, 120, this.gameTime);
+    }
   }
 
   ensureConfluenceSeedCircle(team: Team, center: Vec2): void {
@@ -1207,7 +1279,12 @@ export class GameState {
   }
 
   getPlacementStatus(def: BuildDef, cx: number, cy: number, team: Team): { valid: boolean; reason: string } {
-    if (this.resources < def.cost && team === Team.Player) {
+    if (isSynonymousFaction(this.factionByTeam, team)) {
+      const cost = SYNONYMOUS_BUILD_COST[def.key] ?? 0;
+      if (team === Team.Player && cost > 0 && !this.synonymous.canSpend(team, cost)) {
+        return { valid: false, reason: `Need ${cost} nanobots` };
+      }
+    } else if (this.resources < def.cost && team === Team.Player) {
       return { valid: false, reason: 'Not enough resources' };
     }
     const origin = footprintOrigin(cx, cy, def.footprintCells);
@@ -1237,6 +1314,7 @@ export class GameState {
       }
     }
     if (def.key === 'commandpost') return { valid: true, reason: 'OK' };
+    if (isSynonymousFaction(this.factionByTeam, team)) return { valid: true, reason: 'OK' };
     if (isConfluenceFaction(this.factionByTeam, team)) {
       const center = footprintCenter(cx, cy, def.footprintCells);
       const parent = this.findNearestConfluenceCircle(team, center.x, center.y);

@@ -23,7 +23,7 @@ import { SHIP_WEAPON_OPTIONS, type ShipWeaponId } from './ship.js';
 import { worldToCell, cellKey, cellCenter, footprintCenter, footprintOrigin, GRID_CELL_SIZE } from './grid.js';
 import { defsByTier, BuildDef, getBuildDef } from './builddefs.js';
 import { drawDecodedText } from './decodeText.js';
-import { isConfluenceFaction, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_BASE_RADIUS } from './confluence.js';
+import { isConfluenceFaction, isSynonymousFaction, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_BASE_RADIUS } from './confluence.js';
 
 /** Radius (px) from the menu centre at which items are placed. */
 const ITEM_RADIUS = 110;
@@ -178,11 +178,13 @@ function buildYardItems(state: GameState): RadialItem[] {
 }
 
 function availableBuildDefs(state: GameState): BuildDef[] {
+  const synonymousKeys = new Set(['commandpost', 'factory', 'researchlab', 'missileturret']);
   return [
     ...defsByTier('structure'),
     ...defsByTier('turret'),
     ...defsByTier('yard'),
   ].filter((def) => {
+    if (isSynonymousFaction(state.factionByTeam, Team.Player) && !synonymousKeys.has(def.key)) return false;
     if (def.hidden) return def.key === 'commandpost' && !state.getPlayerCommandPost() && state.player.alive;
     if (def.tier === 'turret') return true;
     return isBuildDefAvailable(def, state);
@@ -960,6 +962,7 @@ class ShipMenu {
 type QuickPaletteItem =
   | { type: 'header'; label: string }
   | { type: 'conduit'; label: string; cost: number }
+  | { type: 'shape'; label: string; cost: number }
   | { type: 'building'; def: BuildDef };
 
 class QuickBuildMenu {
@@ -1054,6 +1057,13 @@ class QuickBuildMenu {
       return { action: 'none' };
     }
 
+    if (selected?.type === 'shape') {
+      const worldPos = camera.screenToWorld(Input.mousePos);
+      if (Input.mouseDown) state.synonymous.shapeLine(Team.Player, worldPos);
+      if (Input.mouse2Down) state.synonymous.recallAt(Team.Player, worldPos);
+      return { action: 'none' };
+    }
+
     if (Input.mousePressed) {
       this.dragMode = 'paint';
       this.touchedThisDrag.clear();
@@ -1124,7 +1134,11 @@ class QuickBuildMenu {
 
     items.push({ type: 'header', label: 'Structures' });
     addBuilding('commandpost');
-    if (!isConfluenceFaction(state.factionByTeam, Team.Player)) items.push({ type: 'conduit', label: 'Conduit', cost: CONDUIT_COST });
+    if (isSynonymousFaction(state.factionByTeam, Team.Player)) {
+      items.push({ type: 'shape', label: 'Shape', cost: 0 });
+    } else if (!isConfluenceFaction(state.factionByTeam, Team.Player)) {
+      items.push({ type: 'conduit', label: 'Conduit', cost: CONDUIT_COST });
+    }
     addBuilding('powergenerator');
     addBuilding('factory');
     addBuilding('researchlab');
@@ -1178,7 +1192,7 @@ class QuickBuildMenu {
 
     if (selected?.type === 'building') {
       this.drawBuildingFootprintCursor(ctx, state, camera, cell, selected.def);
-    } else {
+    } else if (selected?.type === 'conduit') {
       const mode: 'paint' | 'erase' = this.dragMode === 'erase' ? 'erase' : 'paint';
       this.drawConduitBrushCursor(ctx, camera, cell, mode);
     }
@@ -1189,7 +1203,9 @@ class QuickBuildMenu {
     ctx.textBaseline = 'top';
     ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.85);
     ctx.fillText(
-      selected?.type === 'building'
+      selected?.type === 'shape'
+        ? '[Q] Synonymous Shape - hold LMB to draw swarm trails - RMB recalls nearby drones'
+        : selected?.type === 'building'
         ? '[Q] Quick Build - wheel/click selects - LMB places - RMB deletes building - release Q to exit'
         : `[Q] Quick Build - Conduit 2x2 brush $${CONDUIT_COST}/cell - LMB paint - RMB erase - wheel/click selects`,
       screenW * 0.5,
@@ -1198,7 +1214,9 @@ class QuickBuildMenu {
     ctx.font = '10px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
     ctx.fillText(
-      `conduits: ${state.grid.conduitCount()} - queued: ${state.grid.pendingConduitCount()} - cell ${cell.cx},${cell.cy} - resources: $${Math.floor(state.resources)}`,
+      isSynonymousFaction(state.factionByTeam, Team.Player)
+        ? `nanobots: ${state.synonymous.droneCount(Team.Player)} free / ${state.synonymous.totalDroneCount(Team.Player)} total - cell ${cell.cx},${cell.cy}`
+        : `conduits: ${state.grid.conduitCount()} - queued: ${state.grid.pendingConduitCount()} - cell ${cell.cx},${cell.cy} - resources: $${Math.floor(state.resources)}`,
       screenW * 0.5,
       40,
     );
@@ -1307,9 +1325,11 @@ class QuickBuildMenu {
         continue;
       }
       const selected = i === this.selectedIndex;
-      const cost = item.type === 'conduit' ? item.cost : item.def.cost;
+      const cost = item.type === 'conduit' || item.type === 'shape' ? item.cost : item.def.cost;
       const label = item.type === 'conduit'
         ? item.label
+        : item.type === 'shape'
+          ? item.label
         : `${item.def.label} ${item.def.footprintCells}x${item.def.footprintCells}`;
       this.iconRects.push({ index: i, x, y, w, h });
       ctx.fillStyle = selected
@@ -1320,12 +1340,12 @@ class QuickBuildMenu {
         ? colorToCSS(Colors.radar_friendly_status, 0.95)
         : colorToCSS(Colors.radar_gridlines, 0.45);
       ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
-      ctx.fillStyle = state.resources >= cost
+      ctx.fillStyle = item.type === 'shape' || state.resources >= cost
         ? colorToCSS(Colors.general_building, selected ? 1.0 : 0.82)
         : colorToCSS(Colors.alert1, 0.7);
       ctx.fillText(label, x + 8, y + h * 0.5);
       ctx.textAlign = 'right';
-      ctx.fillText(`$${cost}`, x + w - 8, y + h * 0.5);
+      ctx.fillText(item.type === 'shape' ? 'free' : `$${cost}`, x + w - 8, y + h * 0.5);
       ctx.textAlign = 'left';
     }
     ctx.restore();

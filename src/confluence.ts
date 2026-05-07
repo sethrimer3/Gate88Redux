@@ -1,11 +1,11 @@
 import { Team } from './entities.js';
 import { GRID_CELL_SIZE } from './grid.js';
 
-export type FactionType = 'terran' | 'concentroid';
+export type FactionType = 'terran' | 'concentroid' | 'synonymous';
 export type RaceSelection = FactionType | 'random';
 
-export const FACTION_TYPES: FactionType[] = ['terran', 'concentroid'];
-export const RACE_SELECTIONS: RaceSelection[] = ['terran', 'concentroid', 'random'];
+export const FACTION_TYPES: FactionType[] = ['terran', 'concentroid', 'synonymous'];
+export const RACE_SELECTIONS: RaceSelection[] = ['terran', 'concentroid', 'synonymous', 'random'];
 
 export interface ConfluenceTerritoryCircle {
   id: string;
@@ -32,15 +32,20 @@ export function isConfluenceFaction(factionByTeam: Map<Team, FactionType>, team:
   return factionByTeam.get(team) === 'concentroid';
 }
 
+export function isSynonymousFaction(factionByTeam: Map<Team, FactionType>, team: Team): boolean {
+  return factionByTeam.get(team) === 'synonymous';
+}
+
 export function factionLabel(faction: RaceSelection): string {
   switch (faction) {
     case 'terran': return 'Terran';
     case 'concentroid': return 'Concentroid';
+    case 'synonymous': return 'The Synonymous';
     case 'random': return 'Random';
   }
 }
 
 export function resolveRaceSelection(selection: RaceSelection, salt: number = Math.random()): FactionType {
   if (selection !== 'random') return selection;
-  return (Math.abs(Math.floor(salt * 9973)) % 2) === 0 ? 'terran' : 'concentroid';
+  return FACTION_TYPES[Math.abs(Math.floor(salt * 9973)) % FACTION_TYPES.length];
 }

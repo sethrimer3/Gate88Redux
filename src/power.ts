@@ -27,6 +27,7 @@ import type { GameState } from './gamestate.js';
 import { GRID_CELL_SIZE, cellKey, footprintOrigin } from './grid.js';
 import type { BuildingBase } from './building.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
+import { isSynonymousFaction } from './confluence.js';
 
 /** Per-team energized cell set. Keys are `cellKey(cx, cy)`. */
 export interface PowerSnapshot {
@@ -91,6 +92,10 @@ export class PowerGraph {
     const sourceCells = new Map<Team, Array<{ cx: number; cy: number }>>();
     for (const b of state.buildings) {
       if (!b.alive) continue;
+      if (isSynonymousFaction(state.factionByTeam, b.team)) {
+        b.powered = true;
+        continue;
+      }
       if (
         b.type !== EntityType.CommandPost &&
         b.type !== EntityType.PowerGenerator

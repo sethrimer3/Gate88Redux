@@ -6,7 +6,7 @@ import { GameState } from './gamestate.js';
 import { BuildingBase, CommandPost, Shipyard } from './building.js';
 import { RepairTurret, TurretBase } from './turret.js';
 import { FighterShip } from './fighter.js';
-import { Bullet, Missile } from './projectile.js';
+import { Bullet, Laser, Missile } from './projectile.js';
 import { HUD } from './hud.js';
 import { Colors } from './colors.js';
 import { Audio } from './audio.js';
@@ -18,6 +18,7 @@ import {
   difficultyIndex,
 } from './practiceconfig.js';
 import { BuilderDrone, isBuilderDrone } from './builderdrone.js';
+import { isSynonymousFaction } from './confluence.js';
 
 const TURRET_FIRE_CHECK_INTERVAL = 0.1;
 
@@ -82,8 +83,10 @@ export class PracticeMode {
       Math.max(300, Math.min(WORLD_HEIGHT - 300, playerPos.y + Math.sin(angle) * dist)),
     );
     const cp = new CommandPost(basePos, Team.Enemy);
+    if (isSynonymousFaction(state.factionByTeam, Team.Enemy)) cp.synonymousVisualKind = 'base';
     state.addEntity(cp);
     state.ensureConfluenceSeedCircle(Team.Enemy, basePos);
+    state.ensureSynonymousSeedSwarm(Team.Enemy, basePos);
 
     this.planner = new EnemyBasePlanner(Team.Enemy, this.config, Math.floor(Math.random() * 0xffffff));
     this.planner.init(state, cp);
@@ -221,8 +224,16 @@ export class PracticeMode {
         b.showBeam(beamTarget);
         Audio.playSoundAt('regenbullet', playerDist);
       } else if (b.type === EntityType.MissileTurret) {
-        state.addEntity(new Missile(b.team, b.position.clone(), b.turretAngle, b, target));
-        Audio.playSoundAt('missile', playerDist);
+        if (isSynonymousFaction(state.factionByTeam, b.team)) {
+          const beam = new Laser(b.team, b.position.clone(), target.position.clone(), b);
+          beam.damage = 1;
+          beam.lifetime = 0.055;
+          state.addEntity(beam);
+          Audio.playSoundAt('laser', playerDist);
+        } else {
+          state.addEntity(new Missile(b.team, b.position.clone(), b.turretAngle, b, target));
+          Audio.playSoundAt('missile', playerDist);
+        }
       } else if (b.type === EntityType.ExciterTurret) {
         state.addEntity(new Bullet(b.team, b.position.clone(), b.turretAngle, b));
         Audio.playSoundAt('exciterbullet', playerDist);

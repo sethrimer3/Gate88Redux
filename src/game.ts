@@ -20,6 +20,7 @@ import { ROCKET_SWARM_COUNT, ROCKET_SWARM_SPREAD_DEGREES, ROCKET_SWARM_ENERGY_CO
 import { CANNON_HOMING_ENERGY_COST, CANNON_HOMING_COOLDOWN_SECS } from './constants.js';
 import { BuildingBase, CommandPost } from './building.js';
 import { Shipyard } from './building.js';
+import { TurretBase } from './turret.js';
 import { FighterShip, BomberShip } from './fighter.js';
 import { Bullet, GatlingBullet, Laser } from './projectile.js';
 import { GuidedMissile, BomberMissile, HomingBullet, SwarmMissile, ChargedLaserBurst } from './projectile.js';
@@ -37,7 +38,8 @@ import type { LanClient } from './lan/lanClient.js';
 import type { MsgMatchStart, MsgRelayedInput, SerializedShip, SerializedBuilding, SerializedFighter, SerializedProjectile, SerializedTerritoryCircle } from './lan/protocol.js';
 import { PlayerShip } from './ship.js';
 import { teamForSlot } from './teamutils.js';
-import { isConfluenceFaction, resolveRaceSelection, type FactionType, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_BASE_RADIUS } from './confluence.js';
+import { isConfluenceFaction, isSynonymousFaction, resolveRaceSelection, type FactionType, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_BASE_RADIUS } from './confluence.js';
+import { SYNONYMOUS_BUILD_COST } from './synonymous.js';
 import { cloneDefaultVsAIConfig } from './vsaiconfig.js';
 import { GlowLayer } from './glowlayer.js';
 import { DEFAULT_VISUAL_QUALITY, VISUAL_QUALITY_PRESETS, type VisualQuality, type VisualQualityPreset } from './visualquality.js';
@@ -873,7 +875,21 @@ export class Game {
     }
 
     const building = createBuildingFromDef(def, worldPos, Team.Player);
-    this.state.resources -= def.cost;
+    if (isSynonymousFaction(this.state.factionByTeam, Team.Player)) {
+      const cost = SYNONYMOUS_BUILD_COST[type] ?? 0;
+      const kind = type === 'missileturret' ? 'laserturret' : type === 'factory' ? 'factory' : type === 'researchlab' ? 'researchlab' : 'swarm';
+      building.synonymousVisualKind = kind === 'swarm' ? null : kind;
+      if (kind === 'laserturret' && building instanceof TurretBase) {
+        building.fireRate = 6;
+        building.range = 240;
+      }
+      if (cost > 0 && !this.state.synonymous.allocateToBuilding(Team.Player, building.id, kind, worldPos, cost, this.state.gameTime)) {
+        this.hud.showMessage(`Need ${cost} nanobots`, Colors.alert1, 3);
+        return;
+      }
+    } else {
+      this.state.resources -= def.cost;
+    }
     this.state.addEntity(building);
     this.state.applyConfluencePlacement(Team.Player, worldPos, String(building.id));
     this.state.selectedBuildType = type;
@@ -1258,15 +1274,17 @@ export class Game {
     // Create player command post near player
     const cpPos = new Vec2(playerStart.x, playerStart.y + 80);
     const cp = new CommandPost(cpPos, Team.Player);
+    if (playerFaction === 'synonymous') cp.synonymousVisualKind = 'base';
     this.state.addEntity(cp);
     this.state.ensureConfluenceSeedCircle(Team.Player, cpPos);
+    this.state.ensureSynonymousSeedSwarm(Team.Player, cpPos);
 
     // Seed a small starter conduit network around the player CP so that
     // shipyards / labs / factories placed near the CP can be powered
     // immediately. Without this, post-PR8 power rules (shipyards no
     // longer self-power) would force the player to paint conduits
     // before their first shipyard could function.
-    if (!isConfluenceFaction(this.state.factionByTeam, Team.Player)) {
+    if (!isConfluenceFaction(this.state.factionByTeam, Team.Player) && !isSynonymousFaction(this.state.factionByTeam, Team.Player)) {
       const startCx = Math.floor(cpPos.x / GRID_CELL_SIZE);
       const startCy = Math.floor(cpPos.y / GRID_CELL_SIZE);
       for (let dx = -2; dx <= 2; dx++) {
@@ -1459,11 +1477,13 @@ export class Game {
     // Command post for the local player.
     const cpPos = new Vec2(playerStart.x, playerStart.y + 80);
     const cp = new CommandPost(cpPos, myTeam);
+    if (myFaction === 'synonymous') cp.synonymousVisualKind = 'base';
     this.state.addEntity(cp);
     this.state.setFaction(myTeam, myFaction);
     this.state.ensureConfluenceSeedCircle(myTeam, cpPos);
+    this.state.ensureSynonymousSeedSwarm(myTeam, cpPos);
 
-    if (!isConfluenceFaction(this.state.factionByTeam, myTeam)) {
+    if (!isConfluenceFaction(this.state.factionByTeam, myTeam) && !isSynonymousFaction(this.state.factionByTeam, myTeam)) {
       const startCx = Math.floor(cpPos.x / GRID_CELL_SIZE);
       const startCy = Math.floor(cpPos.y / GRID_CELL_SIZE);
       for (let dx = -2; dx <= 2; dx++) {

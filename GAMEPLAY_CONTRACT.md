@@ -6,7 +6,8 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 
 - Terran is the original conduit faction. It uses the Q conduit brush, conduit-graph power, and automatic conduit blueprints around placed buildings.
 - Concentroid is the circle-territory faction. It does not use conduits; buildings extend territory circles and must be placed on the Concentroid frontier band.
-- Practice, Vs. AI, and LAN setup expose race selection. Random resolves to either Terran or Concentroid when the match starts.
+- The Synonymous is the nanobot-swarm faction. It does not use conduits or grid power; the Command Post and Factories produce nanobot drones, Q exposes a free Shape tool, and the first playable structures are Factory, Research Lab, and a weak fast Laser Turret represented through the Missile Turret slot.
+- Practice, Vs. AI, and LAN setup expose race selection. Random resolves to Terran, Concentroid, or The Synonymous when the match starts.
 
 ## Controls
 
@@ -15,6 +16,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 - Hold Q for the build menu, choose a building from the left palette, then left click or drag over valid footprints to place it. Right mouse deletes player buildings.
 - Hold Z for the ship menu, view ship stats/upgrades, and select the active primary weapon by clicking or using the mouse wheel.
 - Hold Q for the quick-build palette. Conduit is first; mouse wheel or clicking a left-side palette icon selects what to place. With Conduit selected, left mouse queues player conduits with a 2x2 brush and right mouse erases with the same brush. With a building selected, left mouse places that building.
+- For The Synonymous, Q replaces Conduit with Shape. Holding left mouse draws freeform swarm trails from the Command Post; right mouse recalls nearby free drones back toward the base. Buildings consume nanobots instead of money, and deleting a Synonymous building releases its nanobots back into the swarm.
 - Hold X for research. Hold C for ship commands for groups 1, 2, 3, or ALL. Hold 1, 2, or 3 and click a shipyard to assign that number; hold a number and click elsewhere to set that group's waypoint; hold a number and right click to dock that group. Hold Tab for radar. F3 toggles the debug overlay. Escape pauses.
 
 ## Win And Loss
@@ -29,6 +31,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 - The player gains a small baseline income over time.
 - Finished, powered Factories add bonus income.
 - Buildings, conduits, and research spend resources only when the action succeeds. Conduits cost $1 per cell.
+- The Synonymous player does not gain money income. Its visible free nanobot count is the spendable resource; Command Posts and Factories each produce 1 nanobot per second.
 
 ## Building Placement
 
@@ -36,6 +39,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 - Buildings snap to grid footprints: most buildings are 3x3, Factories and Research Labs are 4x4, and Command Posts are 6x6.
 - Placement requires enough resources, an empty cell, world bounds, and adjacency to the player power network.
 - Concentroid placement instead requires the building footprint to sit on the race's frontier band.
+- Synonymous placement is freeform and does not require grid power or frontier bands, but the player must have enough free nanobots for the selected structure.
 - The player power network means a Command Post, Power Generator, powered conduit, existing conduit, or pending conduit next to the target cell.
 - Command Post rebuild is hidden until the player has no Command Post.
 - Invalid placement shows a red cursor and does not spend resources or fire weapons.
