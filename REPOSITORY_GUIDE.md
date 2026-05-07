@@ -161,7 +161,8 @@ This document maps the repository structure and gives a concise, broad summary o
 | `src/entities.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/fighter.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/fonts.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
-| `src/game.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
+| `src/game.ts` | Main client game coordinator. | Owns loop, mode transitions, input, spawning, LAN snapshots, and high-level render orchestration; heavyweight draw helpers live in `src/gameRender.ts`. |
+| `src/gameRender.ts` | Extracted game render helpers. | Draws waypoint markers, debug overlay, and Concentroid territory visuals for `src/game.ts`. |
 | `src/gamestate.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/glowlayer.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/grid.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |

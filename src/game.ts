@@ -11,7 +11,7 @@ import { drawEdgeIndicators, drawRadarOverlay } from './radar.js';
 import { ActionMenu, MenuResult } from './actionmenu.js';
 import { HUD } from './hud.js';
 import { MainMenu, MenuAction } from './menu.js';
-import { Colors, colorToCSS, type Color } from './colors.js';
+import { Colors, colorToCSS } from './colors.js';
 import { Team, EntityType, ShipGroup, Entity } from './entities.js';
 import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS, ACTIVE_RESEARCH_ITEMS } from './constants.js';
 import { GATLING_OVERDRIVE_DURATION_SECS, GATLING_OVERHEAT_DURATION_SECS, GATLING_OVERDRIVE_FIRE_RATE_DIVISOR } from './constants.js';
@@ -43,17 +43,11 @@ import { SYNONYMOUS_BUILD_COST } from './synonymous.js';
 import { cloneDefaultVsAIConfig } from './vsaiconfig.js';
 import { GlowLayer } from './glowlayer.js';
 import { DEFAULT_VISUAL_QUALITY, VISUAL_QUALITY_PRESETS, type VisualQuality, type VisualQualityPreset } from './visualquality.js';
+import { drawConfluenceTerritory, drawDebugOverlay, drawWaypointMarkers, type ShipCommandGroup, type WaypointMarker } from './gameRender.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
-type ShipCommandGroup = ShipGroup | 'all';
-type WaypointMarker = { pos: Vec2; issuedAt: number };
 
 const PLAYER_FIRE_COOLDOWN = WEAPON_STATS.fire.fireRate * DT;
-const GROUP_COLORS: Record<ShipGroup, Color> = {
-  [ShipGroup.Red]: Colors.redgroup,
-  [ShipGroup.Green]: Colors.greengroup,
-  [ShipGroup.Blue]: Colors.bluegroup,
-};
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -1795,7 +1789,7 @@ export class Game {
     // Advance the fluid simulation by the frame delta and draw it under the game world.
     this.spaceFluid.step(this.lastFrameMs);
     this.spaceFluid.render(ctx);
-    this.drawConfluenceTerritory(ctx);
+    drawConfluenceTerritory(ctx, this.camera, this.state, this.territoryPulseTime);
     this.state.grid.draw(
       ctx,
       this.camera,
@@ -1806,7 +1800,7 @@ export class Game {
       this.visualPreset.conduitShimmer,
     );
     this.state.drawEntities(ctx, this.camera);
-    this.drawWaypointMarkers(ctx);
+    drawWaypointMarkers(ctx, this.camera, this.state, this.waypointMarkers);
     this.drawGlowLayer();
     this.glowLayer.compositeTo(ctx);
 
@@ -1851,7 +1845,16 @@ export class Game {
     }
 
     if (this.debugOverlay) {
-      this.drawDebugOverlay(ctx, w);
+      drawDebugOverlay(ctx, {
+        screenW: w,
+        state: this.state,
+        lastFrameMs: this.lastFrameMs,
+        lanClient: this.lanClient,
+        lanMySlot: this.lanMySlot,
+        lanLastSnapshotSeq: this.lanLastSnapshotSeq,
+        lanSnapshotSeq: this.lanSnapshotSeq,
+        lanAiDirectorCount: this.lanAiDirectors.length,
+      });
     }
 
     // Pause overlay
@@ -1869,130 +1872,6 @@ export class Game {
       `Bases destroyed: ${this.practiceMode.score.basesDestroyed} | Time: ${Math.floor(this.practiceMode.score.timeSurvived)}s`,
       10, 10,
     );
-  }
-
-  private drawWaypointMarkers(ctx: CanvasRenderingContext2D): void {
-    const drawOrder: ShipCommandGroup[] = [ShipGroup.Red, ShipGroup.Green, ShipGroup.Blue, 'all'];
-    for (const group of drawOrder) {
-      const marker = this.waypointMarkers.get(group);
-      if (!marker) continue;
-      const screen = this.camera.worldToScreen(marker.pos);
-      const color = group === 'all' ? Colors.mainguy : GROUP_COLORS[group];
-      const label = group === 'all' ? 'ALL' : `${group + 1}`;
-      const t = this.state.gameTime - marker.issuedAt;
-      const phase = this.state.gameTime * 3.2 + (group === 'all' ? 1.8 : group);
-      const pulse = 0.5 + 0.5 * Math.sin(phase);
-      const ring = (18 + pulse * 6) * this.camera.zoom;
-      const lift = Math.sin(this.state.gameTime * 1.7 + t) * 3 * this.camera.zoom;
-
-      ctx.save();
-      ctx.translate(screen.x, screen.y + lift);
-      ctx.globalCompositeOperation = 'lighter';
-
-      const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, ring * 1.8);
-      grad.addColorStop(0, colorToCSS(color, 0.26));
-      grad.addColorStop(0.42, colorToCSS(color, 0.10));
-      grad.addColorStop(1, colorToCSS(color, 0));
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.arc(0, 0, ring * 1.8, 0, Math.PI * 2);
-      ctx.fill();
-
-      for (let i = 0; i < 3; i++) {
-        ctx.save();
-        ctx.rotate(this.state.gameTime * (0.9 + i * 0.23) + i * Math.PI * 0.66);
-        ctx.strokeStyle = colorToCSS(color, 0.45 - i * 0.08);
-        ctx.lineWidth = Math.max(1, 1.4 * this.camera.zoom);
-        ctx.beginPath();
-        ctx.ellipse(0, 0, ring * (1 + i * 0.26), ring * (0.42 + i * 0.12), 0, 0.18, Math.PI * 1.72);
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      ctx.strokeStyle = colorToCSS(color, 0.76);
-      ctx.lineWidth = Math.max(1, 1.2 * this.camera.zoom);
-      ctx.beginPath();
-      ctx.moveTo(0, -ring * 0.9);
-      ctx.lineTo(ring * 0.7, 0);
-      ctx.lineTo(0, ring * 0.9);
-      ctx.lineTo(-ring * 0.7, 0);
-      ctx.closePath();
-      ctx.stroke();
-
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.font = `bold ${Math.max(9, 12 * this.camera.zoom)}px "Poiret One", sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = colorToCSS(Colors.particles_switch, 0.92);
-      ctx.fillText(label, 0, 0);
-      ctx.restore();
-    }
-  }
-
-  private drawDebugOverlay(ctx: CanvasRenderingContext2D, screenW: number): void {
-    const playerBuildings = this.state.buildings.filter((b) => b.alive && b.team === Team.Player);
-    const enemyBuildings = this.state.buildings.filter((b) => b.alive && b.team === Team.Enemy);
-    const powered = playerBuildings.filter((b) => b.buildProgress >= 1 && b.powered).length;
-    const unpowered = playerBuildings.filter((b) => b.buildProgress >= 1 && !b.powered).length;
-    const research = this.state.researchProgress.item
-      ? `${this.state.researchProgress.item} ${Math.floor(
-          (this.state.researchProgress.progress / Math.max(1, this.state.researchProgress.timeNeeded)) * 100,
-        )}%`
-      : 'none';
-    const groups = [ShipGroup.Red, ShipGroup.Green, ShipGroup.Blue]
-      .map((g) => `${g + 1} ${this.state.getFighterGroupCounts(Team.Player, g).total}`)
-      .join(' / ');
-
-    const lines = [
-      `mode ${this.state.gameMode}  frame ${this.lastFrameMs.toFixed(1)}ms`,
-      `resources ${Math.floor(this.state.resources)}  build ${this.state.selectedBuildType ?? 'none'}`,
-      `ship hp ${Math.ceil(this.state.player.health)}/${this.state.player.maxHealth}  battery ${Math.floor(this.state.player.battery)}/${this.state.player.maxBattery}`,
-      `buildings player ${playerBuildings.length} enemy ${enemyBuildings.length}`,
-      `conduits ${this.state.grid.conduitCount()} pending ${this.state.grid.pendingConduitCount()}`,
-      `power player ${powered} powered / ${unpowered} unpowered`,
-      `research ${research}`,
-      `fighters ${groups}`,
-    ];
-
-    // LAN-specific debug lines.
-    const isLan = this.state.gameMode === 'lan_host' || this.state.gameMode === 'lan_client';
-    if (isLan && this.lanClient) {
-      const role = this.state.gameMode === 'lan_host' ? 'host' : 'client';
-      lines.push(`LAN ${role}  slot ${this.lanMySlot + 1}  ping ${this.lanClient.pingMs}ms`);
-      if (this.state.gameMode === 'lan_client') {
-        const age = this.lanClient.lastSnapshotAt > 0
-          ? Math.round(performance.now() - this.lanClient.lastSnapshotAt)
-          : -1;
-        const seqStr = this.lanLastSnapshotSeq >= 0 ? `seq ${this.lanLastSnapshotSeq}` : 'no snapshot';
-        lines.push(`snapshot ${seqStr}  age ${age >= 0 ? age + 'ms' : 'n/a'}`);
-        if (age > 3000) lines.push('⚠ WARNING: No snapshot for >3s');
-      }
-      if (this.state.gameMode === 'lan_host') {
-        lines.push(`snap seq ${this.lanSnapshotSeq}  AI dirs ${this.lanAiDirectors.length}`);
-      }
-    }
-
-    ctx.save();
-    ctx.font = '11px "Poiret One", sans-serif';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    const width = 330;
-    const height = lines.length * 15 + 12;
-    const x = screenW - width - 10;
-    const y = 10;
-    ctx.fillStyle = 'rgba(0,0,0,0.62)';
-    ctx.fillRect(x, y, width, height);
-    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.55);
-    ctx.strokeRect(x + 0.5, y + 0.5, width - 1, height - 1);
-    for (let i = 0; i < lines.length; i++) {
-      // Highlight LAN warning lines in yellow.
-      const isWarning = lines[i].startsWith('⚠');
-      ctx.fillStyle = isWarning
-        ? colorToCSS(Colors.alert2, 0.95)
-        : colorToCSS(Colors.general_building, 0.9);
-      ctx.fillText(lines[i], x + 8, y + 7 + i * 15);
-    }
-    ctx.restore();
   }
 
   private drawGlowLayer(): void {
@@ -2120,52 +1999,6 @@ export class Game {
     }
   }
 
-
-  private drawConfluenceTerritory(ctx: CanvasRenderingContext2D): void {
-    const circles = this.state.territoryCirclesByTeam.get(Team.Player) ?? [];
-    const t = this.territoryPulseTime;
-    for (const c of circles) {
-      const sc = this.camera.worldToScreen(new Vec2(c.x, c.y));
-      const rr = c.radius * this.camera.zoom;
-      const grad = ctx.createRadialGradient(sc.x, sc.y, rr * 0.2, sc.x, sc.y, rr);
-      grad.addColorStop(0, 'rgba(80,230,220,0.16)');
-      grad.addColorStop(1, 'rgba(80,230,220,0.03)');
-      ctx.fillStyle = grad;
-      ctx.beginPath(); ctx.arc(sc.x, sc.y, rr, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = 'rgba(120,255,245,0.35)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(sc.x, sc.y, rr, 0, Math.PI * 2); ctx.stroke();
-
-      // Slowly rotating dashed inner ring — gives the territory a living feel.
-      const innerR = rr * 0.78;
-      const rotAngle = t * 0.22;
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.setLineDash([14, 10]);
-      ctx.lineDashOffset = -rotAngle * 80;
-      ctx.strokeStyle = 'rgba(80,255,240,0.14)';
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.arc(sc.x, sc.y, innerR, 0, Math.PI * 2); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.restore();
-
-      // Periodic outward pulse ring: a ring that expands from the border edge
-      // and fades out, repeating every ~3 s per circle (offset by circle id).
-      const PULSE_PERIOD = 3.2;
-      const phaseOffset = (c.x * 0.007 + c.y * 0.013) % PULSE_PERIOD;
-      const pulseT = ((t + phaseOffset) % PULSE_PERIOD) / PULSE_PERIOD; // 0..1
-      if (pulseT < 0.55) {
-        const pulseR = rr * (1 + pulseT * 0.28);
-        const pulseAlpha = (1 - pulseT / 0.55) * 0.28;
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.strokeStyle = `rgba(80,255,240,${pulseAlpha.toFixed(3)})`;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.arc(sc.x, sc.y, pulseR, 0, Math.PI * 2); ctx.stroke();
-        ctx.restore();
-      }
-    }
-  }
 
   private drawScreenOverlays(ctx: CanvasRenderingContext2D, w: number, h: number): void {
     if (this.overlayW !== w || this.overlayH !== h || !this.vignetteGradient) {
