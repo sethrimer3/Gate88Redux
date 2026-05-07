@@ -1,209 +1,595 @@
 /**
- * Concentric-ring base planner for the Practice enemy.
+ * Concentric-ring base planner for the Practice enemy — full architecture upgrade.
  *
- * Owns one Command Post and grows the base outward as a sequence of
- * conduit-and-structure rings. Builder drones travel to each chosen
- * cell and "lay down" the structure; ships only spawn from powered
- * shipyards that the planner has finished constructing.
+ * The planner now operates in three distinct phases:
  *
- * Design notes:
+ *   1. Plan generation (init + ring advance):
+ *      Computes explicit conduit ring cells and spoke cells using geometry
+ *      utilities from aibaseplan.ts. Assigns building slots within each ring
+ *      according to the chosen doctrine. Plans are deterministic and seeded.
  *
- *   • Rings are planned deterministically using a seeded hash so the
- *     base looks organic but can be reproduced. Lower difficulty leaves
- *     gaps; higher difficulty adds redundant crosslinks and spokes.
- *   • The planner does not run every tick. It re-plans on a timer
- *     scaled by `difficultyTickMul`.
- *   • Only `BuilderDrone` instances perform construction. The planner
- *     never spawns a structure directly except for the initial
- *     conduit network around the Command Post.
+ *   2. Build queue management (periodic replan):
+ *      Prioritises spoke conduit → inner ring conduit → inner ring buildings →
+ *      outer ring conduit → outer ring buildings. Uses AIScore to skip
+ *      dangerously exposed building slots on lower difficulties.
+ *
+ *   3. Adaptive behavior (ongoing tracking):
+ *      Records player actions (conduit cuts, builder kills, rushes) and adjusts
+ *      spoke redundancy, escort behavior, and repair priority in response.
+ *
+ * Coordinator interface (used by VsAIDirector):
+ *   getHighestPriorityDefensePoint()  — where to defend
+ *   getActiveConstructionSites()      — current builder targets
+ *   getWeakestRingSegment()           — most incomplete ring zone
+ *   getSuggestedHarassTarget()        — best player asset to attack
+ *   getCurrentDoctrine()              — active doctrine type
+ *   getActiveRaidTarget()             — current raid objective position
+ *
+ * Performance notes:
+ *   • Ring cells are computed once at init; only re-generated on ring advance.
+ *   • Queue walk fires on a timer, not every tick.
+ *   • AIScore uses lazy per-cell caching; only queried for building slots.
+ *   • No grid-wide scans occur during normal play.
  */
 
 import { Vec2 } from './math.js';
-import { Team, EntityType } from './entities.js';
+import { Team } from './entities.js';
 import { GameState } from './gamestate.js';
 import { BuildingBase, CommandPost, Shipyard, PowerGenerator, ResearchLab, Factory } from './building.js';
 import { TurretBase } from './turret.js';
 import { GRID_CELL_SIZE, cellCenter, cellKey } from './grid.js';
-import { BuildDef, getBuildDef } from './builddefs.js';
-import { BuilderDrone, BuildOrder } from './builderdrone.js';
+import { WORLD_WIDTH, WORLD_HEIGHT } from './constants.js';
+import { getBuildDef } from './builddefs.js';
+import { BuilderDrone, isBuilderDrone } from './builderdrone.js';
+import type { BuildOrder } from './builderdrone.js';
 import {
   PracticeConfig,
   difficultyIndex,
-  difficultyRedundancy,
   difficultyTickMul,
 } from './practiceconfig.js';
+import {
+  generateRingCells,
+  generateRingBuildingSlots,
+  generateSpokeCells,
+  generateBastionLoop,
+  RingPlan,
+  BastionPlan,
+} from './aibaseplan.js';
+import { DoctrineType, Doctrine, DOCTRINES, pickDoctrine } from './aidoctrine.js';
+import { RaidPlanner } from './airaids.js';
+import { AIScore, cellOf } from './aiscore.js';
 
-/** What a ring of the base contains, in order of planner priority. */
-interface RingRecipe {
-  /** Approximate radius, in cells, from the Command Post. */
-  radius: number;
-  /** Building keys to attempt, in priority order. */
-  buildings: string[];
-  /** How many of each building. */
-  counts: Record<string, number>;
-}
-
-/**
- * Ring catalogue. Each successive ring adds heavier structures.
- * The planner walks rings 0..N in order and only proceeds to ring k+1
- * after the bulk of ring k is in place. The radius is in conduit cells.
- */
-const RING_RECIPES: RingRecipe[] = [
-  // Ring 1: early defense / power
-  {
-    radius: 4,
-    buildings: ['powergenerator', 'missileturret', 'factory'],
-    counts: { powergenerator: 2, missileturret: 2, factory: 1 },
-  },
-  // Ring 2: production
-  {
-    radius: 8,
-    buildings: ['powergenerator', 'fighteryard', 'missileturret', 'exciterturret', 'factory'],
-    counts: {
-      powergenerator: 2, fighteryard: 1,
-      missileturret: 2, exciterturret: 1, factory: 1,
-    },
-  },
-  // Ring 3: research + heavier defense
-  {
-    radius: 12,
-    buildings: ['researchlab', 'massdriverturret', 'powergenerator', 'missileturret', 'factory'],
-    counts: {
-      researchlab: 1, massdriverturret: 2, powergenerator: 2,
-      missileturret: 2, factory: 1,
-    },
-  },
-  // Ring 4+: escalation
-  {
-    radius: 16,
-    buildings: ['bomberyard', 'massdriverturret', 'exciterturret', 'powergenerator', 'fighteryard'],
-    counts: {
-      bomberyard: 1, massdriverturret: 2, exciterturret: 2,
-      powergenerator: 2, fighteryard: 1,
-    },
-  },
-];
-
-/** Deterministic 32-bit hash for (a,b,seed). Output in [0,1). */
-function hash01(a: number, b: number, seed: number): number {
-  let h = (a | 0) * 374761393 + (b | 0) * 668265263 + (seed | 0) * 2147483647;
-  h = (h ^ (h >>> 13)) >>> 0;
-  h = Math.imul(h, 1274126177) >>> 0;
-  h = (h ^ (h >>> 16)) >>> 0;
-  return h / 0x100000000;
-}
+// ---------------------------------------------------------------------------
+// Public snapshot type
+// ---------------------------------------------------------------------------
 
 export interface PlannerSnapshot {
-  /** Current ring index the planner is filling. */
   currentRing: number;
-  /** How many builds completed since start. */
   buildsPlaced: number;
-  /** Live builder drones for this team. */
   builderCount: number;
-  /** Pending construction queue size. */
   queueSize: number;
+  doctrine: DoctrineType;
+  ringCount: number;
+  /** Fraction of all ring conduit cells queued so far [0,1]. */
+  conduitProgress: number;
 }
+
+// ---------------------------------------------------------------------------
+// Module-level constants
+// ---------------------------------------------------------------------------
+
+/** Maximum number of radial spokes regardless of doctrine or adaptive additions. */
+const MAX_SPOKES = 8;
+
+/** 4-connected cardinal neighbour offsets for grid-neighbour operations. */
+const CARDINAL_OFFSETS: ReadonlyArray<readonly [number, number]> = [
+  [-1, 0], [1, 0], [0, -1], [0, 1],
+];
+
+// ---------------------------------------------------------------------------
+// Internal: adaptive-behavior counters
+// ---------------------------------------------------------------------------
+
+interface AdaptiveStats {
+  conduitCutsObserved: number;
+  builderKillsObserved: number;
+  commandPostRushes: number;
+  lastBuilderKillTime: number;
+}
+
+// ---------------------------------------------------------------------------
+// EnemyBasePlanner
+// ---------------------------------------------------------------------------
 
 export class EnemyBasePlanner {
   readonly team: Team;
   readonly config: PracticeConfig;
-  /** Center cell of the base — the Command Post's grid cell. */
+
+  /** Command Post grid cell — center of all ring geometry. */
   private centerCx: number = 0;
   private centerCy: number = 0;
-  /** Hash seed so the same base produces the same layout. */
-  private seed: number;
-  /** Cells already chosen as build sites (whether finished or in flight). */
-  private claimedCells: Set<string> = new Set();
-  /** Build queue of (cx,cy,def). */
-  private queue: BuildOrder[] = [];
-  /** Index of the ring currently being filled. */
-  private currentRing: number = 0;
-  /** Per-ring count of structures placed, keyed by building key. */
-  private ringPlacements: Map<number, Record<string, number>> = new Map();
-  /** Repeating planner tick. */
-  private tickTimer: number = 0;
-  /** Builder rebuild bookkeeping. */
-  private rebuildTimers: number[] = [];
-  /** Builder drone references. We rely on `state.fighters` truth-of-list. */
-  builders: BuilderDrone[] = [];
+  /** Deterministic seed. Ring geometry is reproducible within a match. */
+  private readonly seed: number;
 
+  // -- Doctrine ---------------------------------------------------------------
+
+  private doctrineType: DoctrineType;
+  private doctrine: Doctrine;
+
+  // -- Plan state -------------------------------------------------------------
+
+  private rings: RingPlan[] = [];
+  /** Spoke paths: one array of cells per spoke, ordered center → outer. */
+  private spokes: Array<Array<{ cx: number; cy: number }>> = [];
+  /** Per-spoke queue pointer: how many cells have been issued as orders. */
+  private spokeQueuePtrs: number[] = [];
+  /** Forward bastions (Raider / Adaptive only). */
+  private bastions: BastionPlan[] = [];
+  /** Ring currently being filled. */
+  private currentRing: number = 0;
+  /** Total build completions since init. */
   buildsPlaced: number = 0;
+  /** Additional spokes added by adaptive behavior. */
+  private extraSpokes: number = 0;
+
+  // -- Queue + claimed sets ---------------------------------------------------
+
+  /** Pending build orders to dispatch to idle builders. */
+  private queue: BuildOrder[] = [];
+  /** Keys of conduit cells that have been queued (avoids double-queuing). */
+  private claimedConduitKeys: Set<string> = new Set();
+  /** Keys of building cells that have been queued (avoids double-queuing). */
+  private claimedBuildingKeys: Set<string> = new Set();
+
+  // -- Timers -----------------------------------------------------------------
+
+  private tickTimer: number = 0;
+  private rebuildTimers: number[] = [];
+
+  // -- Subsystems -------------------------------------------------------------
+
+  builders: BuilderDrone[] = [];
+  private raidPlanner: RaidPlanner = new RaidPlanner();
+  private aiScore: AIScore = new AIScore();
+
+  // -- Adaptive state ---------------------------------------------------------
+
+  private adaptive: AdaptiveStats = {
+    conduitCutsObserved: 0,
+    builderKillsObserved: 0,
+    commandPostRushes: 0,
+    lastBuilderKillTime: -9999,
+  };
 
   constructor(team: Team, config: PracticeConfig, seed: number = 1337) {
     this.team = team;
     this.config = config;
     this.seed = seed;
+    this.doctrineType = pickDoctrine(seed);
+    this.doctrine = DOCTRINES[this.doctrineType];
   }
 
+  // ---------------------------------------------------------------------------
+  // Init
+  // ---------------------------------------------------------------------------
+
   /**
-   * Initialise the base: place a tiny initial conduit network around the
-   * Command Post so the network has somewhere to grow from. Spawn one
-   * builder drone immediately so the player sees activity from frame 1.
+   * Seed the base: plant the initial conduit cross, generate the full ring
+   * plan, and spawn the first builder drone.
    */
   init(state: GameState, cp: CommandPost): void {
-    const center = state.grid; // alias
-    const cell = {
-      cx: Math.floor(cp.position.x / GRID_CELL_SIZE),
-      cy: Math.floor(cp.position.y / GRID_CELL_SIZE),
-    };
-    this.centerCx = cell.cx;
-    this.centerCy = cell.cy;
+    const c = cellOf(cp.position);
+    this.centerCx = c.cx;
+    this.centerCy = c.cy;
 
-    // Seed an initial 5-cell + sign of conduit so builders have somewhere
-    // to attach, and so the network starts powered.
-    const seedCells: Array<[number, number]> = [
-      [0, 0],
-      [1, 0], [-1, 0], [0, 1], [0, -1],
-    ];
-    for (const [dx, dy] of seedCells) {
-      center.addConduit(this.centerCx + dx, this.centerCy + dy, this.team);
+    // Initial 5-cell conduit cross so the network starts powered.
+    const initCells: Array<[number, number]> = [[0,0],[1,0],[-1,0],[0,1],[0,-1]];
+    for (const [dx, dy] of initCells) {
+      const cx = this.centerCx + dx;
+      const cy = this.centerCy + dy;
+      state.grid.addConduit(cx, cy, this.team);
+      this.claimedConduitKeys.add(cellKey(cx, cy));
     }
     state.power.markDirty();
 
-    // Kick off the queue.
-    this.replanQueue();
-
-    // Seed one builder so the player sees activity immediately.
+    this.generatePlan();
+    this.replanQueue(state);
     this.spawnBuilder(state, cp);
   }
 
-  /** Live builder count after pruning the dead. */
-  livingBuilders(): number {
-    this.builders = this.builders.filter((b) => b.alive);
-    return this.builders.length;
-  }
+  // ---------------------------------------------------------------------------
+  // Plan generation
+  // ---------------------------------------------------------------------------
 
   /**
-   * Per-tick update. Cheap fast path most frames; heavy planner walk
-   * only when `tickTimer` fires.
+   * Compute ring conduit loops, spoke paths, and building slot positions from
+   * the active doctrine and seed. Safe to call again when parameters change
+   * (e.g., extra spokes from adaptive behavior).
    */
+  private generatePlan(): void {
+    const idx  = difficultyIndex(this.config.difficulty);
+    const recipes = this.doctrine.ringRecipes;
+    const gapProb  = this.doctrine.gapProbPerDifficulty[idx];
+    const numSpokes = Math.min(
+      this.doctrine.spokesPerDifficulty[idx] + this.extraSpokes,
+      MAX_SPOKES,
+    );
+    const outerRadius = recipes.length > 0 ? recipes[recipes.length - 1].radius : 8;
+
+    // --- Rings ---------------------------------------------------------------
+    const prevRings = this.rings;
+    this.rings = [];
+    for (let r = 0; r < recipes.length; r++) {
+      const recipe = recipes[r];
+      // Use ~π × radius angular slots for a smooth ring.
+      const numSlots = Math.max(10, Math.round(Math.PI * recipe.radius));
+      const conduitCells = generateRingCells(
+        this.centerCx, this.centerCy,
+        recipe.radius, numSlots, gapProb,
+        this.seed + r * 100,
+      );
+      const rawSlots = generateRingBuildingSlots(
+        this.centerCx, this.centerCy,
+        recipe.radius, recipe, conduitCells,
+        this.seed + r * 100 + 50,
+      );
+      const buildingSlots = rawSlots.map((s) => ({
+        ...s,
+        queued: false,
+        placed: false,
+      }));
+
+      // Preserve queue pointer from a previous plan if this ring already existed.
+      const prev = prevRings[r];
+      const conduitQueuePtr = prev ? Math.min(prev.conduitQueuePtr, conduitCells.length) : 0;
+
+      this.rings.push({
+        ringIndex: r,
+        radiusCells: recipe.radius,
+        role: recipe.role,
+        conduitCells,
+        conduitQueuePtr,
+        buildingSlots,
+      });
+    }
+
+    // --- Spokes --------------------------------------------------------------
+    const prevPtrs = this.spokeQueuePtrs.slice();
+    this.spokes = generateSpokeCells(
+      this.centerCx, this.centerCy,
+      outerRadius, numSpokes, this.seed + 1000,
+    );
+    this.spokeQueuePtrs = this.spokes.map((_, i) => prevPtrs[i] ?? 0);
+
+    // --- Bastions (Raider / Adaptive doctrine) --------------------------------
+    if (this.doctrine.useForwardBastions && this.bastions.length === 0) {
+      this.generateBastions(outerRadius);
+    }
+  }
+
+  private generateBastions(outerRadius: number): void {
+    const idx = difficultyIndex(this.config.difficulty);
+    const count = 1 + idx; // Easy=1, Nightmare=5
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 + this.seed * 0.001 + i * 0.5;
+      const dist  = outerRadius + 5;
+      const anchorCx = this.centerCx + Math.round(Math.cos(angle) * dist);
+      const anchorCy = this.centerCy + Math.round(Math.sin(angle) * dist);
+      const loop  = generateBastionLoop(anchorCx, anchorCy, this.seed + 2000 + i);
+
+      this.bastions.push({
+        anchorCx, anchorCy,
+        conduitCells: loop,
+        conduitQueuePtr: 0,
+        generatorSlot: { cx: anchorCx, cy: anchorCy - 2 },
+        turretSlots: [
+          { cx: anchorCx + 2, cy: anchorCy, queued: false, placed: false },
+          { cx: anchorCx - 2, cy: anchorCy, queued: false, placed: false },
+        ],
+        spokeBackCells: [],
+        status: 'planned',
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Per-tick update
+  // ---------------------------------------------------------------------------
+
   update(state: GameState, cp: CommandPost, dt: number): void {
-    // 1. Builder lifecycle
+    // 1. Builder lifecycle.
     this.processBuilderRebuilds(state, cp, dt);
     this.assignRepairTargets(state);
-    this.dispatchIdleBuilders(state);
+    this.dispatchIdleBuilders();
     this.collectFinishedBuilds(state);
 
-    // 2. Replan periodically.
+    // 2. Adaptive counters.
+    this.updateAdaptive(state);
+
+    // 3. Raid planner.
+    this.raidPlanner.update(state, dt, this.doctrineType, this.config.difficulty);
+
+    // 4. Periodic replan.
     this.tickTimer -= dt;
     if (this.tickTimer <= 0) {
       this.tickTimer = this.basePlannerInterval();
       this.maybeAdvanceRing(state);
-      this.replanQueue();
+      this.replanQueue(state);
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Adaptive behavior
+  // ---------------------------------------------------------------------------
+
+  private updateAdaptive(state: GameState): void {
+    // Track builder attrition.
+    const aliveCount = this.builders.filter((b) => b.alive).length;
+    const expected   = this.config.enemyMaxBuilders;
+    if (aliveCount < expected - this.adaptive.builderKillsObserved) {
+      this.adaptive.builderKillsObserved++;
+      this.adaptive.lastBuilderKillTime = state.gameTime;
+    }
+
+    // Track Command Post rushes.
+    const cp = state.getEnemyCommandPost();
+    if (cp && state.player.alive) {
+      if (state.player.position.distanceTo(cp.position) < GRID_CELL_SIZE * 10) {
+        this.adaptive.commandPostRushes++;
+      }
+    }
+
+    // Adaptive doctrine: add redundant spokes if player keeps cutting conduits.
+    if (this.doctrineType === 'adaptive'
+        && this.adaptive.conduitCutsObserved > 3
+        && this.extraSpokes < 2) {
+      this.extraSpokes++;
+      this.generatePlan();
+      this.claimedConduitKeys.clear();
+      this.claimedBuildingKeys.clear();
+    }
+  }
+
+  /** Called by PracticeMode when the player destroys an enemy conduit. */
+  notifyConduitDestroyed(pos: Vec2): void {
+    this.adaptive.conduitCutsObserved++;
+    this.raidPlanner.notifyStructureDestroyed(pos);
+  }
+
+  /** Called by PracticeMode when the player destroys an enemy building. */
+  notifyBuildingDestroyed(pos: Vec2): void {
+    this.raidPlanner.notifyStructureDestroyed(pos);
+    // Unclaim the building cell so it can be re-planned.
+    const cx = Math.floor(pos.x / GRID_CELL_SIZE);
+    const cy = Math.floor(pos.y / GRID_CELL_SIZE);
+    this.claimedBuildingKeys.delete(cellKey(cx, cy));
+    for (const [dx, dy] of CARDINAL_OFFSETS) {
+      this.claimedBuildingKeys.delete(cellKey(cx + dx, cy + dy));
+    }
+    // Reset queued flags so the slot can be re-issued.
+    for (const ring of this.rings) {
+      for (const slot of ring.buildingSlots) {
+        if (Math.abs(slot.cx - cx) <= 1 && Math.abs(slot.cy - cy) <= 1) {
+          slot.queued = false;
+          slot.placed = false;
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Ring advancement
+  // ---------------------------------------------------------------------------
+
+  private maybeAdvanceRing(state: GameState): void {
+    if (this.currentRing >= this.rings.length - 1) return;
+    const ring = this.rings[this.currentRing];
+    const slots = ring.buildingSlots;
+    if (slots.length === 0) { this.currentRing++; return; }
+
+    const queuedOrPlaced = slots.filter((s) => s.queued || s.placed).length;
+    const advanceFrac = 0.85 - 0.10 * difficultyIndex(this.config.difficulty);
+
+    if (queuedOrPlaced / slots.length >= advanceFrac) {
+      const center = cellCenter(this.centerCx, this.centerCy);
+      const worldR  = ring.radiusCells * GRID_CELL_SIZE;
+      state.ringEffects.spawnPowerWave(
+        center,
+        Math.max(40, worldR - GRID_CELL_SIZE),
+        worldR + GRID_CELL_SIZE * 2,
+        1.6,
+        1.0 + 0.15 * difficultyIndex(this.config.difficulty),
+      );
+      this.currentRing++;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Build queue management
+  // ---------------------------------------------------------------------------
+
+  private basePlannerInterval(): number {
+    return Math.max(0.6, 4.0 / difficultyTickMul(this.config.difficulty));
+  }
+
   /**
-   * Reassign each builder's repair target every tick. A builder switches
-   * to repair mode when there is a damaged friendly building that *no*
-   * other builder is already heading for, and the builder isn't actively
-   * placing a structure.
+   * Fill the queue with the next highest-priority build orders.
    *
-   * Priorities follow the spec: power-critical generators → command post
-   * → shipyards → turrets → factories / labs.
+   * Ordering (highest to lowest):
+   *   1. Spoke conduit cells (inner → outer), all spokes in parallel.
+   *   2. Ring conduit cells for the current ring (inner → outer).
+   *   3. Building slots for the current ring.
+   *   4. Conduit and buildings for already-completed rings (infill).
+   *   5. Bastion construction (Raider / Adaptive, Hard+).
    */
+  private replanQueue(state: GameState): void {
+    const TARGET = 5 + difficultyIndex(this.config.difficulty);
+    while (this.queue.length < TARGET) {
+      const order = this.nextBuildOrder(state);
+      if (!order) break;
+      this.queue.push(order);
+    }
+  }
+
+  private nextBuildOrder(state: GameState): BuildOrder | null {
+    // --- 1. Spoke cells — build inner cells first so power reaches rings early.
+    for (let si = 0; si < this.spokes.length; si++) {
+      const spoke = this.spokes[si];
+      let ptr = this.spokeQueuePtrs[si];
+      // Advance past cells already laid.
+      while (ptr < spoke.length) {
+        const cell = spoke[ptr];
+        const k = cellKey(cell.cx, cell.cy);
+        if (state.grid.hasConduit(cell.cx, cell.cy) || this.claimedConduitKeys.has(k)) {
+          this.claimedConduitKeys.add(k);
+          ptr++;
+        } else {
+          break;
+        }
+      }
+      this.spokeQueuePtrs[si] = ptr;
+
+      if (ptr < spoke.length) {
+        const cell = spoke[ptr];
+        const k = cellKey(cell.cx, cell.cy);
+        this.claimedConduitKeys.add(k);
+        this.spokeQueuePtrs[si]++;
+        return { kind: 'conduit', cx: cell.cx, cy: cell.cy };
+      }
+    }
+
+    // --- 2 + 4. Ring conduit cells -------------------------------------------
+    for (let r = 0; r <= this.currentRing && r < this.rings.length; r++) {
+      const order = this.nextRingConduitOrder(state, this.rings[r]);
+      if (order) return order;
+    }
+
+    // --- 3 + 4. Ring building slots ------------------------------------------
+    for (let r = 0; r <= this.currentRing && r < this.rings.length; r++) {
+      const order = this.nextBuildingSlotOrder(state, this.rings[r]);
+      if (order) return order;
+    }
+
+    // --- 5. Bastion construction (Hard+) ------------------------------------
+    if (this.bastions.length > 0 && difficultyIndex(this.config.difficulty) >= 2) {
+      return this.nextBastionOrder(state);
+    }
+
+    return null;
+  }
+
+  private nextRingConduitOrder(
+    state: GameState, ring: RingPlan,
+  ): BuildOrder | null {
+    while (ring.conduitQueuePtr < ring.conduitCells.length) {
+      const cell = ring.conduitCells[ring.conduitQueuePtr];
+      ring.conduitQueuePtr++;
+      const k = cellKey(cell.cx, cell.cy);
+      if (this.claimedConduitKeys.has(k)) continue;
+      if (state.grid.hasConduit(cell.cx, cell.cy)) {
+        this.claimedConduitKeys.add(k); continue;
+      }
+      if (!this.isCellInBounds(state, cell.cx, cell.cy)) continue;
+      this.claimedConduitKeys.add(k);
+      return { kind: 'conduit', cx: cell.cx, cy: cell.cy };
+    }
+    return null;
+  }
+
+  private nextBuildingSlotOrder(
+    state: GameState, ring: RingPlan,
+  ): BuildOrder | null {
+    for (const slot of ring.buildingSlots) {
+      if (slot.queued || slot.placed) continue;
+      const k = cellKey(slot.cx, slot.cy);
+      if (this.claimedBuildingKeys.has(k)) continue;
+
+      const def = getBuildDef(slot.buildingKey);
+      if (!def) { slot.queued = true; continue; }
+
+      if (!this.isCellInBounds(state, slot.cx, slot.cy)) continue;
+
+      // On lower difficulties, skip slots that are inside hostile fire zones.
+      if (difficultyIndex(this.config.difficulty) < 3) {
+        const threat = this.aiScore.threatAt(state, this.team, slot.cx, slot.cy);
+        if (threat > 55) continue;
+      }
+
+      slot.queued = true;
+      this.claimedBuildingKeys.add(k);
+      return { kind: 'building', cx: slot.cx, cy: slot.cy, def, layConduitFirst: true };
+    }
+    return null;
+  }
+
+  private nextBastionOrder(state: GameState): BuildOrder | null {
+    for (const bastion of this.bastions) {
+      if (bastion.status === 'abandoned') continue;
+
+      // Conduit loop first.
+      const conduitOrder = this.nextBastionConduitOrder(state, bastion);
+      if (conduitOrder) return conduitOrder;
+
+      // Generator.
+      if (bastion.generatorSlot) {
+        const gs = bastion.generatorSlot;
+        const k = cellKey(gs.cx, gs.cy);
+        if (!this.claimedBuildingKeys.has(k)) {
+          const def = getBuildDef('powergenerator');
+          if (def && this.isCellInBounds(state, gs.cx, gs.cy)) {
+            this.claimedBuildingKeys.add(k);
+            if (bastion.status === 'planned') bastion.status = 'constructing';
+            return { kind: 'building', cx: gs.cx, cy: gs.cy, def, layConduitFirst: true };
+          }
+        }
+      }
+
+      // Turrets.
+      for (const ts of bastion.turretSlots) {
+        if (ts.queued || ts.placed) continue;
+        const def = getBuildDef('missileturret');
+        if (!def) continue;
+        const k = cellKey(ts.cx, ts.cy);
+        if (this.claimedBuildingKeys.has(k)) continue;
+        if (!this.isCellInBounds(state, ts.cx, ts.cy)) continue;
+        ts.queued = true;
+        this.claimedBuildingKeys.add(k);
+        return { kind: 'building', cx: ts.cx, cy: ts.cy, def, layConduitFirst: true };
+      }
+    }
+    return null;
+  }
+
+  private nextBastionConduitOrder(
+    state: GameState, bastion: BastionPlan,
+  ): BuildOrder | null {
+    while (bastion.conduitQueuePtr < bastion.conduitCells.length) {
+      const cell = bastion.conduitCells[bastion.conduitQueuePtr];
+      bastion.conduitQueuePtr++;
+      const k = cellKey(cell.cx, cell.cy);
+      if (this.claimedConduitKeys.has(k)) continue;
+      if (state.grid.hasConduit(cell.cx, cell.cy)) {
+        this.claimedConduitKeys.add(k); continue;
+      }
+      if (!this.isCellInBounds(state, cell.cx, cell.cy)) continue;
+      this.claimedConduitKeys.add(k);
+      if (bastion.status === 'planned') bastion.status = 'constructing';
+      return { kind: 'conduit', cx: cell.cx, cy: cell.cy };
+    }
+    return null;
+  }
+
+  private isCellInBounds(_state: GameState, cx: number, cy: number): boolean {
+    const x = (cx + 0.5) * GRID_CELL_SIZE;
+    const y = (cy + 0.5) * GRID_CELL_SIZE;
+    return x > 0 && x < WORLD_WIDTH && y > 0 && y < WORLD_HEIGHT;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Builder management
+  // ---------------------------------------------------------------------------
+
   private assignRepairTargets(state: GameState): void {
-    // Collect candidate damaged buildings, grouped by priority.
     const damaged: BuildingBase[] = [];
     for (const b of state.buildings) {
       if (!b.alive || b.team !== this.team) continue;
@@ -211,18 +597,14 @@ export class EnemyBasePlanner {
       if (b.healthFraction >= 0.99) continue;
       damaged.push(b);
     }
+
     if (damaged.length === 0) {
-      // No damage anywhere → release every drone from repair mode.
       for (const b of this.builders) {
-        if (b.mode === 'repair') {
-          b.repairTarget = null;
-          b.mode = 'build';
-        }
+        if (b.mode === 'repair') { b.repairTarget = null; b.mode = 'build'; }
       }
       return;
     }
 
-    // Stable priority sort.
     const priorityOf = (b: BuildingBase): number => {
       if (b instanceof PowerGenerator) return 0;
       if (b instanceof CommandPost)    return 1;
@@ -234,54 +616,39 @@ export class EnemyBasePlanner {
     };
     damaged.sort((a, b) => {
       const pa = priorityOf(a), pb = priorityOf(b);
-      if (pa !== pb) return pa - pb;
-      return a.healthFraction - b.healthFraction; // most damaged first
+      return pa !== pb ? pa - pb : a.healthFraction - b.healthFraction;
     });
 
-    // Track buildings already claimed by a repair drone so we don't
-    // pile every drone onto the same target.
     const claimed = new Set<number>();
     for (const drone of this.builders) {
-      if (drone.mode === 'repair' && drone.repairTarget &&
-          drone.repairTarget.alive &&
-          drone.repairTarget.healthFraction < 0.99) {
+      if (drone.mode === 'repair' && drone.repairTarget?.alive
+          && drone.repairTarget.healthFraction < 0.99) {
         claimed.add(drone.repairTarget.id);
       }
     }
 
-    // Limit how many drones repair at once: at most floor(builders/2) so
-    // expansion never fully stalls. Higher difficulty allows more.
     const idx = difficultyIndex(this.config.difficulty);
-    const maxRepairers = Math.max(1, Math.floor(this.builders.length *
-      [0.4, 0.5, 0.6, 0.7, 0.8][idx]));
+    const maxRepairers = Math.max(1, Math.floor(
+      this.builders.length * [0.4, 0.5, 0.6, 0.7, 0.8][idx],
+    ));
     const currentRepairers = this.builders.filter((b) => b.mode === 'repair' && b.alive).length;
 
-    // Promote idle builders to repair mode if budget allows.
     let promotions = maxRepairers - currentRepairers;
-    if (promotions > 0) {
-      for (const drone of this.builders) {
-        if (promotions <= 0) break;
-        if (!drone.alive) continue;
-        if (drone.isBuilding) continue;       // mid-construction; leave it
-        if (drone.mode === 'repair') continue; // already repairing
-        // Find an unclaimed top-priority damaged target.
-        const target = damaged.find((b) => !claimed.has(b.id));
-        if (!target) break;
-        // Switch this drone into repair mode for the next pass.
-        drone.mode = 'repair';
-        drone.repairTarget = target;
-        // If they were carrying a build order, push it back to the queue
-        // so it isn't dropped.
-        if (drone.buildOrder) {
-          this.queue.unshift(drone.buildOrder);
-          drone.buildOrder = null;
-        }
-        claimed.add(target.id);
-        promotions--;
+    for (const drone of this.builders) {
+      if (promotions <= 0) break;
+      if (!drone.alive || drone.isBuilding || drone.mode === 'repair') continue;
+      const target = damaged.find((b) => !claimed.has(b.id));
+      if (!target) break;
+      drone.mode = 'repair';
+      drone.repairTarget = target;
+      if (drone.buildOrder) {
+        this.queue.unshift(drone.buildOrder);
+        drone.buildOrder = null;
       }
+      claimed.add(target.id);
+      promotions--;
     }
 
-    // Demote drones whose target is now healed/dead so they go back to building.
     for (const drone of this.builders) {
       if (drone.mode !== 'repair') continue;
       const t = drone.repairTarget;
@@ -292,28 +659,83 @@ export class EnemyBasePlanner {
     }
   }
 
-  private basePlannerInterval(): number {
-    // Higher difficulty → faster decisions. Cap at 0.6s so it stays cheap.
-    const base = 4.0;
-    return Math.max(0.6, base / difficultyTickMul(this.config.difficulty));
+  private dispatchIdleBuilders(): void {
+    if (this.queue.length === 0) return;
+    for (const b of this.builders) {
+      if (!b.alive || b.mode === 'repair' || b.buildOrder || b.isBuilding) continue;
+      const order = this.queue.shift();
+      if (!order) return;
+      b.buildOrder = order;
+    }
   }
 
-  // -----------------------------------------------------------------------
-  // Builder rebuild bookkeeping
-  // -----------------------------------------------------------------------
+  private collectFinishedBuilds(state: GameState): void {
+    for (const b of this.builders) {
+      if (!b.alive) continue;
+      const result = b.consumeFinishedBuild();
+      if (!result) continue;
+
+      if (result.kind === 'conduit') {
+        if (!state.grid.hasConduit(result.cx, result.cy)) {
+          state.grid.addConduit(result.cx, result.cy, this.team);
+        }
+        state.power.markDirty();
+      } else {
+        if (result.layConduit && !state.grid.hasConduit(result.cx, result.cy)) {
+          state.grid.addConduit(result.cx, result.cy, this.team);
+        }
+        state.addEntity(result.ent);
+        this.buildsPlaced++;
+        state.recentEnemyConstructions.push({
+          pos: result.ent.position.clone(),
+          time: state.gameTime,
+        });
+        state.power.markDirty();
+        this.markBuildingPlaced(result.cx, result.cy);
+      }
+    }
+  }
+
+  private markBuildingPlaced(cx: number, cy: number): void {
+    const k = cellKey(cx, cy);
+    for (const ring of this.rings) {
+      for (const slot of ring.buildingSlots) {
+        if (cellKey(slot.cx, slot.cy) === k) {
+          slot.placed = true;
+          slot.queued = true;
+          return;
+        }
+      }
+    }
+    for (const bastion of this.bastions) {
+      if (bastion.generatorSlot
+          && cellKey(bastion.generatorSlot.cx, bastion.generatorSlot.cy) === k) {
+        return;
+      }
+      for (const ts of bastion.turretSlots) {
+        if (cellKey(ts.cx, ts.cy) === k) {
+          ts.placed = true;
+          return;
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Builder lifecycle
+  // ---------------------------------------------------------------------------
+
+  livingBuilders(): number {
+    this.builders = this.builders.filter((b) => b.alive);
+    return this.builders.length;
+  }
 
   private processBuilderRebuilds(state: GameState, cp: CommandPost, dt: number): void {
     this.builders = this.builders.filter((b) => b.alive);
-    const max = this.config.enemyMaxBuilders;
-    const wanted = max - this.builders.length;
-    // Extend the rebuild-timer list to match `wanted`.
-    while (this.rebuildTimers.length < wanted) {
-      this.rebuildTimers.push(this.config.enemyBuilderRebuildSeconds);
-    }
-    // Trim if we have more timers than needed.
-    while (this.rebuildTimers.length > wanted) {
-      this.rebuildTimers.pop();
-    }
+    const wanted = this.config.enemyMaxBuilders - this.builders.length;
+
+    while (this.rebuildTimers.length < wanted) this.rebuildTimers.push(this.config.enemyBuilderRebuildSeconds);
+    while (this.rebuildTimers.length > wanted) this.rebuildTimers.pop();
 
     for (let i = 0; i < this.rebuildTimers.length; i++) {
       this.rebuildTimers[i] -= dt;
@@ -326,168 +748,90 @@ export class EnemyBasePlanner {
 
   private spawnBuilder(state: GameState, cp: CommandPost): void {
     const drone = new BuilderDrone(cp.position.clone(), this.team, 'build');
-    // Difficulty-derived speed boosts.
-    const idx = difficultyIndex(this.config.difficulty);
-    drone.speedMul = [0.85, 1.0, 1.15, 1.30, 1.50][idx] *
-      this.config.enemyBuildSpeedMul;
+    const idx   = difficultyIndex(this.config.difficulty);
+    drone.speedMul     = [0.85, 1.0, 1.15, 1.30, 1.50][idx] * this.config.enemyBuildSpeedMul;
     drone.buildSpeedMul = drone.speedMul;
     state.addEntity(drone);
     this.builders.push(drone);
   }
 
-  // -----------------------------------------------------------------------
-  // Build dispatch / completion
-  // -----------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Coordinator interface (used by VsAIDirector)
+  // ---------------------------------------------------------------------------
 
-  private dispatchIdleBuilders(state: GameState): void {
-    if (this.queue.length === 0) return;
-    for (const b of this.builders) {
-      if (!b.alive) continue;
-      if (b.mode === 'repair') continue; // busy healing
-      if (b.buildOrder) continue; // already busy
-      if (b.isBuilding) continue;
-      const order = this.queue.shift();
-      if (!order) return;
-      b.buildOrder = order;
+  /** Returns the world position most in need of defense, or null. */
+  getHighestPriorityDefensePoint(state: GameState): Vec2 | null {
+    let best: Vec2 | null = null;
+    let bestScore = 0; // only return if actually damaged
+    for (const b of state.buildings) {
+      if (!b.alive || b.team !== this.team) continue;
+      const p = b instanceof PowerGenerator ? 3
+        : b instanceof CommandPost ? 5
+        : b instanceof Shipyard    ? 2
+        : b instanceof TurretBase  ? 1
+        : 0;
+      const score = p * (1 - b.healthFraction) * 100;
+      if (score > bestScore) { bestScore = score; best = b.position.clone(); }
     }
+    return best;
   }
 
-  private collectFinishedBuilds(state: GameState): void {
-    for (const b of this.builders) {
-      if (!b.alive) continue;
-      const result = b.consumeFinishedBuild();
-      if (!result) continue;
-      // Lay conduit first so the new building is on a powered cell.
-      if (result.layConduit) {
-        state.grid.addConduit(result.cx, result.cy, this.team);
-      }
-      state.addEntity(result.ent);
-      // Make sure newly placed enemy shipyards are NOT pre-spawning ships
-      // until they finish construction *and* are powered.
-      this.buildsPlaced++;
-      state.recentEnemyConstructions.push({
-        pos: result.ent.position.clone(),
-        time: state.gameTime,
-      });
-    }
-  }
-
-  // -----------------------------------------------------------------------
-  // Ring planning
-  // -----------------------------------------------------------------------
-
-  private maybeAdvanceRing(state: GameState): void {
-    if (this.currentRing >= RING_RECIPES.length - 1) return;
-    const recipe = RING_RECIPES[this.currentRing];
-    const placed = this.ringPlacements.get(this.currentRing) ?? {};
-    let totalNeeded = 0;
-    let totalPlaced = 0;
-    for (const key of recipe.buildings) {
-      totalNeeded += recipe.counts[key];
-      totalPlaced += placed[key] ?? 0;
-    }
-    // Move on once 70% of the ring is complete; higher difficulty advances earlier.
-    const advanceFraction = 0.85 - 0.10 * difficultyIndex(this.config.difficulty);
-    if (totalPlaced >= totalNeeded * advanceFraction) {
-      // Visual feedback — a power-wave pulse sweeping outward across the
-      // completed ring tells the player a new defensive layer just came online.
-      const center = cellCenter(this.centerCx, this.centerCy);
-      const ringWorldR = recipe.radius * GRID_CELL_SIZE;
-      state.ringEffects.spawnPowerWave(
-        center,
-        Math.max(40, ringWorldR - GRID_CELL_SIZE),
-        ringWorldR + GRID_CELL_SIZE * 2,
-        1.6,
-        1.0 + 0.15 * difficultyIndex(this.config.difficulty),
-      );
-      this.currentRing++;
-    }
+  /** Returns world positions of active construction sites. */
+  getActiveConstructionSites(): Vec2[] {
+    return this.builders
+      .filter((b) => b.alive && b.buildOrder !== null)
+      .map((b) => cellCenter(b.buildOrder!.cx, b.buildOrder!.cy));
   }
 
   /**
-   * Refill the build queue up to a small look-ahead so destroyed builders
-   * don't permanently stall progress.
+   * Returns the center of the innermost ring that still has conduit cells
+   * left to queue — indicates where expansion is currently lagging.
    */
-  private replanQueue(): void {
-    const TARGET_QUEUE = 4 + difficultyIndex(this.config.difficulty);
-    while (this.queue.length < TARGET_QUEUE) {
-      const order = this.planNextOrder();
-      if (!order) break;
-      this.queue.push(order);
-      this.claimedCells.add(cellKey(order.cx, order.cy));
-    }
-  }
-
-  /**
-   * Choose the next build order based on ring + planner priorities.
-   * Priorities (ordered): power → defense → economy → ships → research → expansion.
-   */
-  private planNextOrder(): BuildOrder | null {
-    for (let r = 0; r <= this.currentRing && r < RING_RECIPES.length; r++) {
-      const recipe = RING_RECIPES[r];
-      const placed = this.ringPlacements.get(r) ?? {};
-      // Determine the next building this ring still needs.
-      for (const key of recipe.buildings) {
-        const have = placed[key] ?? 0;
-        const need = recipe.counts[key];
-        if (have >= need) continue;
-        const def = getBuildDef(key);
-        if (!def) continue;
-        const cell = this.findRingCell(r);
-        if (!cell) continue;
-        // Mark intent.
-        placed[key] = have + 1;
-        this.ringPlacements.set(r, placed);
-        return { cx: cell.cx, cy: cell.cy, def, layConduitFirst: true };
+  getWeakestRingSegment(): Vec2 | null {
+    for (const ring of this.rings) {
+      if (ring.conduitQueuePtr < ring.conduitCells.length) {
+        return cellCenter(this.centerCx, this.centerCy + ring.radiusCells);
       }
     }
     return null;
   }
 
-  /**
-   * Pick a cell on (or near) the given ring radius using deterministic
-   * hash variation so the result is organic rather than a perfect circle.
-   */
-  private findRingCell(ringIndex: number): { cx: number; cy: number } | null {
-    const recipe = RING_RECIPES[ringIndex];
-    const baseR = recipe.radius;
-    // Try several candidate angles, deterministically jittered.
-    const slots = 16;
-    const redundancy = difficultyRedundancy(this.config.difficulty);
-    for (let attempt = 0; attempt < slots * 2; attempt++) {
-      // Spread across the ring; bias by buildsPlaced so successive
-      // builds spiral around rather than clumping at angle 0.
-      const slot = (attempt + this.buildsPlaced * 3) % slots;
-      const angle = (slot / slots) * Math.PI * 2;
-      // Deterministic radius/angle jitter.
-      const jr = (hash01(this.centerCx + ringIndex, this.centerCy + slot, this.seed) - 0.5) * 1.5;
-      const ja = (hash01(this.centerCx + slot, this.centerCy + ringIndex, this.seed + 1) - 0.5) * 0.4;
-      const r = baseR + jr;
-      const a = angle + ja;
-      const cx = this.centerCx + Math.round(Math.cos(a) * r);
-      const cy = this.centerCy + Math.round(Math.sin(a) * r);
-      const k = cellKey(cx, cy);
-      if (this.claimedCells.has(k)) continue;
-      // Higher difficulty allows redundant placements (denser rings).
-      // Lower difficulty: skip with some probability so weak points exist.
-      const skip = hash01(cx, cy, this.seed + 2);
-      if (skip < (0.20 - 0.05 * difficultyIndex(this.config.difficulty))) continue;
-      return { cx, cy };
+  /** Returns the player building most valuable to attack (for VsAIDirector harass). */
+  getSuggestedHarassTarget(state: GameState): Vec2 | null {
+    let best: Vec2 | null = null;
+    let bestScore = -Infinity;
+    for (const b of state.buildings) {
+      if (!b.alive || b.team !== Team.Player) continue;
+      const s = b instanceof PowerGenerator ? 5
+        : b instanceof Shipyard   ? 4
+        : b instanceof ResearchLab ? 3
+        : b instanceof Factory     ? 2
+        : b instanceof CommandPost ? 1
+        : 0;
+      if (s > bestScore) { bestScore = s; best = b.position.clone(); }
     }
-    return null;
+    return best;
   }
 
-  // -----------------------------------------------------------------------
-  // Public diagnostics
-  // -----------------------------------------------------------------------
+  getCurrentDoctrine(): DoctrineType { return this.doctrineType; }
+
+  getActiveRaidTarget(): Vec2 | null { return this.raidPlanner.getActiveTarget(); }
+
+  // ---------------------------------------------------------------------------
+  // Diagnostics
+  // ---------------------------------------------------------------------------
 
   snapshot(): PlannerSnapshot {
+    const totalCells  = this.rings.reduce((s, r) => s + r.conduitCells.length, 0);
+    const queuedCells = this.rings.reduce((s, r) => s + r.conduitQueuePtr, 0);
     return {
-      currentRing: this.currentRing,
-      buildsPlaced: this.buildsPlaced,
-      builderCount: this.livingBuilders(),
-      queueSize: this.queue.length,
+      currentRing:     this.currentRing,
+      buildsPlaced:    this.buildsPlaced,
+      builderCount:    this.livingBuilders(),
+      queueSize:       this.queue.length,
+      doctrine:        this.doctrineType,
+      ringCount:       this.rings.length,
+      conduitProgress: totalCells > 0 ? queuedCells / totalCells : 0,
     };
   }
 }
-

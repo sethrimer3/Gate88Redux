@@ -1248,6 +1248,8 @@ export class Game {
       const aiShip = new AIShip(aiShipPos);
       this.state.aiPlayerShip = aiShip;
       this.vsAIDirector = new VsAIDirector(aiShip, vcfg);
+      // Wire up the planner so the director can coordinate defense/escort/harass.
+      this.vsAIDirector.planner = this.practiceMode.getPlanner();
 
       this.hud.showMessage(
         `Vs. AI started — ${vcfg.difficulty}` +

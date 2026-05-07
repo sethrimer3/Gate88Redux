@@ -30,18 +30,42 @@ import { BuildingBase } from './building.js';
 
 export type BuilderMode = 'build' | 'repair';
 
-export interface BuildOrder {
-  /** Snapped grid cell where the structure should appear. */
+/**
+ * Order to place a building. The drone flies to (cx,cy) and plays a
+ * construction animation before instantiating the building entity.
+ */
+export interface BuildingBuildOrder {
+  readonly kind: 'building';
   cx: number;
   cy: number;
-  /** Building to instantiate when construction completes. */
   def: BuildDef;
   /** If true, also paint a conduit tile under the structure. */
   layConduitFirst: boolean;
 }
 
+/**
+ * Order to lay a single conduit cell without placing a building.
+ * The drone flies to (cx,cy), plays a short animation, and the planner
+ * then calls `state.grid.addConduit` to activate the cell.
+ */
+export interface ConduitBuildOrder {
+  readonly kind: 'conduit';
+  cx: number;
+  cy: number;
+}
+
+/** Discriminated union covering all drone build order types. */
+export type BuildOrder = BuildingBuildOrder | ConduitBuildOrder;
+
+/** Result returned by {@link BuilderDrone.consumeFinishedBuild}. */
+export type BuildResult =
+  | { kind: 'building'; ent: BuildingBase; cx: number; cy: number; layConduit: boolean }
+  | { kind: 'conduit';  cx: number; cy: number };
+
 const ARRIVE_DISTANCE = GRID_CELL_SIZE * 0.6;
 const BUILD_ANIMATION_SECONDS = 1.6;
+/** Conduit cells are laid faster than buildings. */
+const CONDUIT_ANIMATION_SECONDS = 0.45;
 const REPAIR_RATE_HP_PER_S = 6;
 const REPAIR_RANGE = GRID_CELL_SIZE * 1.5;
 
@@ -137,9 +161,13 @@ export class BuilderDrone extends FighterShip {
       return;
     }
     // Begin construction animation.
+    // Conduit cells lay faster than full buildings — this creates a visible
+    // "ring sweeping outward" effect as spokes and loops form before structures.
     this.position = target.clone();
     this.velocity.set(0, 0);
-    this.buildAnim = BUILD_ANIMATION_SECONDS;
+    this.buildAnim = order.kind === 'conduit'
+      ? CONDUIT_ANIMATION_SECONDS
+      : BUILD_ANIMATION_SECONDS;
   }
 
   private runRepairBehavior(dt: number): void {
@@ -167,21 +195,28 @@ export class BuilderDrone extends FighterShip {
   }
 
   /**
-   * Called by the base planner each tick. Returns the building entity to
-   * spawn (and the conduit cell to paint, if any) once the build animation
-   * finishes. Returns null if not yet ready.
+   * Called by the base planner each tick. Returns a {@link BuildResult}
+   * once the build animation finishes:
+   *   • `kind='building'` — a new entity to add to the world.
+   *   • `kind='conduit'`  — a conduit cell to add to the grid.
+   * Returns null if still in progress.
    */
-  consumeFinishedBuild(): { ent: BuildingBase; cx: number; cy: number; layConduit: boolean } | null {
+  consumeFinishedBuild(): BuildResult | null {
     if (!this.buildOrder) return null;
     if (this.buildAnim > 0) return null;
-    // buildOrder still set, anim done → place the structure.
+    // Animation done — resolve the order.
     const order = this.buildOrder;
     this.buildOrder = null;
+
+    if (order.kind === 'conduit') {
+      return { kind: 'conduit', cx: order.cx, cy: order.cy };
+    }
+
     const pos = footprintCenter(order.cx, order.cy, order.def.footprintCells);
     const ent = createBuildingFromDef(order.def, pos, this.team);
     // Newly placed enemy buildings start slightly visible so the player sees them grow in.
     if (ent.buildProgress < 1) ent.buildProgress = 0.05;
-    return { ent, cx: order.cx, cy: order.cy, layConduit: order.layConduitFirst };
+    return { kind: 'building', ent, cx: order.cx, cy: order.cy, layConduit: order.layConduitFirst };
   }
 
   /** Convenience flag for renderers / planner. */

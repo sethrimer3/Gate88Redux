@@ -36,6 +36,7 @@ import { TurretBase } from './turret.js';
 import { VsAIConfig, effectiveApm } from './vsaiconfig.js';
 import { difficultyIndex } from './practiceconfig.js';
 import { tryFireSpecial } from './special.js';
+import type { EnemyBasePlanner } from './enemybaseplanner.js';
 
 const VISION_RADIUS = 900;
 const RETREAT_HEALTH_FRACTION = 0.35;
@@ -138,6 +139,12 @@ export class VsAIDirector {
   private memory: Map<number, KnownTarget> = new Map();
   /** Reaction-delay timer so low-difficulty AIs are sluggish. */
   private reactionTimer: number = 0;
+  /**
+   * Optional reference to the base planner for coordination.
+   * When set, the director can escort construction sites, defend damaged
+   * rings, and harass the player's most valuable asset.
+   */
+  planner: EnemyBasePlanner | null = null;
 
   constructor(ship: AIShip, config: VsAIConfig) {
     this.ship = ship;
@@ -258,13 +265,27 @@ export class VsAIDirector {
       this.goal = 'retreat';
       const cp = this.findOwnCP(state);
       this.goalTarget = cp ? cp.position.clone() : null;
-      // Reaction delay scales inversely with difficulty.
       this.reactionTimer = this.reactionDelay();
       return;
     }
 
-    // Defensive override: an enemy is attacking my CP.
     const cp = this.findOwnCP(state);
+    const idx = difficultyIndex(this.config.difficulty);
+
+    // 1. Defensive override — planner signals a high-priority defense point.
+    //    Only on Hard+ (idx >= 2): easier difficulties use simpler reactive defense
+    //    to keep the AI feeling sluggish and beatable.
+    if (this.planner && idx >= 2) {
+      const defPoint = this.planner.getHighestPriorityDefensePoint(state);
+      if (defPoint) {
+        this.goal = 'defend';
+        this.goalTarget = defPoint;
+        this.reactionTimer = this.reactionDelay();
+        return;
+      }
+    }
+
+    // 2. Generic CP defense — nearest player entity threatening our CP.
     if (cp) {
       const closestThreat = this.findClosestPlayerEntityNear(cp.position, 600);
       if (closestThreat) {
@@ -275,11 +296,45 @@ export class VsAIDirector {
       }
     }
 
-    // Pick between harass / attack based on opportunity.
+    // 3. Escort active construction sites (Hard+).
+    if (this.planner && idx >= 2) {
+      const sites = this.planner.getActiveConstructionSites();
+      if (sites.length > 0) {
+        // Pick the outermost construction site (furthest from CP) to escort.
+        const cpPos = cp ? cp.position : this.ship.position;
+        let farthest = sites[0];
+        let farthestDist = farthest.distanceTo(cpPos);
+        for (const s of sites) {
+          const d = s.distanceTo(cpPos);
+          if (d > farthestDist) { farthestDist = d; farthest = s; }
+        }
+        // Escort outermost construction site only during active raids — this
+        // way the AI ship protects vulnerable builders when fighters are
+        // away raiding, rather than always shadowing construction.
+        const raidTarget = this.planner.getActiveRaidTarget();
+        if (raidTarget) {
+          this.goal = 'patrol';
+          this.goalTarget = farthest;
+          this.reactionTimer = this.reactionDelay();
+          return;
+        }
+      }
+    }
+
+    // 4. Use planner's suggested harass target on higher difficulty.
+    if (this.planner && idx >= 2) {
+      const harassPos = this.planner.getSuggestedHarassTarget(state);
+      if (harassPos) {
+        this.goal = 'harass';
+        this.goalTarget = harassPos;
+        this.reactionTimer = this.reactionDelay();
+        return;
+      }
+    }
+
+    // 5. Standard harass / attack logic.
     const harassTarget = this.findHarassTarget(state);
     const attackTarget = this.findAttackTarget(state);
-    // Higher difficulty prefers harass targets (more strategic).
-    const idx = difficultyIndex(this.config.difficulty);
     const preferHarass = idx >= 2 && harassTarget;
 
     if (preferHarass) {
@@ -290,7 +345,6 @@ export class VsAIDirector {
       this.goalTarget = attackTarget.lastSeenPos.clone();
     } else {
       this.goal = 'patrol';
-      // Patrol around our own CP.
       const center = cp ? cp.position : this.ship.position;
       const angle = Math.random() * Math.PI * 2;
       const radius = 400;
