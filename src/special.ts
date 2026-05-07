@@ -8,16 +8,18 @@
  * registry — game.ts only needs to know the currently equipped ability id.
  */
 
-import { Vec2 } from './math.js';
-import { Team } from './entities.js';
+import { Vec2, randomRange } from './math.js';
 import { GameState } from './gamestate.js';
 import { PlayerShip } from './ship.js';
-import { Missile } from './projectile.js';
+import { CrossLaserMine } from './mine.js';
 import { Audio } from './audio.js';
-import { DT, WEAPON_STATS } from './constants.js';
-
-/** Battery cost to fire a special. */
-const SPECIAL_BATTERY_COST = 10;
+import {
+  MINE_COUNT,
+  MINE_COOLDOWN_SECS,
+  MINE_BATTERY_COST,
+  MINE_INITIAL_SPEED_MIN,
+  MINE_INITIAL_SPEED_MAX,
+} from './constants.js';
 
 export interface SpecialAbility {
   /** Stable string identifier used by code that equips/loads abilities. */
@@ -36,34 +38,53 @@ export interface SpecialAbility {
 }
 
 // ---------------------------------------------------------------------------
-// Built-in: homing missile (the existing default secondary weapon)
+// Built-in: Cross-Laser Mines — the default RMB ability
 // ---------------------------------------------------------------------------
 
-const MISSILE_ABILITY: SpecialAbility = {
-  id: 'missile',
-  displayName: 'Homing Missile',
-  cooldownSeconds: WEAPON_STATS.missile.fireRate * DT,
-  batteryCost: SPECIAL_BATTERY_COST,
-  fire(state, ship, _aimWorld) {
-    // Find nearest enemy within missile range for homing target.
-    const enemies = state.getEnemiesOf(Team.Player);
-    let target = null;
-    let bestDist: number = WEAPON_STATS.missile.range;
-    for (const e of enemies) {
-      const d = ship.position.distanceTo(e.position);
-      if (d < bestDist) {
-        bestDist = d;
-        target = e;
-      }
+/**
+ * Deploy a cluster of 5 Cross-Laser Mines in a fan pattern toward the cursor.
+ *
+ * Each mine drifts outward, decelerates to a stop, then projects 4 detection
+ * laser beams in a cross shape.  Any enemy ship that crosses a beam causes
+ * the mine to instantly fire a high-speed straight-line trap missile along
+ * that beam's direction.  Mines that are not triggered explode after 20 s.
+ *
+ * See src/mine.ts for full implementation details.
+ */
+const CROSS_LASER_MINE_ABILITY: SpecialAbility = {
+  id: 'missile', // stable id — keeps backward compat with saved/serialised state
+  displayName: 'Cross-Laser Mines',
+  cooldownSeconds: MINE_COOLDOWN_SECS,
+  batteryCost: MINE_BATTERY_COST,
+  fire(state: GameState, ship: PlayerShip, aimWorld: Vec2): void {
+    // Aim direction from ship toward the cursor
+    const baseAngle = ship.position.angleTo(aimWorld);
+
+    // 5-mine fan spread: ±30° and ±15° around the base direction plus centre.
+    // Offset keeps the mines from stacking on the ship's collision radius.
+    const halfSpread = Math.PI / 6; // 30°
+    const spreadAngles = [
+      -halfSpread,
+      -halfSpread * 0.5,
+      0,
+      halfSpread * 0.5,
+      halfSpread,
+    ];
+
+    for (let i = 0; i < MINE_COUNT; i++) {
+      const angle = baseAngle + spreadAngles[i];
+      const speed = randomRange(MINE_INITIAL_SPEED_MIN, MINE_INITIAL_SPEED_MAX);
+      // Place each mine just ahead of the player in its travel direction so
+      // mines don't clip the player's hull on spawn.
+      const deployOffset = 22 + Math.random() * 8;
+      const pos = new Vec2(
+        ship.position.x + Math.cos(angle) * deployOffset,
+        ship.position.y + Math.sin(angle) * deployOffset,
+      );
+      const mine = new CrossLaserMine(ship.team, pos, angle, speed, ship, state);
+      state.addEntity(mine);
     }
-    const proj = new Missile(
-      Team.Player,
-      ship.position.clone(),
-      ship.angle,
-      ship,
-      target,
-    );
-    state.addEntity(proj);
+
     Audio.playSound('missile');
   },
 };
@@ -88,7 +109,7 @@ export function getSpecialAbility(id: string): SpecialAbility | null {
 export const DEFAULT_SPECIAL_ID = 'missile';
 
 // Auto-register built-ins.
-registerSpecialAbility(MISSILE_ABILITY);
+registerSpecialAbility(CROSS_LASER_MINE_ABILITY);
 
 /**
  * Try to fire the equipped special ability for the player.
