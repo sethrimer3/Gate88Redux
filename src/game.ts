@@ -2123,7 +2123,6 @@ export class Game {
       this.vignetteGradient = ctx.createRadialGradient(cx, cy, outerR * 0.54, cx, cy, outerR);
       this.vignetteGradient.addColorStop(0.0, 'rgba(0,0,0,0)');
       this.vignetteGradient.addColorStop(1.0, 'rgba(0,0,0,0.42)');
-      this.scanlinePattern = null;
     }
 
     const territory = Math.max(-1, Math.min(1, this.camera.position.x / (WORLD_WIDTH * 0.42)));
