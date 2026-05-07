@@ -1,12 +1,13 @@
 /** Central game state manager for Gate88 */
 
-import { Vec2 } from './math.js';
+import { pointToSegmentDistance, Vec2 } from './math.js';
 import { Entity, Team, EntityType } from './entities.js';
 import { PlayerShip } from './ship.js';
 import { BuildingBase, CommandPost } from './building.js';
 import { Shipyard } from './building.js';
-import { TurretBase } from './turret.js';
+import { SynonymousMineLayer, TurretBase } from './turret.js';
 import { ProjectileBase, RegenBullet } from './projectile.js';
+import { isSynonymousDriftMine } from './synonymousMine.js';
 import { FighterShip } from './fighter.js';
 import { ParticleSystem } from './particles.js';
 import { RingEffectSystem } from './ringeffects.js';
@@ -162,6 +163,7 @@ export class GameState {
         else if (entity.type === EntityType.Factory) entity.synonymousVisualKind = 'factory';
         else if (entity.type === EntityType.ResearchLab) entity.synonymousVisualKind = 'researchlab';
         else if (entity.type === EntityType.MissileTurret) entity.synonymousVisualKind = 'laserturret';
+        else if (entity.type === EntityType.TimeBomb) entity.synonymousVisualKind = 'minelayer';
       }
       this.buildings.push(entity);
       if (!isSynonymousFaction(this.factionByTeam, entity.team)) {
@@ -270,6 +272,9 @@ export class GameState {
     // Update buildings and power status
     this.updateBuildingPower();
     for (const b of this.buildings) b.update(dt);
+    for (const b of this.buildings) {
+      if (b instanceof SynonymousMineLayer) b.tickMineLayer(this);
+    }
     this.synonymous.updateBuildingIntegrity(this.buildings);
 
     this.applyFighterSeparation(dt);
@@ -288,6 +293,7 @@ export class GameState {
 
     // Collision detection
     // First let enemy bullets intercept swarm missiles (GOAL 3C)
+    this.resolveMineProjectileDamage();
     this.resolveProjectileInterceptions();
     this.resolveCollisions();
     this.synonymous.updateBuildingIntegrity(this.buildings);
@@ -351,6 +357,26 @@ export class GameState {
     }
   }
 
+  private resolveMineProjectileDamage(): void {
+    for (const mine of this.projectiles) {
+      if (!mine.alive || !isSynonymousDriftMine(mine)) continue;
+      for (const shot of this.projectiles) {
+        if (!shot.alive || shot === mine || isSynonymousDriftMine(shot)) continue;
+        const dist = 'targetPos' in shot
+          ? pointToSegmentDistance(mine.position, shot.position, (shot as ProjectileBase & { targetPos: Vec2 }).targetPos)
+          : mine.position.distanceTo(shot.position);
+        if (dist <= mine.radius + shot.radius) {
+          mine.takeDamage(Math.max(1, Math.abs(shot.damage)), shot);
+          shot.destroy();
+          this.recentlyDamaged.add(mine.id);
+          this.particles.emitSpark(mine.position);
+          if (!mine.alive) this.detonateProjectile(mine);
+          break;
+        }
+      }
+    }
+  }
+
   /** Returns true if the projectile hit and was consumed. */
   private checkHit(proj: ProjectileBase, target: Entity, isRegen: boolean): boolean {
     // Regen bullets heal same-team, damage other-team
@@ -407,6 +433,7 @@ export class GameState {
           Audio.playSoundAt('explode2', playerDist);
         } else if (
           target.type === EntityType.MissileTurret ||
+          target.type === EntityType.TimeBomb ||
           target.type === EntityType.ExciterTurret ||
           target.type === EntityType.MassDriverTurret ||
           target.type === EntityType.RegenTurret ||
@@ -791,6 +818,7 @@ export class GameState {
       Audio.playSoundAt('explode2', playerDist);
     } else if (
       target.type === EntityType.MissileTurret ||
+      target.type === EntityType.TimeBomb ||
       target.type === EntityType.ExciterTurret ||
       target.type === EntityType.MassDriverTurret ||
       target.type === EntityType.RegenTurret ||
@@ -1243,6 +1271,9 @@ export class GameState {
 
   setFaction(team: Team, faction: FactionType): void {
     this.factionByTeam.set(team, faction);
+    for (const ship of this.playerShips.values()) {
+      if (ship.team === team) ship.setFaction(faction);
+    }
     if (!isConfluenceFaction(this.factionByTeam, team)) {
       this.territoryCirclesByTeam.delete(team);
     }

@@ -92,10 +92,18 @@ const RESEARCH_LABELS: Record<string, string> = {
   shipSpeedEnergy: 'Speed +\nEnergy Regen',
   shipFireSpeed: 'Fire\nSpeed',
   shipShield: 'Shield',
+  synonymousPierce: 'Harmonic\nTunneling',
+  synonymousSpeed: 'Cohesion\nDrive',
+  synonymousFireSpeed1: 'Pulse\nSynchrony I',
+  synonymousFireSpeed2: 'Pulse\nSynchrony II',
+  synonymousFireSpeed3: 'Pulse\nSynchrony III',
+  synonymousFireSpeed4: 'Pulse\nSynchrony IV',
+  synonymousVitality: 'Distributed\nVitality',
   weaponGatling: 'Gatling',
   weaponLaser: 'Laser',
   weaponGuidedMissile: 'Guided\nMissile',
   missileturret: 'Missile\nTurret',
+  synonymousminelayer: 'Mine\nLayer',
   exciterturret: 'Exciter\nTurret',
   massdriverturret: 'Mass Driver\nTurret',
   regenturret: 'Regen\nTurret',
@@ -201,7 +209,7 @@ function buildYardItems(state: GameState): RadialItem[] {
 }
 
 function availableBuildDefs(state: GameState): BuildDef[] {
-  const synonymousKeys = new Set(['commandpost', 'factory', 'researchlab', 'missileturret']);
+  const synonymousKeys = new Set(['commandpost', 'factory', 'researchlab', 'missileturret', 'synonymousminelayer']);
   return [
     ...defsByTier('structure'),
     ...defsByTier('turret'),
@@ -241,6 +249,14 @@ function buildResearchRoot(state: GameState): RadialItem[] {
       ...keys.map((key) => makeResearchItem(key)).filter((item): item is RadialItem => item !== null),
     ],
   });
+  if (isPlayerSynonymous(state)) {
+    const nextFireSpeed = `synonymousFireSpeed${Math.min(4, state.player.synonymousFireSpeedLevel + 1)}`;
+    return [
+      category('Ship', ['synonymousSpeed', 'synonymousVitality']),
+      category('Weapons', ['synonymousPierce', nextFireSpeed]),
+      category('Structures', ['missileturret', 'synonymousminelayer']),
+    ];
+  }
   return [
     category('Structures', ['missileturret', 'exciterturret', 'massdriverturret', 'regenturret', 'bomberyard']),
     category('Ship', ['shipHp', 'shipSpeedEnergy', 'shipFireSpeed', 'shipShield']),
@@ -923,11 +939,20 @@ class ShipMenu {
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
     ctx.fillText('Upgrades', x + 12, upgradeY);
     const upgrades = [
-      ['HP', 'shipHp'],
-      ['Speed + Energy Regen', 'shipSpeedEnergy'],
-      ['Fire Speed', 'shipFireSpeed'],
-      ['Shield Aura', 'shipShield'],
-    ] as const;
+      ...(isPlayerSynonymous(state)
+        ? [
+            ['Harmonic Tunneling', 'synonymousPierce'],
+            ['Cohesion Drive', 'synonymousSpeed'],
+            [`Pulse Synchrony ${ship.synonymousFireSpeedLevel}/4`, 'synonymousFireSpeed1'],
+            ['Distributed Vitality', 'synonymousVitality'],
+          ]
+        : [
+            ['HP', 'shipHp'],
+            ['Speed + Energy Regen', 'shipSpeedEnergy'],
+            ['Fire Speed', 'shipFireSpeed'],
+            ['Shield Aura', 'shipShield'],
+          ]),
+    ] as Array<[string, string]>;
     const unlockedUpgrades = upgrades.filter(([, key]) => state.researchedItems.has(key));
     ctx.font = '16px "Poiret One", sans-serif';
     if (unlockedUpgrades.length === 0) {
@@ -980,6 +1005,8 @@ class ShipMenu {
   }
 
   private weaponUnlocked(state: GameState, id: ShipWeaponId): boolean {
+    if (isPlayerSynonymous(state)) return id === 'synonymousLaser';
+    if (id === 'synonymousLaser') return false;
     const weapon = SHIP_WEAPON_OPTIONS.find((item) => item.id === id);
     return !weapon?.researchKey || state.researchedItems.has(weapon.researchKey);
   }

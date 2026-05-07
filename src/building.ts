@@ -27,7 +27,7 @@ export abstract class BuildingBase extends Entity {
   deletionProgress = 0;
   deletionDurationSeconds = 3;
   deleting = false;
-  synonymousVisualKind: 'base' | 'factory' | 'researchlab' | 'laserturret' | null = null;
+  synonymousVisualKind: 'base' | 'factory' | 'researchlab' | 'laserturret' | 'minelayer' | null = null;
 
   constructor(type: EntityType, team: Team, position: Vec2, health: number, radius: number = ENTITY_RADIUS.building) {
     super(type, team, position, health, radius);

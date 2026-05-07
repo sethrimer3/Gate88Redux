@@ -7,6 +7,8 @@ import { Entity, EntityType, Team } from './entities.js';
 import { Colors, colorToCSS } from './colors.js';
 import { ENTITY_RADIUS, PLAYER_SHIP_SCALE, SHIP_STATS, PLAYER_SPAWN_INVINCIBILITY_SECS } from './constants.js';
 import { DEFAULT_SPECIAL_ID } from './special.js';
+import type { FactionType } from './confluence.js';
+import { SynonymousShipRenderer } from './synonymousShipRenderer.js';
 
 const BATTERY_MAX = 100;
 const BATTERY_REGEN_RATE = 16;
@@ -17,7 +19,7 @@ export const GUIDED_MISSILE_CONTROL_BATTERY_DRAIN = 8;
 const SHIELD_MAX = 40;
 const SHIELD_REGEN_RATE = 7;
 const SHIELD_REGEN_DELAY = 2.5;
-const SHIP_WEAPON_IDS = ['cannon', 'gatling', 'laser', 'guidedmissile'] as const;
+const SHIP_WEAPON_IDS = ['cannon', 'gatling', 'laser', 'guidedmissile', 'synonymousLaser'] as const;
 export type ShipWeaponId = typeof SHIP_WEAPON_IDS[number];
 export const SHIP_WEAPON_OPTIONS: ReadonlyArray<{
   id: ShipWeaponId;
@@ -29,6 +31,7 @@ export const SHIP_WEAPON_OPTIONS: ReadonlyArray<{
   { id: 'gatling', label: 'Gatling', researchKey: 'weaponGatling', description: 'Very weak, very fast, short range.' },
   { id: 'laser', label: 'Laser', researchKey: 'weaponLaser', description: 'Thin slow-firing beam with infinite pierce.' },
   { id: 'guidedmissile', label: 'Guided Missile', researchKey: 'weaponGuidedMissile', description: 'Hold fire to steer a heavy explosive missile.' },
+  { id: 'synonymousLaser', label: 'Piercing Laser', description: 'Slow Synonymous beam that pierces clustered targets.' },
 ];
 
 /** Speed multiplier when boosting (Shift held). */
@@ -70,6 +73,13 @@ export class PlayerShip extends Entity {
   maxShield: number = SHIELD_MAX;
   shieldRegenRate: number = SHIELD_REGEN_RATE;
   private shieldRegenDelay = 0;
+  faction: FactionType = 'terran';
+  synonymousPierceMultiplier = 1;
+  synonymousFireSpeedLevel = 0;
+  synonymousVitalityUnlocked = false;
+  synonymousHealthRegenRate = 0;
+  synonymousMuzzleFlash = 0;
+  private synonymousRenderer: SynonymousShipRenderer | null = null;
 
   /** Accumulated time used for visual effects like the low-battery flash. */
   drawTime: number = 0;
@@ -166,6 +176,9 @@ export class PlayerShip extends Entity {
 
     // Regenerate battery
     this.battery = Math.min(this.maxBattery, this.battery + this.baseBatteryRegenRate * dt);
+    if (this.synonymousHealthRegenRate > 0 && this.health > 0 && this.health < this.maxHealth) {
+      this.health = Math.min(this.maxHealth, this.health + this.synonymousHealthRegenRate * dt);
+    }
     this.updateShield(dt);
 
     // Accumulate draw time for visual effects
@@ -174,6 +187,7 @@ export class PlayerShip extends Entity {
     // Tick fire timers
     if (this.primaryFireTimer > 0) this.primaryFireTimer -= dt;
     if (this.specialFireTimer > 0) this.specialFireTimer -= dt;
+    if (this.synonymousMuzzleFlash > 0) this.synonymousMuzzleFlash = Math.max(0, this.synonymousMuzzleFlash - dt);
     // Spawn invincibility — counts down to 0
     if (this.spawnInvincibilityTimer > 0) this.spawnInvincibilityTimer -= dt;
     // Weapon special cooldown (swarm / homing) — counts down to 0
@@ -351,6 +365,10 @@ export class PlayerShip extends Entity {
   }
 
   applyResearchUpgrade(item: string): void {
+    if (this.faction === 'synonymous') {
+      this.applySynonymousResearchUpgrade(item);
+      return;
+    }
     switch (item) {
       case 'shipHp':
         this.maxHealth = Math.round(this.maxHealth * 1.35);
@@ -372,6 +390,47 @@ export class PlayerShip extends Entity {
       default:
         break;
     }
+  }
+
+  private applySynonymousResearchUpgrade(item: string): void {
+    switch (item) {
+      case 'synonymousPierce':
+        this.synonymousPierceMultiplier = 2;
+        break;
+      case 'synonymousSpeed':
+        this.maxSpeed *= 1.16;
+        this.thrustPower *= 1.18;
+        break;
+      case 'synonymousFireSpeed1':
+      case 'synonymousFireSpeed2':
+      case 'synonymousFireSpeed3':
+      case 'synonymousFireSpeed4':
+        this.synonymousFireSpeedLevel = Math.min(4, this.synonymousFireSpeedLevel + 1);
+        break;
+      case 'synonymousVitality':
+        this.maxHealth = Math.round(this.maxHealth * 1.4);
+        this.health = this.maxHealth;
+        this.synonymousVitalityUnlocked = true;
+        this.synonymousHealthRegenRate = 2.2;
+        break;
+      default:
+        break;
+    }
+  }
+
+  setFaction(faction: FactionType): void {
+    this.faction = faction;
+    if (faction === 'synonymous') {
+      this.primaryWeaponId = 'synonymousLaser';
+      if (!this.synonymousRenderer) this.synonymousRenderer = new SynonymousShipRenderer();
+    } else if (this.primaryWeaponId === 'synonymousLaser') {
+      this.primaryWeaponId = 'cannon';
+    }
+  }
+
+  synonymousLaserCooldown(baseCooldown: number): number {
+    const fireRateMultiplier = 1 + this.synonymousFireSpeedLevel * 0.25;
+    return baseCooldown / fireRateMultiplier;
   }
 
   override takeDamage(amount: number, source?: Entity): void {
@@ -403,6 +462,11 @@ export class PlayerShip extends Entity {
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     if (!this.alive) return;
+    if (this.faction === 'synonymous') {
+      if (!this.synonymousRenderer) this.synonymousRenderer = new SynonymousShipRenderer();
+      this.synonymousRenderer.draw(ctx, camera, this, Input.isDown('q'));
+      return;
+    }
     const screen = camera.worldToScreen(this.position);
     const r = this.radius * camera.zoom;
 

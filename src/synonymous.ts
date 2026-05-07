@@ -18,9 +18,10 @@ export const SYNONYMOUS_BUILD_COST: Record<string, number> = {
   factory: 50,
   researchlab: 50,
   missileturret: 50,
+  synonymousminelayer: 65,
 };
 
-export type SynonymousShapeKind = 'swarm' | 'factory' | 'researchlab' | 'laserturret';
+export type SynonymousShapeKind = 'swarm' | 'factory' | 'researchlab' | 'laserturret' | 'minelayer';
 
 const FREE_DRONE_MAX_SPEED = 105;
 const ALLOCATED_MAX_SPEED = 225;
@@ -424,6 +425,7 @@ export class SynonymousSwarmSystem {
     if (kind === 'factory') return 24;
     if (kind === 'researchlab') return 20;
     if (kind === 'laserturret') return 18;
+    if (kind === 'minelayer') return 20;
     return 18;
   }
 
@@ -634,11 +636,11 @@ export class SynonymousSwarmSystem {
   }
 
   private formationPoint(kind: SynonymousShapeKind, center: Vec2, i: number, n: number): Vec2 {
-    const sides = kind === 'factory' ? 8 : kind === 'researchlab' ? 5 : kind === 'laserturret' ? 3 : 6;
+    const sides = kind === 'factory' ? 8 : kind === 'researchlab' ? 5 : kind === 'laserturret' ? 3 : kind === 'minelayer' ? 20 : 6;
     const ring = i % sides;
     const layer = Math.floor(i / sides);
     const a = (ring / sides) * Math.PI * 2 + layer * 0.13;
-    const radius = 18 + layer * 11 + (kind === 'laserturret' ? 10 : 0);
+    const radius = kind === 'minelayer' ? 24 + layer * 7 : 18 + layer * 11 + (kind === 'laserturret' ? 10 : 0);
     if (i >= n - 1) return center.clone();
     return center.add(new Vec2(Math.cos(a) * radius, Math.sin(a) * radius));
   }

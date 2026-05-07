@@ -6,6 +6,8 @@ import { Entity, EntityType, Team } from './entities.js';
 import { BuildingBase } from './building.js';
 import { Colors, colorToCSS } from './colors.js';
 import { ENTITY_RADIUS, WEAPON_STATS, DT } from './constants.js';
+import type { GameState } from './gamestate.js';
+import { SynonymousDriftMine, SYNONYMOUS_MINE_LAYER_RANGE } from './synonymousMine.js';
 
 // ---------------------------------------------------------------------------
 // Base turret
@@ -348,6 +350,74 @@ export class RepairTurret extends TurretBase {
     ctx.moveTo(screen.x - s * 0.85, screen.y);
     ctx.lineTo(screen.x + s * 0.85, screen.y);
     ctx.stroke();
+  }
+}
+
+export class SynonymousMineLayer extends BuildingBase {
+  private spin = 0;
+  private mineTimer = 0.35;
+  private mineIndex = 0;
+
+  constructor(position: Vec2, team: Team) {
+    super(EntityType.TimeBomb, team, position, 95, ENTITY_RADIUS.building);
+  }
+
+  override update(dt: number): void {
+    super.update(dt);
+    if (!this.alive || this.buildProgress < 1) return;
+    this.spin += dt * 0.55;
+    this.mineTimer -= dt;
+  }
+
+  tickMineLayer(state: GameState): void {
+    if (!this.alive || this.buildProgress < 1 || this.mineTimer > 0) return;
+    const liveMines = state.projectiles.filter((p) => p.alive && p.source === this && p instanceof SynonymousDriftMine).length;
+    if (liveMines >= 9) {
+      this.mineTimer = 0.8;
+      return;
+    }
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    const angle = this.spin + this.mineIndex * golden;
+    const spawn = new Vec2(
+      this.position.x + Math.cos(angle) * this.radius * 1.1,
+      this.position.y + Math.sin(angle) * this.radius * 1.1,
+    );
+    state.addEntity(new SynonymousDriftMine(this.team, this.position, angle, SYNONYMOUS_MINE_LAYER_RANGE, this, state));
+    const mine = state.projectiles[state.projectiles.length - 1];
+    mine.position = spawn;
+    this.mineIndex++;
+    this.mineTimer = 2.7;
+  }
+
+  override draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive) return;
+    const screen = camera.worldToScreen(this.position);
+    const side = this.radius * 2.6 * camera.zoom;
+    const color = this.team === Team.Player ? Colors.friendlyfire : Colors.enemyfire;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = colorToCSS(color, 0.38 + this.healthFraction * 0.28);
+    ctx.lineWidth = Math.max(1, 1.3 * camera.zoom);
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, side * 0.48, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.translate(screen.x, screen.y);
+    ctx.rotate(this.spin);
+    for (let i = 0; i < 20; i++) {
+      const a = i * Math.PI * 2 / 20;
+      const pulse = 0.86 + 0.14 * Math.sin(this.spin * 2 + i * 0.9);
+      const x = Math.cos(a) * side * 0.42 * pulse;
+      const y = Math.sin(a) * side * 0.42 * pulse;
+      ctx.fillStyle = colorToCSS(color, 0.66);
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(1.5, 2.1 * camera.zoom), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = colorToCSS(Colors.alert2, 0.35);
+    ctx.beginPath();
+    ctx.arc(0, 0, side * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 }
 

@@ -778,6 +778,27 @@ export class Game {
       Audio.playSound('laser');
       return;
     }
+    if (weapon === 'synonymousLaser' && isSynonymousFaction(this.state.factionByTeam, Team.Player)) {
+      const player = this.state.player;
+      const cooldown = player.synonymousLaserCooldown(WEAPON_STATS.synonymousLaser.fireRate * DT);
+      player.consumePrimaryFire(cooldown);
+      player.synonymousMuzzleFlash = 0.22;
+      const start = player.position.clone();
+      const end = new Vec2(
+        start.x + Math.cos(player.angle) * WEAPON_STATS.synonymousLaser.range,
+        start.y + Math.sin(player.angle) * WEAPON_STATS.synonymousLaser.range,
+      );
+      this.state.addEntity(new Laser(Team.Player, start, end, player));
+      this.damageLaserLineLimited(
+        start,
+        end,
+        WEAPON_STATS.synonymousLaser.damage,
+        5,
+        WEAPON_STATS.synonymousLaser.pierce * player.synonymousPierceMultiplier,
+      );
+      Audio.playSound('laser');
+      return;
+    }
 
     this.state.player.consumePrimaryFire(PLAYER_FIRE_COOLDOWN * this.state.player.fireCooldownMultiplier);
     this.state.addEntity(new Bullet(
@@ -871,7 +892,7 @@ export class Game {
     const building = createBuildingFromDef(def, worldPos, Team.Player);
     if (isSynonymousFaction(this.state.factionByTeam, Team.Player)) {
       const cost = SYNONYMOUS_BUILD_COST[type] ?? 0;
-      const kind = type === 'missileturret' ? 'laserturret' : type === 'factory' ? 'factory' : type === 'researchlab' ? 'researchlab' : 'swarm';
+      const kind = type === 'missileturret' ? 'laserturret' : type === 'synonymousminelayer' ? 'minelayer' : type === 'factory' ? 'factory' : type === 'researchlab' ? 'researchlab' : 'swarm';
       building.synonymousVisualKind = kind === 'swarm' ? null : kind;
       if (kind === 'laserturret' && building instanceof TurretBase) {
         building.fireRate = 6;
@@ -1722,6 +1743,37 @@ export class Game {
     });
   }
 
+  private damageLaserLineLimited(start: Vec2, end: Vec2, damage: number, hitRadius: number, pierceCount: number): void {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq <= 0) return;
+    const hits: Array<{ target: Entity; t: number }> = [];
+    for (const target of this.state.allEntities()) {
+      if (!target.alive || target.team === Team.Player || target.team === Team.Neutral) continue;
+      const tx = target.position.x - start.x;
+      const ty = target.position.y - start.y;
+      const t = Math.max(0, Math.min(1, (tx * dx + ty * dy) / lenSq));
+      const px = start.x + dx * t;
+      const py = start.y + dy * t;
+      const dist = Math.hypot(target.position.x - px, target.position.y - py);
+      if (dist <= target.radius + hitRadius) hits.push({ target, t });
+    }
+    hits.sort((a, b) => a.t - b.t);
+    const count = Math.min(pierceCount, hits.length);
+    for (let i = 0; i < count; i++) {
+      const target = hits[i].target;
+      target.takeDamage(damage, this.state.player);
+      this.state.recentlyDamaged.add(target.id);
+      if (!target.alive) {
+        this.state.particles.emitExplosion(target.position, target.radius);
+        this.spaceFluid.addExplosion(target.position.x, target.position.y, 0.75, 42, 190, 120);
+      } else {
+        this.state.particles.emitSpark(target.position);
+      }
+    }
+  }
+
   /**
    * Send this client's local input to the server (for the host to apply).
    * Called every tick for non-host LAN clients.
@@ -1943,6 +1995,7 @@ export class Game {
       glow.circleWorld(this.camera, b.position, b.radius * 1.9, color, 0.035 * pulse);
       if (
         b.type === EntityType.MissileTurret ||
+        b.type === EntityType.TimeBomb ||
         b.type === EntityType.ExciterTurret ||
         b.type === EntityType.MassDriverTurret ||
         b.type === EntityType.RegenTurret ||

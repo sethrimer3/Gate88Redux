@@ -32,6 +32,7 @@ import {
   MassDriverTurret,
   RegenTurret,
   RepairTurret,
+  SynonymousMineLayer,
 } from './turret.js';
 import { BUILDING_COST, BUILD_TIME } from './constants.js';
 import { TICK_RATE } from './constants.js';
@@ -162,6 +163,16 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     researchKey: 'missileturret',
     factory: (pos, team) => new MissileTurret(pos, team),
   },
+  synonymousminelayer: {
+    key: 'synonymousminelayer',
+    label: 'Mine Layer',
+    cost: BUILDING_COST.synonymousminelayer,
+    footprintCells: 3,
+    buildTime: BUILD_TIME.synonymousminelayer,
+    tier: 'turret',
+    radialLabel: 'Mine\nLayer',
+    factory: (pos, team) => new SynonymousMineLayer(pos, team),
+  },
   exciterturret: {
     key: 'exciterturret',
     label: 'Exciter Turret',
@@ -223,6 +234,8 @@ export function buildCostForBuildingType(type: EntityType): number {
       return BUILDING_COST.factory;
     case EntityType.MissileTurret:
       return BUILDING_COST.missileturret;
+    case EntityType.TimeBomb:
+      return BUILDING_COST.synonymousminelayer;
     case EntityType.ExciterTurret:
       return BUILDING_COST.exciterturret;
     case EntityType.MassDriverTurret:
@@ -252,6 +265,8 @@ export function buildDefForEntityType(type: EntityType): BuildDef | undefined {
       return BUILD_DEFS.factory;
     case EntityType.MissileTurret:
       return BUILD_DEFS.missileturret;
+    case EntityType.TimeBomb:
+      return BUILD_DEFS.synonymousminelayer;
     case EntityType.ExciterTurret:
       return BUILD_DEFS.exciterturret;
     case EntityType.MassDriverTurret:
