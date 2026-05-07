@@ -195,6 +195,9 @@ function clampDir(v: unknown): -1 | 0 | 1 {
   return 0;
 }
 
+/** Maximum reasonable timestamp in milliseconds (~317 years from epoch). */
+const MAX_TIMESTAMP_MS = 1e13;
+
 /**
  * Validates and sanitises an incoming input snapshot.
  * Returns null if the message is fundamentally malformed.
@@ -204,7 +207,7 @@ export function validateInputSnapshot(raw: unknown): NetInputSnapshot | null {
   const r = raw as Record<string, unknown>;
   if (r['protocolVersion'] !== NET_PROTOCOL_VERSION) return null;
   const seq = typeof r['seq'] === 'number' ? Math.max(0, Math.floor(r['seq'])) : 0;
-  const clientTimeMs = clampNum(r['clientTimeMs'], 0, 1e13, 0);
+  const clientTimeMs = clampNum(r['clientTimeMs'], 0, MAX_TIMESTAMP_MS, 0);
   return {
     protocolVersion: NET_PROTOCOL_VERSION,
     seq,

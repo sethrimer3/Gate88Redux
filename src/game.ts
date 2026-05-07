@@ -133,6 +133,28 @@ export class Game {
   private static readonly LAN_PREDICTION_SNAP_THRESHOLD = 300;
   /** Duration (seconds) over which prediction corrections are blended out. */
   private static readonly LAN_PREDICTION_BLEND_SECS = 0.25;
+  /**
+   * Minimum error magnitude (world units) required to start accumulating a
+   * prediction correction offset.  Errors smaller than this are ignored to
+   * avoid micro-corrections from floating-point drift.
+   */
+  private static readonly LAN_PREDICTION_MIN_BLEND_THRESHOLD = 4;
+  /**
+   * How much of the new prediction error is added to the running blend offset
+   * each time a snapshot arrives.  Higher = converges faster but may look
+   * less smooth.
+   */
+  private static readonly LAN_PREDICTION_ALPHA_INCREMENT = 0.4;
+  /**
+   * Fraction of velocity difference applied per snapshot to nudge the local
+   * ship's velocity toward the host-authoritative value.
+   */
+  private static readonly LAN_PREDICTION_VELOCITY_BLEND = 0.15;
+  /**
+   * Fraction of projectile position error blended per snapshot update.
+   * 0.5 = half the error corrected each update (50 ms at 20 Hz).
+   */
+  private static readonly LAN_PROJECTILE_POSITION_BLEND = 0.5;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -1652,16 +1674,16 @@ export class Game {
             localShip.velocity.y = sd.vy;
             this.lanPredictionOffset = { x: 0, y: 0 };
             this.lanPredictionOffsetAlpha = 0;
-          } else if (errDist > 4) {
+          } else if (errDist > Game.LAN_PREDICTION_MIN_BLEND_THRESHOLD) {
             // Small error — accumulate into a blending offset.
             // The offset is applied gradually over LAN_PREDICTION_BLEND_SECS
             // in updatePlaying() without modifying the physics position.
             this.lanPredictionOffset.x += errX;
             this.lanPredictionOffset.y += errY;
-            this.lanPredictionOffsetAlpha = Math.min(1, this.lanPredictionOffsetAlpha + 0.4);
+            this.lanPredictionOffsetAlpha = Math.min(1, this.lanPredictionOffsetAlpha + Game.LAN_PREDICTION_ALPHA_INCREMENT);
             // Also partially blend velocity toward host to reduce drift.
-            localShip.velocity.x += (sd.vx - localShip.velocity.x) * 0.15;
-            localShip.velocity.y += (sd.vy - localShip.velocity.y) * 0.15;
+            localShip.velocity.x += (sd.vx - localShip.velocity.x) * Game.LAN_PREDICTION_VELOCITY_BLEND;
+            localShip.velocity.y += (sd.vy - localShip.velocity.y) * Game.LAN_PREDICTION_VELOCITY_BLEND;
           }
           // Sync health/battery regardless of position correction.
           localShip.health = sd.health;
@@ -1763,8 +1785,8 @@ export class Game {
       const sp = snapshotProjectileById.get(p.id);
       if (sp) {
         // Nudge position toward host state (interpolation rather than snap).
-        p.position.x += (sp.x - p.position.x) * 0.5;
-        p.position.y += (sp.y - p.position.y) * 0.5;
+        p.position.x += (sp.x - p.position.x) * Game.LAN_PROJECTILE_POSITION_BLEND;
+        p.position.y += (sp.y - p.position.y) * Game.LAN_PROJECTILE_POSITION_BLEND;
         p.velocity.x = sp.vx;
         p.velocity.y = sp.vy;
       }
