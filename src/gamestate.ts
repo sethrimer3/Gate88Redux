@@ -40,6 +40,14 @@ export interface ResearchProgress {
   timeNeeded: number;
 }
 
+export interface ExplosionGlow {
+  center: Vec2;
+  radius: number;
+  lifeSeconds: number;
+  totalSeconds: number;
+  intensity: number;
+}
+
 export type GameMode = 'menu' | 'tutorial' | 'practice' | 'vs_ai' | 'playing' | 'lan_host' | 'lan_client';
 
 export class GameState {
@@ -65,6 +73,7 @@ export class GameState {
   projectiles: ProjectileBase[] = [];
   fighters: FighterShip[] = [];
   particles: ParticleSystem;
+  explosionGlows: ExplosionGlow[] = [];
   /** Ring/blackout pulse effects (PR9). */
   ringEffects: RingEffectSystem = new RingEffectSystem();
   /** PR3: universal world grid storing painted conduits. */
@@ -267,6 +276,7 @@ export class GameState {
 
     // Particles
     this.particles.update(dt);
+    this.updateExplosionGlows(dt);
     this.ringEffects.update(dt);
     this.ringEffects.prune();
 
@@ -650,10 +660,31 @@ export class GameState {
   private emitFancyExplosion(pos: Vec2, blastRadius: number): void {
     this.particles.emitExplosion(pos, blastRadius * 0.45);
     this.particles.emitExplosion(pos, blastRadius * 0.22);
-    this.ringEffects.spawn('shockwave', pos, blastRadius * 0.08, blastRadius * 1.05, 0.55, 1.4);
-    this.ringEffects.spawn('emp_wave', pos, blastRadius * 0.15, blastRadius * 0.74, 0.36, 0.45);
+    this.spawnExplosionGlow(pos, blastRadius);
+    this.ringEffects.spawn('shockwave', pos, blastRadius * 0.08, blastRadius * 1.08, 0.55, 1.35);
+    this.ringEffects.spawn('blackout_wave', pos, blastRadius * 0.2, blastRadius * 0.78, 0.36, 0.5);
     const playerDist = this.player.position.distanceTo(pos);
     Audio.playSoundAt(blastRadius > 70 ? 'explode2' : 'explode1', playerDist);
+  }
+
+  private spawnExplosionGlow(pos: Vec2, blastRadius: number): void {
+    this.explosionGlows.push({
+      center: pos.clone(),
+      radius: blastRadius,
+      lifeSeconds: 0.42,
+      totalSeconds: 0.42,
+      intensity: blastRadius > 80 ? 1.15 : 0.9,
+    });
+    if (this.explosionGlows.length > 32) {
+      this.explosionGlows.splice(0, this.explosionGlows.length - 32);
+    }
+  }
+
+  private updateExplosionGlows(dt: number): void {
+    for (const glow of this.explosionGlows) glow.lifeSeconds -= dt;
+    if (this.explosionGlows.length > 0) {
+      this.explosionGlows = this.explosionGlows.filter((glow) => glow.lifeSeconds > 0);
+    }
   }
 
   private detonateProjectile(proj: ProjectileBase): void {

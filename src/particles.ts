@@ -177,6 +177,7 @@ export class ParticleSystem {
     const colors: Color[] = [
       Colors.particles_explosion1,
       Colors.particles_explosion2,
+      Colors.alert2,
       Colors.particles_explosion3,
     ];
     for (let i = 0; i < primaryCount; i++) {
@@ -227,7 +228,7 @@ export class ParticleSystem {
       const spd = randomRange(140, 260) * Math.max(0.65, size / 45);
       p.vx = Math.cos(ang) * spd;
       p.vy = Math.sin(ang) * spd;
-      p.color = i % 3 === 0 ? Colors.particles_spark : Colors.particles_explosion3;
+      p.color = i % 3 === 0 ? Colors.alert2 : Colors.particles_explosion3;
       p.alpha = 1;
       p.life = randomRange(0.10, 0.24);
       p.maxLife = p.life;

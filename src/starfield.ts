@@ -2,7 +2,7 @@
  * Background starfield rendering for Gate88.
  *
  * Improvements over the original implementation:
- *  - 900 stars across three depth layers for a rich parallax effect.
+ *  - 2400 stars across multiple depth layers for a rich parallax effect.
  *  - Per-star twinkling via a phase-shifted sine oscillation.
  *  - Three colour archetypes: cool blue-white, neutral white, warm yellow-orange.
  *  - Rare "giant" bright stars (3× base size) scattered throughout.
@@ -63,11 +63,11 @@ interface ShootingStar {
 // Constants
 // ---------------------------------------------------------------------------
 
-const STAR_COUNT     = 900;
+const STAR_COUNT     = 2400;
 const MAP_CENTER_X   = WORLD_WIDTH * 0.5;
 
 /** Fraction of stars that are giant. */
-const GIANT_FRACTION = 0.025;
+const GIANT_FRACTION = 0.018;
 
 /** CSS colour strings for each star archetype. */
 const STAR_COLORS: Record<StarColorType, string> = {
@@ -121,12 +121,31 @@ export class Starfield {
       else                              colorType = 2;
 
       const isGiant = Math.random() < GIANT_FRACTION;
+      const depth = randomRange(0.08, 1.0);
+      const brightRoll = Math.random();
+      const brightness = isGiant
+        ? randomRange(0.82, 1.0)
+        : brightRoll < 0.58
+          ? randomRange(0.32, 0.58)
+          : brightRoll < 0.90
+            ? randomRange(0.58, 0.86)
+            : randomRange(0.86, 1.0);
+      const size = isGiant
+        ? randomRange(2.8, 4.8)
+        : brightRoll < 0.58
+          ? randomRange(0.75, 1.25)
+          : brightRoll < 0.90
+            ? randomRange(1.05, 1.75)
+            : randomRange(1.55, 2.35);
       this.stars.push({
-        x: randomRange(-WORLD_WIDTH * 0.5, WORLD_WIDTH * 1.5),
-        y: randomRange(-WORLD_HEIGHT * 0.5, WORLD_HEIGHT * 1.5),
-        brightness: isGiant ? randomRange(0.7, 1.0) : randomRange(0.15, 1.0),
-        size: isGiant ? randomRange(2.5, 4.5) : randomRange(0.4, 1.8),
-        depth: randomRange(0.05, 1.0),
+        // Keep stars in the playable world bounds. The previous extra-wide
+        // distribution made most generated stars live far outside the current
+        // parallax window, so the screen looked sparse even with many stars.
+        x: randomRange(0, WORLD_WIDTH),
+        y: randomRange(0, WORLD_HEIGHT),
+        brightness,
+        size,
+        depth,
         twinklePhase: randomRange(0, Math.PI * 2),
         twinkleRate: randomRange(1.0, 5.0),
         colorType,
@@ -207,15 +226,23 @@ export class Starfield {
       if (sx < -6 || sx > screenW + 6 || sy < -6 || sy > screenH + 6) continue;
 
       // Twinkling: modulate brightness with a slow sine wave.
-      const twinkle = 0.65 + 0.35 * Math.sin(t * star.twinkleRate + star.twinklePhase);
-      const alpha   = star.brightness * twinkle * (0.45 + star.depth * 0.55);
-      const r       = star.size * camera.zoom * (0.4 + star.depth * 0.6);
+      const twinkle = 0.82 + 0.18 * Math.sin(t * star.twinkleRate + star.twinklePhase);
+      const depthAlpha = 0.68 + star.depth * 0.42;
+      const alpha = Math.min(0.98, Math.max(star.isGiant ? 0.58 : 0.20, star.brightness * twinkle * depthAlpha));
+      const r = star.size * camera.zoom * (0.62 + star.depth * 0.58);
 
       const cssColor = STAR_COLORS[star.colorType];
       ctx.fillStyle = cssColor + alpha.toFixed(3) + ')';
       ctx.beginPath();
-      ctx.arc(sx, sy, Math.max(0.4, r), 0, Math.PI * 2);
+      ctx.arc(sx, sy, Math.max(0.65, r), 0, Math.PI * 2);
       ctx.fill();
+
+      if (!star.isGiant && alpha > 0.62 && r > 0.9) {
+        ctx.fillStyle = cssColor + (alpha * 0.16).toFixed(3) + ')';
+        ctx.beginPath();
+        ctx.arc(sx, sy, r * 1.85, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
       // Giant stars get a faint diffraction cross to make them pop.
       if (star.isGiant && r > 1.2) {

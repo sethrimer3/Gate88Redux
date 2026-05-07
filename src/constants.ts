@@ -23,7 +23,7 @@ export const ENTITY_RADIUS = {
 
 // Building costs (resource units)
 export const BUILDING_COST = {
-  factory: 100,
+  factory: 50,
   researchlab: 150,
   powergenerator: 120,
   missileturret: 80,
@@ -228,7 +228,7 @@ export const SHIP_STATS = {
 export const RESOURCE_GAIN_RATE = 1.0;
 
 // Baseline resource gain per second (player auto-gains resources over time)
-export const BASELINE_RESOURCE_GAIN = 2.0;
+export const BASELINE_RESOURCE_GAIN = 5.0;
 
 // Build zone radii
 export const COMMANDPOST_BUILD_RADIUS = 260;

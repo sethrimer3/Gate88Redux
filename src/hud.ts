@@ -20,7 +20,8 @@ const FADE_IN_TIME = 0.3;
 const FADE_OUT_TIME = 0.8;
 const DEFAULT_DURATION = 4.0;
 const MAX_MESSAGES = 5;
-const MESSAGE_LINE_HEIGHT = 18;
+const HUD_FONT_SIZE = 30;
+const MESSAGE_LINE_HEIGHT = 34;
 
 // ---------------------------------------------------------------------------
 // HUD class
@@ -49,7 +50,7 @@ export class HUD {
   draw(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
     if (this.messages.length === 0) return;
 
-    ctx.font = '13px "Poiret One", sans-serif';
+    ctx.font = `${HUD_FONT_SIZE}px "Poiret One", sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
@@ -83,11 +84,11 @@ export class HUD {
     screenW: number,
     screenH: number,
   ): void {
-    ctx.font = '16px "Poiret One", sans-serif';
+    ctx.font = `${HUD_FONT_SIZE}px "Poiret One", sans-serif`;
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
-    ctx.fillText(`(+${incomePerSecond.toFixed(1)}/sec)`, screenW - 10, screenH - 28);
+    ctx.fillText(`(+${Math.round(incomePerSecond)}/sec)`, screenW - 10, screenH - 44);
     ctx.fillText(`$${Math.floor(resources)}`, screenW - 10, screenH - 10);
   }
 
@@ -101,9 +102,9 @@ export class HUD {
   ): void {
     // Label sits just above the ENERGY label drawn by drawPlayerEnergy.
     const x = 10;
-    const y = screenH - 54;
+    const y = screenH - 92;
 
-    ctx.font = '9px "Poiret One", sans-serif';
+    ctx.font = `${HUD_FONT_SIZE}px "Poiret One", sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
 
@@ -119,7 +120,7 @@ export class HUD {
     const canAfford = resources >= cost;
 
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.45);
-    ctx.fillText('BUILD:', x, y - 12);
+    ctx.fillText('BUILD:', x, y - 34);
     ctx.fillStyle = canAfford
       ? colorToCSS(Colors.general_building, 0.85)
       : colorToCSS(Colors.alert1, 0.8);
@@ -135,13 +136,13 @@ export class HUD {
     screenH: number,
   ): void {
     const frac = Math.max(0, Math.min(1, battery / maxBattery));
-    const barW = 80;
-    const barH = 7;
+    const barW = 220;
+    const barH = 14;
     const x = 10;
     const y = screenH - 24;
 
     // Label
-    ctx.font = '10px "Poiret One", sans-serif';
+    ctx.font = `${HUD_FONT_SIZE}px "Poiret One", sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
 
@@ -160,7 +161,7 @@ export class HUD {
     }
 
     ctx.fillStyle = labelColor;
-    ctx.fillText('ENERGY', x, y - barH - 2);
+    ctx.fillText('ENERGY', x, y - barH - 8);
 
     // Background track
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.2);
@@ -187,9 +188,9 @@ export class HUD {
   ): void {
     if (unpoweredCount <= 0) return;
     const x = 10;
-    const y = screenH - 70;
+    const y = screenH - 142;
     const flash = 0.5 + 0.5 * Math.sin(this.animTime * 5);
-    ctx.font = '10px "Poiret One", sans-serif';
+    ctx.font = `${HUD_FONT_SIZE}px "Poiret One", sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.5 + 0.5 * flash);
@@ -207,15 +208,15 @@ export class HUD {
     screenH: number,
   ): void {
     const x = 10;
-    const y = screenH - 88;
-    ctx.font = '10px "Poiret One", sans-serif';
+    const y = screenH - 204;
+    ctx.font = `${HUD_FONT_SIZE}px "Poiret One", sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = colorToCSS(Colors.researchlab_detail, 0.75);
     if (current.item) {
       const pct = Math.floor((current.progress / Math.max(1, current.timeNeeded)) * 100);
       const secsLeft = Math.max(0, Math.ceil(current.timeNeeded - current.progress));
-      ctx.fillText(`${secsLeft} sec`, x, y - 12);
+      ctx.fillText(`${secsLeft} sec`, x, y - 34);
       ctx.fillText(`Research: ${current.item} ${pct}%`, x, y);
     } else if (completedCount > 0) {
       ctx.fillText(`Research complete: ${completedCount}`, x, y);

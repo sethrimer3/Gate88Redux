@@ -42,9 +42,11 @@ export class GlowLayer {
 
   begin(): void {
     if (!this.enabled) return;
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     this.ctx.setTransform(this.scale, 0, 0, this.scale, 0, 0);
-    this.ctx.clearRect(0, 0, this.screenW, this.screenH);
     this.ctx.globalCompositeOperation = 'lighter';
+    this.ctx.globalAlpha = 1;
     this.ctx.lineCap = 'round';
     this.ctx.lineJoin = 'round';
   }
@@ -52,10 +54,25 @@ export class GlowLayer {
   compositeTo(ctx: CanvasRenderingContext2D): void {
     if (!this.enabled) return;
     ctx.save();
+    // Composite in viewport coordinates from a known transform. Previously the
+    // glow pass inherited the main context transform, which could leave a
+    // resized/upscaled glow buffer covering only part of the screen.
+    const dpr = this.screenW > 0 ? ctx.canvas.width / this.screenW : 1;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.globalCompositeOperation = 'lighter';
     ctx.imageSmoothingEnabled = true;
     ctx.globalAlpha = 0.92;
-    ctx.drawImage(this.canvas, 0, 0, this.screenW, this.screenH);
+    ctx.drawImage(
+      this.canvas,
+      0,
+      0,
+      this.canvas.width,
+      this.canvas.height,
+      0,
+      0,
+      this.screenW,
+      this.screenH,
+    );
     ctx.restore();
   }
 
@@ -102,4 +119,3 @@ export class GlowLayer {
     );
   }
 }
-

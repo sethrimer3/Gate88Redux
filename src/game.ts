@@ -1672,9 +1672,13 @@ export class Game {
 
   private render(): void {
     const ctx = this.ctx;
-    ctx.font = gameFont(12);
     const w = this.screenW;
     const h = this.screenH;
+    const dpr = w > 0 ? this.canvas.width / w : (window.devicePixelRatio || 1);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.font = gameFont(12);
 
     // Clear
     ctx.fillStyle = colorToCSS(Colors.friendly_background);
@@ -1895,6 +1899,17 @@ export class Game {
   private drawGlowLayer(): void {
     if (!this.visualPreset.glowEnabled) return;
     const glow = this.glowLayer;
+    for (const fire of this.state.explosionGlows) {
+      if (!this.camera.isOnScreen(fire.center, fire.radius * 1.7)) continue;
+      const t = 1 - fire.lifeSeconds / fire.totalSeconds;
+      const fade = Math.max(0, 1 - t);
+      const bloom = fire.intensity * fade;
+      glow.circleWorld(this.camera, fire.center, fire.radius * 1.45, Colors.alert1, 0.10 * bloom);
+      glow.circleWorld(this.camera, fire.center, fire.radius * 1.08, Colors.explosion, 0.20 * bloom);
+      glow.circleWorld(this.camera, fire.center, fire.radius * 0.48, Colors.alert2, 0.24 * bloom);
+      glow.circleWorld(this.camera, fire.center, Math.max(10, fire.radius * 0.18), Colors.particles_switch, 0.20 * bloom);
+    }
+
     for (const p of this.state.projectiles) {
       if (!p.alive || !this.camera.isOnScreen(p.position, 180)) continue;
       if (p instanceof Laser || p instanceof ChargedLaserBurst) {
@@ -1905,8 +1920,20 @@ export class Game {
         glow.lineWorld(this.camera, p.position, target, color, alpha, width);
         glow.circleWorld(this.camera, target, p instanceof ChargedLaserBurst ? 18 : 8, Colors.particles_switch, alpha * 0.65);
       } else if (p instanceof GuidedMissile || p instanceof BomberMissile || p instanceof SwarmMissile) {
+        const blastRadius = 'blastRadius' in p ? (p as { blastRadius: number }).blastRadius : 0;
+        if (blastRadius > 0) {
+          glow.circleWorld(this.camera, p.position, Math.min(34, blastRadius * 0.24), Colors.explosion, 0.10);
+          glow.circleWorld(this.camera, p.position, Math.min(18, blastRadius * 0.12), Colors.alert2, 0.12);
+        }
         const exhaust = p.position.add(new Vec2(Math.cos(p.angle + Math.PI) * p.radius, Math.sin(p.angle + Math.PI) * p.radius));
-        glow.circleWorld(this.camera, exhaust, p.radius * 2.2, Colors.alert2, 0.16);
+        glow.circleWorld(this.camera, exhaust, p.radius * 2.4, Colors.alert2, 0.18);
+        glow.circleWorld(this.camera, exhaust, p.radius * 4.2, Colors.explosion, 0.08);
+      } else {
+        const blastRadius = 'blastRadius' in p ? (p as { blastRadius: number }).blastRadius : 0;
+        if (blastRadius > 0) {
+          glow.circleWorld(this.camera, p.position, Math.min(40, blastRadius * 0.32), Colors.explosion, 0.12);
+          glow.circleWorld(this.camera, p.position, Math.min(20, blastRadius * 0.16), Colors.alert2, 0.14);
+        }
       }
     }
 
