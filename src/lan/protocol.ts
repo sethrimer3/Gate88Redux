@@ -110,6 +110,13 @@ export interface MsgGameSnapshot {
   /** Resources indexed by slot (sparse — only active slots included). */
   resourcesPerSlot: number[];
   hostSlot: number;
+  /**
+   * Per-slot last processed input sequence number (host-side).
+   * Indexed by slot; undefined slots were not seen this tick.
+   * Clients use this to prune their unacknowledged input ring buffer
+   * and replay only genuinely unprocessed inputs after prediction correction.
+   */
+  lastProcessedInputSeqBySlot?: number[];
 }
 
 export interface SerializedShip {
@@ -234,6 +241,8 @@ export interface MsgRelayedSnapshot {
   territoryCircles?: SerializedTerritoryCircle[];
   resourcesPerSlot: number[];
   hostSlot: number;
+  /** See MsgGameSnapshot.lastProcessedInputSeqBySlot */
+  lastProcessedInputSeqBySlot?: number[];
 }
 
 /** Relayed input from a remote player (host receives this) */

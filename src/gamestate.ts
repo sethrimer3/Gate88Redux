@@ -52,7 +52,7 @@ export interface ExplosionGlow {
   intensity: number;
 }
 
-export type GameMode = 'menu' | 'tutorial' | 'practice' | 'vs_ai' | 'playing' | 'lan_host' | 'lan_client';
+export type GameMode = 'menu' | 'tutorial' | 'practice' | 'vs_ai' | 'playing' | 'lan_host' | 'lan_client' | 'online_host' | 'online_client';
 
 export class GameState {
   /**
