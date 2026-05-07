@@ -273,6 +273,8 @@ export class VsAIDirector {
     const idx = difficultyIndex(this.config.difficulty);
 
     // 1. Defensive override — planner signals a high-priority defense point.
+    //    Only on Hard+ (idx >= 2): easier difficulties use simpler reactive defense
+    //    to keep the AI feeling sluggish and beatable.
     if (this.planner && idx >= 2) {
       const defPoint = this.planner.getHighestPriorityDefensePoint(state);
       if (defPoint) {
@@ -306,7 +308,9 @@ export class VsAIDirector {
           const d = s.distanceTo(cpPos);
           if (d > farthestDist) { farthestDist = d; farthest = s; }
         }
-        // Only escort if there's an active raid; otherwise keep harassing.
+        // Escort outermost construction site only during active raids — this
+        // way the AI ship protects vulnerable builders when fighters are
+        // away raiding, rather than always shadowing construction.
         const raidTarget = this.planner.getActiveRaidTarget();
         if (raidTarget) {
           this.goal = 'patrol';

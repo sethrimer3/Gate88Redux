@@ -278,7 +278,9 @@ export class PracticeMode {
       if (isBuilderDrone(f)) continue;
 
       if (f.order === 'idle' || !f.targetPos) {
-        // Use doctrine-based target when available; fall back to nearest building.
+        // Doctrine-based strategic targets take precedence over opportunistic
+        // nearest-building attacks, allowing each doctrine to focus pressure
+        // on the most valuable player assets.
         const target = doctrineTarget ?? this.findNearestPlayerBuilding(state, f.position);
         if (target) {
           f.order = 'attack';

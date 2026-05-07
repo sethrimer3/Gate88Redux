@@ -160,7 +160,9 @@ export class BuilderDrone extends FighterShip {
       this.steerThrust(target, dt);
       return;
     }
-    // Begin construction animation. Conduit lays faster than buildings.
+    // Begin construction animation.
+    // Conduit cells lay faster than full buildings — this creates a visible
+    // "ring sweeping outward" effect as spokes and loops form before structures.
     this.position = target.clone();
     this.velocity.set(0, 0);
     this.buildAnim = order.kind === 'conduit'

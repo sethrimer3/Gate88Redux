@@ -75,6 +75,18 @@ export interface PlannerSnapshot {
 }
 
 // ---------------------------------------------------------------------------
+// Module-level constants
+// ---------------------------------------------------------------------------
+
+/** Maximum number of radial spokes regardless of doctrine or adaptive additions. */
+const MAX_SPOKES = 8;
+
+/** 4-connected cardinal neighbour offsets for grid-neighbour operations. */
+const CARDINAL_OFFSETS: ReadonlyArray<readonly [number, number]> = [
+  [-1, 0], [1, 0], [0, -1], [0, 1],
+];
+
+// ---------------------------------------------------------------------------
 // Internal: adaptive-behavior counters
 // ---------------------------------------------------------------------------
 
@@ -200,7 +212,7 @@ export class EnemyBasePlanner {
     const gapProb  = this.doctrine.gapProbPerDifficulty[idx];
     const numSpokes = Math.min(
       this.doctrine.spokesPerDifficulty[idx] + this.extraSpokes,
-      8, // absolute maximum
+      MAX_SPOKES,
     );
     const outerRadius = recipes.length > 0 ? recipes[recipes.length - 1].radius : 8;
 
@@ -351,7 +363,7 @@ export class EnemyBasePlanner {
     const cx = Math.floor(pos.x / GRID_CELL_SIZE);
     const cy = Math.floor(pos.y / GRID_CELL_SIZE);
     this.claimedBuildingKeys.delete(cellKey(cx, cy));
-    for (const [dx, dy] of [[-1,0],[1,0],[0,-1],[0,1]] as const) {
+    for (const [dx, dy] of CARDINAL_OFFSETS) {
       this.claimedBuildingKeys.delete(cellKey(cx + dx, cy + dy));
     }
     // Reset queued flags so the slot can be re-issued.
@@ -420,8 +432,7 @@ export class EnemyBasePlanner {
   }
 
   private nextBuildOrder(state: GameState): BuildOrder | null {
-    // --- 1. Spoke cells ------------------------------------------------------
-    let spokeFed = false;
+    // --- 1. Spoke cells — build inner cells first so power reaches rings early.
     for (let si = 0; si < this.spokes.length; si++) {
       const spoke = this.spokes[si];
       let ptr = this.spokeQueuePtrs[si];
