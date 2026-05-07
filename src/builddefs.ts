@@ -35,6 +35,7 @@ import {
 } from './turret.js';
 import { BUILDING_COST, BUILD_TIME } from './constants.js';
 import { TICK_RATE } from './constants.js';
+import { footprintForBuildingType } from './buildingfootprint.js';
 
 export type BuildTier = 'structure' | 'turret' | 'yard';
 
@@ -205,18 +206,6 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     factory: (pos, team) => new RepairTurret(pos, team),
   },
 };
-
-export function footprintForBuildingType(type: EntityType): number {
-  switch (type) {
-    case EntityType.CommandPost:
-      return 6;
-    case EntityType.Factory:
-    case EntityType.ResearchLab:
-      return 4;
-    default:
-      return 3;
-  }
-}
 
 export function buildCostForBuildingType(type: EntityType): number {
   switch (type) {

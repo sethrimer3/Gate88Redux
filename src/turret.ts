@@ -98,15 +98,15 @@ export abstract class TurretBase extends BuildingBase {
     this.targetEntity = best;
   }
 
-  /** Common turret drawing: base ring + barrel line. */
+  /** Common turret drawing: square platform + barrel line. */
   protected drawTurretBase(
     ctx: CanvasRenderingContext2D,
     screen: Vec2,
     r: number,
     detailColor: string,
-    camera?: Camera,
+    camera: Camera,
   ): void {
-    this.drawBuildingBase(ctx, screen, r, detailColor);
+    const vis = this.drawBuildingBase(ctx, screen, detailColor, camera);
 
     // Barrel line
     ctx.strokeStyle = detailColor;
@@ -114,8 +114,8 @@ export abstract class TurretBase extends BuildingBase {
     ctx.beginPath();
     ctx.moveTo(screen.x, screen.y);
     ctx.lineTo(
-      screen.x + Math.cos(this.turretAngle) * r * 1.1,
-      screen.y + Math.sin(this.turretAngle) * r * 1.1,
+      screen.x + Math.cos(this.turretAngle) * vis.half * 0.9,
+      screen.y + Math.sin(this.turretAngle) * vis.half * 0.9,
     );
     ctx.stroke();
 
@@ -164,7 +164,7 @@ export class MissileTurret extends TurretBase {
     const screen = camera.worldToScreen(this.position);
     const r = this.radius * camera.zoom;
     const detail = colorToCSS(Colors.missileturret_detail);
-    this.drawTurretBase(ctx, screen, r, detail);
+    this.drawTurretBase(ctx, screen, r, detail, camera);
 
     // Small missile shape at barrel tip
     const tipX = screen.x + Math.cos(this.turretAngle) * r * 0.9;
@@ -197,7 +197,7 @@ export class ExciterTurret extends TurretBase {
     const screen = camera.worldToScreen(this.position);
     const r = this.radius * camera.zoom;
     const detail = colorToCSS(Colors.exciterturret_detail);
-    this.drawTurretBase(ctx, screen, r, detail);
+    this.drawTurretBase(ctx, screen, r, detail, camera);
 
     // Double-barrel lines
     const perpX = -Math.sin(this.turretAngle) * r * 0.2;
@@ -236,7 +236,7 @@ export class MassDriverTurret extends TurretBase {
     const screen = camera.worldToScreen(this.position);
     const r = this.radius * camera.zoom;
     const detail = colorToCSS(Colors.massdriverturret_detail);
-    this.drawTurretBase(ctx, screen, r, detail);
+    this.drawTurretBase(ctx, screen, r, detail, camera);
 
     // Thick barrel
     ctx.strokeStyle = detail;
@@ -290,7 +290,7 @@ export class RegenTurret extends TurretBase {
     const screen = camera.worldToScreen(this.position);
     const r = this.radius * camera.zoom;
     const detail = colorToCSS(Colors.regenturret_detail);
-    this.drawTurretBase(ctx, screen, r, detail);
+    this.drawTurretBase(ctx, screen, r, detail, camera);
     this.drawBeam(ctx, camera, screen);
 
     // Plus / cross symbol
@@ -335,7 +335,7 @@ export class RepairTurret extends TurretBase {
     const screen = camera.worldToScreen(this.position);
     const r = this.radius * camera.zoom;
     const detail = colorToCSS(Colors.researchlab_detail);
-    this.drawTurretBase(ctx, screen, r, detail);
+    this.drawTurretBase(ctx, screen, r, detail, camera);
     this.drawBeam(ctx, camera, screen);
 
     ctx.strokeStyle = colorToCSS(Colors.particles_healing);
