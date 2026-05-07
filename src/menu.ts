@@ -58,6 +58,7 @@ export type MenuState =
   | 'lan_browser'
   | 'lan_join'
   | 'lan_client_lobby'
+  | 'online_multiplayer'
   | 'none';
 
 export type MenuAction =
@@ -295,7 +296,8 @@ export class MainMenu {
         this.state === 'vs_ai_setup' ||
         this.state === 'practice_setup' ||
         this.state === 'settings' ||
-        this.state === 'lan_type')
+        this.state === 'lan_type' ||
+        this.state === 'online_multiplayer')
     ) {
       Audio.playSound('menucursor');
       this.setState('title');
@@ -333,6 +335,8 @@ export class MainMenu {
             description: 'Match against an AI opponent with its own main ship' },
           { label: 'LAN Multiplayer', action: () => this.setState('lan_type'),
             description: 'Host or join a LAN game with up to 8 players' },
+          { label: 'Online Multiplayer', action: () => this.setState('online_multiplayer'),
+            description: 'Host or join an online game via internet (beta)' },
           { label: 'Back', action: () => this.setState('title') },
         ];
       case 'lan_type':
@@ -380,6 +384,7 @@ export class MainMenu {
       case 'lan_browser':     this.drawLanBrowser(ctx, screenW, screenH); break;
       case 'lan_join':        this.drawLanJoin(ctx, screenW, screenH); break;
       case 'lan_client_lobby':this.drawLanClientLobby(ctx, screenW, screenH); break;
+      case 'online_multiplayer': this.drawOnlineMultiplayer(ctx, screenW, screenH); break;
     }
 
     // Click-pulse overlay
@@ -1595,6 +1600,90 @@ export class MainMenu {
    */
   getLanClient(): LanClient {
     return this.lanClient;
+  }
+
+  // -------------------------------------------------------------------
+  // Online Multiplayer stub screen (Phase 7)
+  // -------------------------------------------------------------------
+
+  /**
+   * Renders the Online Multiplayer screen.
+   *
+   * If VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables are
+   * present at build time, the screen shows a "Lobby" placeholder.
+   * If the env vars are absent (the default for all current deployments),
+   * a clear "not configured" message is shown with setup instructions.
+   *
+   * This screen is intentionally a stub — full Supabase lobby + WebRTC
+   * transport are documented in docs/ONLINE_MULTIPLAYER.md and nextSteps.md.
+   */
+  private drawOnlineMultiplayer(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    this.drawBackground(ctx, w, h);
+    this.drawBuildBadge(ctx, w);
+
+    const cx = w * 0.5;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = gameFont(28);
+    ctx.fillStyle = colorToCSS(TextColors.title);
+    ctx.fillText('ONLINE MULTIPLAYER', cx, 68);
+
+    // Check if Supabase is configured (env vars injected by Vite at build time).
+    // Use a type-safe accessor for import.meta.env since vite/client types may
+    // not be in scope depending on tsconfig.
+    const metaEnv = (import.meta as unknown as { env?: Record<string, string | undefined> }).env ?? {};
+    const supabaseUrl = metaEnv['VITE_SUPABASE_URL'];
+    const supabaseKey = metaEnv['VITE_SUPABASE_ANON_KEY'];
+    const supabaseConfigured = Boolean(supabaseUrl && supabaseKey);
+
+    if (supabaseConfigured) {
+      // Supabase is configured: show placeholder lobby UI.
+      ctx.font = gameFont(14);
+      ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.9);
+      ctx.fillText('Supabase lobby connected.', cx, 120);
+      ctx.font = gameFont(11);
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.65);
+      ctx.fillText('Full WebRTC gameplay transport is not yet implemented.', cx, 148);
+      ctx.fillText('See docs/ONLINE_MULTIPLAYER.md and nextSteps.md for the next steps.', cx, 165);
+    } else {
+      // Not configured: show setup instructions.
+      ctx.font = gameFont(13);
+      ctx.fillStyle = colorToCSS(Colors.alert2, 0.9);
+      ctx.fillText('Online multiplayer is not configured.', cx, 118);
+
+      const setupLines = [
+        'To enable online lobbies, set the following environment variables:',
+        '',
+        '  VITE_SUPABASE_URL=https://your-project.supabase.co',
+        '  VITE_SUPABASE_ANON_KEY=your-anon-key',
+        '',
+        'Create a free Supabase project at supabase.com, then run:',
+        '  npm run dev',
+        '',
+        'See docs/ONLINE_MULTIPLAYER.md for SQL setup and full instructions.',
+        'LAN Multiplayer continues to work without any configuration.',
+      ];
+
+      ctx.font = gameFont(11);
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.75);
+      const lineH = 18;
+      const startY = 155;
+      for (let i = 0; i < setupLines.length; i++) {
+        const line = setupLines[i];
+        if (line.startsWith('  ')) {
+          ctx.fillStyle = colorToCSS(Colors.general_building, 0.85);
+        } else {
+          ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.75);
+        }
+        ctx.fillText(line, cx, startY + i * lineH);
+      }
+    }
+
+    // Back button
+    this.drawButtonRow(ctx, [
+      { label: 'LAN Multiplayer Instead', action: () => this.setState('lan_type') },
+      { label: 'Back', action: () => this.setState('play') },
+    ], cx, h - 56);
   }
 
   /**

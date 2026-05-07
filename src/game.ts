@@ -117,6 +117,22 @@ export class Game {
   private lanAiDirectors: VsAIDirector[] = [];
   /** Last received snapshot seq (client-only, for debug). */
   private lanLastSnapshotSeq: number = -1;
+  /**
+   * Client-side prediction correction vector.
+   * When the host authoritative position for our ship differs from our local
+   * prediction, this offset is added to the ship position and decayed to zero
+   * over LAN_PREDICTION_BLEND_SECS seconds for smooth visual correction.
+   */
+  private lanPredictionOffset: { x: number; y: number } = { x: 0, y: 0 };
+  /** Remaining fraction of prediction correction offset still to be blended out. */
+  private lanPredictionOffsetAlpha: number = 0;
+  /**
+   * Distance threshold (world units) above which the local ship position is
+   * snapped immediately to host state rather than being blended smoothly.
+   */
+  private static readonly LAN_PREDICTION_SNAP_THRESHOLD = 300;
+  /** Duration (seconds) over which prediction corrections are blended out. */
+  private static readonly LAN_PREDICTION_BLEND_SECS = 0.25;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -434,6 +450,18 @@ export class Game {
     } else if (this.state.gameMode === 'lan_client') {
       // Send local input to the server every tick.
       this.sendLanInput();
+      // Decay the prediction correction offset toward zero.
+      if (this.lanPredictionOffsetAlpha > 0) {
+        const decay = DT / Game.LAN_PREDICTION_BLEND_SECS;
+        this.lanPredictionOffsetAlpha = Math.max(0, this.lanPredictionOffsetAlpha - decay);
+        if (this.lanPredictionOffsetAlpha > 0 && this.state.player.alive) {
+          // Apply the remaining fraction of the correction offset each tick.
+          this.state.player.position.x += this.lanPredictionOffset.x * decay;
+          this.state.player.position.y += this.lanPredictionOffset.y * decay;
+        } else {
+          this.lanPredictionOffset = { x: 0, y: 0 };
+        }
+      }
     }
 
     // Vs. AI bot-player: tick the strategic director every frame. The
@@ -1420,6 +1448,8 @@ export class Game {
     this.lanSnapshotSeq = 0;
     this.lanInputSeq = 0;
     this.lanLastSnapshotSeq = -1;
+    this.lanPredictionOffset = { x: 0, y: 0 };
+    this.lanPredictionOffsetAlpha = 0;
 
     const myTeam = teamForSlot(this.lanMySlot);
     const myLobbySlot = matchStart.lobby.slots.find((s) => s.slotIndex === this.lanMySlot);
@@ -1570,9 +1600,27 @@ export class Game {
 
   /**
    * Apply a relayed game snapshot to non-authoritative client state.
-   * Ships: directly write position/velocity onto existing ship objects.
+   *
+   * Ships:
+   *   - Remote ships: directly write position/velocity.
+   *   - Local ship (our slot): apply soft prediction correction — blend toward
+   *     host authoritative position rather than snapping, unless the error is
+   *     large enough that smoothing would look wrong.
+   *
+   * Fighters:
+   *   - Update position/velocity for existing fighters matched by id.
+   *   - Create lightweight placeholder FighterShip/BomberShip for new ones.
+   *   - Destroy fighters whose ids are absent from the snapshot.
+   *
+   * Projectiles:
+   *   - Update position/velocity for existing projectiles matched by id.
+   *   - Projectiles absent from the snapshot are allowed to expire naturally
+   *     (they have short lifetimes; removing them immediately could cause
+   *     visual pops). New projectiles are not created from snapshots on the
+   *     client to avoid duplicating damage effects.
+   *
    * Buildings: sync health/buildProgress for known buildings (matched by id).
-   * Fighters and projectiles: reconcile the local list against snapshot ids.
+   * Factions, territory circles, resources: applied directly.
    */
   private applyLanSnapshot(snapshot: {
     seq: number;
@@ -1586,7 +1634,43 @@ export class Game {
   }): void {
     // --- Ships ---
     for (const sd of snapshot.ships) {
-      if (sd.slotIndex === this.lanMySlot) continue; // skip local ship
+      if (sd.slotIndex === this.lanMySlot) {
+        // Local ship prediction correction:
+        // The host has simulated our ship (with our delayed inputs) and is
+        // telling us where it thinks we are. Apply a weighted correction
+        // toward the host's authoritative position.
+        const localShip = this.state.playerShips.get(sd.slotIndex);
+        if (localShip && localShip.alive && sd.alive) {
+          const errX = sd.x - localShip.position.x;
+          const errY = sd.y - localShip.position.y;
+          const errDist = Math.hypot(errX, errY);
+          if (errDist > Game.LAN_PREDICTION_SNAP_THRESHOLD) {
+            // Large error — snap immediately to host position.
+            localShip.position.x = sd.x;
+            localShip.position.y = sd.y;
+            localShip.velocity.x = sd.vx;
+            localShip.velocity.y = sd.vy;
+            this.lanPredictionOffset = { x: 0, y: 0 };
+            this.lanPredictionOffsetAlpha = 0;
+          } else if (errDist > 4) {
+            // Small error — accumulate into a blending offset.
+            // The offset is applied gradually over LAN_PREDICTION_BLEND_SECS
+            // in updatePlaying() without modifying the physics position.
+            this.lanPredictionOffset.x += errX;
+            this.lanPredictionOffset.y += errY;
+            this.lanPredictionOffsetAlpha = Math.min(1, this.lanPredictionOffsetAlpha + 0.4);
+            // Also partially blend velocity toward host to reduce drift.
+            localShip.velocity.x += (sd.vx - localShip.velocity.x) * 0.15;
+            localShip.velocity.y += (sd.vy - localShip.velocity.y) * 0.15;
+          }
+          // Sync health/battery regardless of position correction.
+          localShip.health = sd.health;
+          localShip.battery = sd.battery;
+          if (!sd.alive) localShip.destroy();
+        }
+        continue;
+      }
+
       let ship = this.state.playerShips.get(sd.slotIndex);
       if (!ship) {
         // Lazily create remote ship on first snapshot.
@@ -1622,6 +1706,69 @@ export class Game {
       // seed layout. Full building sync (create/destroy) is a future pass.
     }
 
+    // --- Fighters ---
+    // Build a set of ids present in the snapshot for quick membership tests.
+    const snapshotFighterIds = new Set<number>();
+    const snapshotFighterById = new Map<number, SerializedFighter>();
+    for (const sf of snapshot.fighters) {
+      snapshotFighterIds.add(sf.id);
+      snapshotFighterById.set(sf.id, sf);
+    }
+
+    // Update or remove existing client-side fighters.
+    for (const f of this.state.fighters) {
+      if (!f.alive) continue;
+      const sf = snapshotFighterById.get(f.id);
+      if (sf) {
+        // Update position/velocity from snapshot.
+        f.position.x = sf.x;
+        f.position.y = sf.y;
+        f.velocity.x = sf.vx;
+        f.velocity.y = sf.vy;
+        f.angle = sf.angle;
+        if (!sf.alive && f.alive) f.destroy();
+      } else {
+        // Fighter has been removed from host state (dead/docked) — destroy locally.
+        if (f.alive) f.destroy();
+      }
+    }
+
+    // Create placeholder fighters for ids that don't exist locally.
+    const existingFighterIds = new Set(this.state.fighters.map((f) => f.id));
+    for (const sf of snapshot.fighters) {
+      if (existingFighterIds.has(sf.id) || !sf.alive) continue;
+      const isBomber = sf.entityType === EntityType.Bomber;
+      const newFighter = isBomber
+        ? new BomberShip(new Vec2(sf.x, sf.y), sf.team as Team, ShipGroup.Red, null)
+        : new FighterShip(new Vec2(sf.x, sf.y), sf.team as Team, ShipGroup.Red, null);
+      // Force the id to match the host's id so future snapshots can find it.
+      (newFighter as unknown as { id: number }).id = sf.id;
+      newFighter.velocity.x = sf.vx;
+      newFighter.velocity.y = sf.vy;
+      newFighter.angle = sf.angle;
+      newFighter.docked = false;
+      this.state.addEntity(newFighter);
+    }
+
+    // --- Projectiles ---
+    // Only update position/velocity of existing projectiles.
+    // New projectiles are NOT created from snapshots to avoid duplicating
+    // collision/damage effects that the host simulation already owns.
+    // Projectiles that vanish from snapshots are left to expire naturally.
+    const snapshotProjectileById = new Map<number, SerializedProjectile>();
+    for (const sp of snapshot.projectiles) snapshotProjectileById.set(sp.id, sp);
+
+    for (const p of this.state.projectiles) {
+      if (!p.alive) continue;
+      const sp = snapshotProjectileById.get(p.id);
+      if (sp) {
+        // Nudge position toward host state (interpolation rather than snap).
+        p.position.x += (sp.x - p.position.x) * 0.5;
+        p.position.y += (sp.y - p.position.y) * 0.5;
+        p.velocity.x = sp.vx;
+        p.velocity.y = sp.vy;
+      }
+    }
 
     if (Array.isArray(snapshot.factionsByTeam)) {
       this.state.factionByTeam.clear();
@@ -1924,6 +2071,9 @@ export class Game {
         lanLastSnapshotSeq: this.lanLastSnapshotSeq,
         lanSnapshotSeq: this.lanSnapshotSeq,
         lanAiDirectorCount: this.lanAiDirectors.length,
+        lanPredictionError: this.lanPredictionOffsetAlpha > 0
+          ? Math.hypot(this.lanPredictionOffset.x, this.lanPredictionOffset.y)
+          : 0,
       });
     }
 
