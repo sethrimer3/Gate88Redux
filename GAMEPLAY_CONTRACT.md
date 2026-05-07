@@ -2,6 +2,12 @@
 
 This build targets a small playable Gate 88 loop: direct ship control, grid-snapped base construction, conduits, research unlocks, shipyards, turrets, and command post destruction.
 
+## Races
+
+- Terran is the original conduit faction. It uses the Q conduit brush, conduit-graph power, and automatic conduit blueprints around placed buildings.
+- Concentroid is the circle-territory faction. It does not use conduits; buildings extend territory circles and must be placed on the Concentroid frontier band.
+- Practice, Vs. AI, and LAN setup expose race selection. Random resolves to either Terran or Concentroid when the match starts.
+
 ## Controls
 
 - WASD moves the player ship. Mouse aims. Left mouse fires the primary weapon.
@@ -29,6 +35,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 - The grid cell size is one third of the original port grid.
 - Buildings snap to grid footprints: most buildings are 3x3, Factories and Research Labs are 4x4, and Command Posts are 6x6.
 - Placement requires enough resources, an empty cell, world bounds, and adjacency to the player power network.
+- Concentroid placement instead requires the building footprint to sit on the race's frontier band.
 - The player power network means a Command Post, Power Generator, powered conduit, existing conduit, or pending conduit next to the target cell.
 - Command Post rebuild is hidden until the player has no Command Post.
 - Invalid placement shows a red cursor and does not spend resources or fire weapons.

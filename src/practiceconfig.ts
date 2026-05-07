@@ -17,9 +17,13 @@ export type ResearchUnlock = 'none' | 'basic_turrets' | 'all_turrets' | 'full_te
 export type VictoryCondition = 'destroy_cp' | 'survive_waves' | 'sandbox';
 export type DefeatCondition = 'cp_destroyed' | 'ship_and_no_cp' | 'disabled';
 export type MapSize = 'small' | 'medium' | 'large';
+export type { RaceSelection } from './confluence.js';
+import type { RaceSelection } from './confluence.js';
 
 export interface PracticeConfig {
   difficulty: DifficultyName;
+  playerRace: RaceSelection;
+  enemyRace: RaceSelection;
   playerStartingResources: number;
   enemyStartingResources: number;
   playerIncomeMul: number;
@@ -40,6 +44,8 @@ export interface PracticeConfig {
 
 export const DEFAULT_PRACTICE_CONFIG: PracticeConfig = {
   difficulty: 'Normal',
+  playerRace: 'terran',
+  enemyRace: 'terran',
   playerStartingResources: 500,
   enemyStartingResources: 500,
   playerIncomeMul: 1.0,

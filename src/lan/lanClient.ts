@@ -24,6 +24,7 @@ import type {
   MsgSlotConfig,
   SlotType,
   AIDifficulty,
+  RaceSelection,
 } from './protocol.js';
 
 export type LanClientState =
@@ -253,8 +254,8 @@ export class LanClient {
     this.send({ type: 'leave' });
   }
 
-  sendSlotConfig(slotIndex: number, slotType: SlotType, aiDifficulty?: AIDifficulty): void {
-    this.send({ type: 'slot_config', slotIndex, slotType, aiDifficulty });
+  sendSlotConfig(slotIndex: number, slotType: SlotType, aiDifficulty?: AIDifficulty, race?: RaceSelection): void {
+    this.send({ type: 'slot_config', slotIndex, slotType, aiDifficulty, race });
   }
 
   sendKickPlayer(slotIndex: number): void {

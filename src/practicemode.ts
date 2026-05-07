@@ -83,6 +83,7 @@ export class PracticeMode {
     );
     const cp = new CommandPost(basePos, Team.Enemy);
     state.addEntity(cp);
+    state.ensureConfluenceSeedCircle(Team.Enemy, basePos);
 
     this.planner = new EnemyBasePlanner(Team.Enemy, this.config, Math.floor(Math.random() * 0xffffff));
     this.planner.init(state, cp);

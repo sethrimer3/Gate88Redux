@@ -58,6 +58,7 @@ import {
 import { DoctrineType, Doctrine, DOCTRINES, pickDoctrine } from './aidoctrine.js';
 import { RaidPlanner } from './airaids.js';
 import { AIScore, cellOf } from './aiscore.js';
+import { isConfluenceFaction } from './confluence.js';
 
 // ---------------------------------------------------------------------------
 // Public snapshot type
@@ -161,6 +162,10 @@ export class EnemyBasePlanner {
     lastBuilderKillTime: -9999,
   };
 
+  private usesConduits(state: GameState): boolean {
+    return !isConfluenceFaction(state.factionByTeam, this.team);
+  }
+
   constructor(team: Team, config: PracticeConfig, seed: number = 1337) {
     this.team = team;
     this.config = config;
@@ -182,15 +187,16 @@ export class EnemyBasePlanner {
     this.centerCx = c.cx;
     this.centerCy = c.cy;
 
-    // Initial 5-cell conduit cross so the network starts powered.
-    const initCells: Array<[number, number]> = [[0,0],[1,0],[-1,0],[0,1],[0,-1]];
-    for (const [dx, dy] of initCells) {
-      const cx = this.centerCx + dx;
-      const cy = this.centerCy + dy;
-      state.grid.addConduit(cx, cy, this.team);
-      this.claimedConduitKeys.add(cellKey(cx, cy));
+    if (this.usesConduits(state)) {
+      const initCells: Array<[number, number]> = [[0,0],[1,0],[-1,0],[0,1],[0,-1]];
+      for (const [dx, dy] of initCells) {
+        const cx = this.centerCx + dx;
+        const cy = this.centerCy + dy;
+        state.grid.addConduit(cx, cy, this.team);
+        this.claimedConduitKeys.add(cellKey(cx, cy));
+      }
+      state.power.markDirty();
     }
-    state.power.markDirty();
 
     this.generatePlan();
     this.replanQueue(state);
@@ -432,8 +438,9 @@ export class EnemyBasePlanner {
   }
 
   private nextBuildOrder(state: GameState): BuildOrder | null {
+    const useConduits = this.usesConduits(state);
     // --- 1. Spoke cells — build inner cells first so power reaches rings early.
-    for (let si = 0; si < this.spokes.length; si++) {
+    for (let si = 0; useConduits && si < this.spokes.length; si++) {
       const spoke = this.spokes[si];
       let ptr = this.spokeQueuePtrs[si];
       // Advance past cells already laid.
@@ -459,7 +466,7 @@ export class EnemyBasePlanner {
     }
 
     // --- 2 + 4. Ring conduit cells -------------------------------------------
-    for (let r = 0; r <= this.currentRing && r < this.rings.length; r++) {
+    for (let r = 0; useConduits && r <= this.currentRing && r < this.rings.length; r++) {
       const order = this.nextRingConduitOrder(state, this.rings[r]);
       if (order) return order;
     }
@@ -517,7 +524,7 @@ export class EnemyBasePlanner {
 
       slot.queued = true;
       this.claimedBuildingKeys.add(k);
-      return { kind: 'building', cx: slot.cx, cy: slot.cy, def, layConduitFirst: true };
+      return { kind: 'building', cx: slot.cx, cy: slot.cy, def, layConduitFirst: this.usesConduits(state) };
     }
     return null;
   }
@@ -527,8 +534,10 @@ export class EnemyBasePlanner {
       if (bastion.status === 'abandoned') continue;
 
       // Conduit loop first.
-      const conduitOrder = this.nextBastionConduitOrder(state, bastion);
-      if (conduitOrder) return conduitOrder;
+      if (this.usesConduits(state)) {
+        const conduitOrder = this.nextBastionConduitOrder(state, bastion);
+        if (conduitOrder) return conduitOrder;
+      }
 
       // Generator.
       if (bastion.generatorSlot) {
@@ -539,7 +548,7 @@ export class EnemyBasePlanner {
           if (def && this.isCellInBounds(state, gs.cx, gs.cy)) {
             this.claimedBuildingKeys.add(k);
             if (bastion.status === 'planned') bastion.status = 'constructing';
-            return { kind: 'building', cx: gs.cx, cy: gs.cy, def, layConduitFirst: true };
+            return { kind: 'building', cx: gs.cx, cy: gs.cy, def, layConduitFirst: this.usesConduits(state) };
           }
         }
       }
@@ -554,7 +563,7 @@ export class EnemyBasePlanner {
         if (!this.isCellInBounds(state, ts.cx, ts.cy)) continue;
         ts.queued = true;
         this.claimedBuildingKeys.add(k);
-        return { kind: 'building', cx: ts.cx, cy: ts.cy, def, layConduitFirst: true };
+        return { kind: 'building', cx: ts.cx, cy: ts.cy, def, layConduitFirst: this.usesConduits(state) };
       }
     }
     return null;
@@ -685,6 +694,7 @@ export class EnemyBasePlanner {
           state.grid.addConduit(result.cx, result.cy, this.team);
         }
         state.addEntity(result.ent);
+        state.applyConfluencePlacement(this.team, result.ent.position, String(result.ent.id));
         this.buildsPlaced++;
         state.recentEnemyConstructions.push({
           pos: result.ent.position.clone(),

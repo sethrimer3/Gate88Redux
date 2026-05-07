@@ -139,8 +139,8 @@ export class GameState {
   constructor(playerStart: Vec2 = new Vec2(0, 0)) {
     this.playerShips.set(0, new PlayerShip(playerStart, Team.Player));
     this.particles = new ParticleSystem();
-    this.factionByTeam.set(Team.Player, 'confluence');
-    this.factionByTeam.set(Team.Enemy, 'conduit');
+    this.factionByTeam.set(Team.Player, 'terran');
+    this.factionByTeam.set(Team.Enemy, 'terran');
   }
 
   // -----------------------------------------------------------------------
@@ -739,6 +739,7 @@ export class GameState {
 
   private addAutomaticBuildingConduits(building: BuildingBase): void {
     if (!building.alive || building.team === Team.Neutral) return;
+    if (isConfluenceFaction(this.factionByTeam, building.team)) return;
     const centerCx = Math.floor(building.position.x / GRID_CELL_SIZE);
     const centerCy = Math.floor(building.position.y / GRID_CELL_SIZE);
     const size = footprintForBuildingType(building.type);
@@ -1171,6 +1172,9 @@ export class GameState {
 
   setFaction(team: Team, faction: FactionType): void {
     this.factionByTeam.set(team, faction);
+    if (!isConfluenceFaction(this.factionByTeam, team)) {
+      this.territoryCirclesByTeam.delete(team);
+    }
   }
 
   ensureConfluenceSeedCircle(team: Team, center: Vec2): void {
@@ -1240,7 +1244,7 @@ export class GameState {
       const distanceFromCircleEdge = Math.hypot(center.x - parent.x, center.y - parent.y) - parent.radius;
       const minBand = CONFLUENCE_PLACEMENT_DISTANCE - CONFLUENCE_PLACEMENT_TOLERANCE;
       const maxBand = CONFLUENCE_PLACEMENT_DISTANCE + CONFLUENCE_PLACEMENT_TOLERANCE;
-      if (distanceFromCircleEdge < minBand || distanceFromCircleEdge > maxBand) return { valid: false, reason: 'Place on confluence frontier band' };
+      if (distanceFromCircleEdge < minBand || distanceFromCircleEdge > maxBand) return { valid: false, reason: 'Place on Concentroid frontier band' };
       return { valid: true, reason: 'OK' };
     }
     if (this.isNearPowerNetwork(origin.cx, origin.cy, def.footprintCells, team)) return { valid: true, reason: 'OK' };

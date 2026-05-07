@@ -35,6 +35,7 @@ import type {
   MsgPong,
   AIDifficulty,
   SlotType,
+  RaceSelection,
 } from '../src/lan/protocol.js';
 import { createLanDiscovery } from './lanDiscovery.js';
 
@@ -84,7 +85,7 @@ const lobbyId = `lobby_${Math.random().toString(36).slice(2, 10)}`;
 function initSlots(): LobbySlot[] {
   const slots: LobbySlot[] = [];
   for (let i = 0; i < MAX_SLOTS; i++) {
-    slots.push({ slotIndex: i, type: 'open', ready: false });
+    slots.push({ slotIndex: i, type: 'open', ready: false, race: 'terran' });
   }
   return slots;
 }
@@ -148,6 +149,7 @@ function assignSlot(clientId: string, slotIndex: number, playerName: string): vo
   lobbySlots[slotIndex].clientId = clientId;
   lobbySlots[slotIndex].playerName = playerName;
   lobbySlots[slotIndex].ready = false;
+  lobbySlots[slotIndex].race ??= 'terran';
 }
 
 function releaseSlot(clientId: string): void {
@@ -328,16 +330,31 @@ wss.on('connection', (ws: WebSocket) => {
       // slot_config – host only: configure a non-host slot
       // -------------------------------------------------------------------
       case 'slot_config': {
-        if (!myClient.isHost || matchStarted) break;
-        const { slotIndex, slotType, aiDifficulty } = msg;
+        if (matchStarted) break;
+        const { slotIndex, slotType, aiDifficulty, race } = msg;
         // Validate inputs.
         if (
           typeof slotIndex !== 'number' ||
-          slotIndex < 1 || slotIndex >= MAX_SLOTS
-        ) break; // slot 0 = host, cannot reconfigure
-        const validTypes: SlotType[] = ['open', 'closed', 'ai'];
+          slotIndex < 0 || slotIndex >= MAX_SLOTS
+        ) break;
+        const validTypes: SlotType[] = ['open', 'closed', 'ai', 'human'];
         if (!validTypes.includes(slotType)) break;
         const slot = lobbySlots[slotIndex];
+        const validRaces: RaceSelection[] = ['terran', 'concentroid', 'random'];
+        const nextRace = validRaces.includes(race as RaceSelection)
+          ? (race as RaceSelection)
+          : slot.race ?? 'terran';
+        if (!myClient.isHost) {
+          if (slot.clientId !== clientId || slot.type !== 'human') break;
+          slot.race = nextRace;
+          broadcastLobbyUpdate();
+          break;
+        }
+        if (slotType === 'human' && slot.type === 'human' && slot.clientId) {
+          slot.race = nextRace;
+          broadcastLobbyUpdate();
+          break;
+        }
         // Don't change a slot that has a live human in it without kicking first.
         if (slot.type === 'human' && slot.clientId) break;
         const validDiffs: AIDifficulty[] = ['easy', 'normal', 'hard', 'nightmare'];
@@ -346,6 +363,7 @@ wss.on('connection', (ws: WebSocket) => {
           : 'normal';
         slot.type = slotType;
         slot.aiDifficulty = slotType === 'ai' ? diff : undefined;
+        slot.race = nextRace;
         slot.ready = false;
         slot.clientId = undefined;
         slot.playerName = slotType === 'ai' ? `AI (${diff})` : undefined;

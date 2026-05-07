@@ -37,7 +37,7 @@ import type { LanClient } from './lan/lanClient.js';
 import type { MsgMatchStart, MsgRelayedInput, SerializedShip, SerializedBuilding, SerializedFighter, SerializedProjectile, SerializedTerritoryCircle } from './lan/protocol.js';
 import { PlayerShip } from './ship.js';
 import { teamForSlot } from './teamutils.js';
-import { isConfluenceFaction, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_BASE_RADIUS } from './confluence.js';
+import { isConfluenceFaction, resolveRaceSelection, type FactionType, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_BASE_RADIUS } from './confluence.js';
 import { cloneDefaultVsAIConfig } from './vsaiconfig.js';
 import { GlowLayer } from './glowlayer.js';
 import { DEFAULT_VISUAL_QUALITY, VISUAL_QUALITY_PRESETS, type VisualQuality, type VisualQualityPreset } from './visualquality.js';
@@ -1242,11 +1242,23 @@ export class Game {
     this.spaceFluid.reset();
     this.spaceFluid.resize(this.screenW, this.screenH);
 
+    const practiceCfg = mode === 'practice' ? this.mainMenu.practiceConfig : null;
+    const vsCfg = mode === 'vs_ai' ? this.mainMenu.vsAIConfig : null;
+    const playerFaction = mode === 'tutorial'
+      ? 'terran'
+      : resolveRaceSelection(practiceCfg?.playerRace ?? vsCfg?.playerRace ?? 'terran', this.state.gameTime + 0.13);
+    const enemyFaction = mode === 'practice'
+      ? resolveRaceSelection(practiceCfg?.enemyRace ?? 'terran', this.state.gameTime + 0.71)
+      : mode === 'vs_ai'
+        ? resolveRaceSelection(vsCfg?.aiRace ?? 'terran', this.state.gameTime + 0.71)
+        : 'terran';
+    this.state.setFaction(Team.Player, playerFaction);
+    this.state.setFaction(Team.Enemy, enemyFaction);
+
     // Create player command post near player
     const cpPos = new Vec2(playerStart.x, playerStart.y + 80);
     const cp = new CommandPost(cpPos, Team.Player);
     this.state.addEntity(cp);
-    this.state.setFaction(Team.Player, 'confluence');
     this.state.ensureConfluenceSeedCircle(Team.Player, cpPos);
 
     // Seed a small starter conduit network around the player CP so that
@@ -1370,11 +1382,17 @@ export class Game {
     this.lanLastSnapshotSeq = -1;
 
     const myTeam = teamForSlot(this.lanMySlot);
+    const myLobbySlot = matchStart.lobby.slots.find((s) => s.slotIndex === this.lanMySlot);
+    const myFaction = resolveRaceSelection(myLobbySlot?.race ?? 'terran', matchStart.seed + this.lanMySlot * 0.37);
     const playerStart = new Vec2(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
 
     // Build fresh game state for host slot 0.
     this.state = new GameState(playerStart);
     this.state.gameMode = isHost ? 'lan_host' : 'lan_client';
+    for (const slot of matchStart.lobby.slots) {
+      if (slot.type === 'open' || slot.type === 'closed') continue;
+      this.state.setFaction(teamForSlot(slot.slotIndex), resolveRaceSelection(slot.race ?? 'terran', matchStart.seed + slot.slotIndex * 0.37));
+    }
     this.applyVisualQuality(this.visualQuality);
     this.vsAIDirector = null;
     this.playerDeathHandled = false;
@@ -1425,6 +1443,7 @@ export class Game {
         this.state.playerShips.set(slot.slotIndex, aiShip);
 
         const aiCfg = cloneDefaultVsAIConfig();
+        aiCfg.aiRace = resolveRaceSelection(slot.race ?? 'terran', matchStart.seed + slot.slotIndex * 0.37);
         // Map AIDifficulty → VsAIConfig difficulty.
         switch (slot.aiDifficulty) {
           case 'easy':      aiCfg.difficulty = 'Easy';      break;
@@ -1441,13 +1460,17 @@ export class Game {
     const cpPos = new Vec2(playerStart.x, playerStart.y + 80);
     const cp = new CommandPost(cpPos, myTeam);
     this.state.addEntity(cp);
+    this.state.setFaction(myTeam, myFaction);
+    this.state.ensureConfluenceSeedCircle(myTeam, cpPos);
 
-    const startCx = Math.floor(cpPos.x / GRID_CELL_SIZE);
-    const startCy = Math.floor(cpPos.y / GRID_CELL_SIZE);
-    for (let dx = -2; dx <= 2; dx++) {
-      for (let dy = -2; dy <= 2; dy++) {
-        if (Math.abs(dx) + Math.abs(dy) <= 2) {
-          this.state.grid.addConduit(startCx + dx, startCy + dy, myTeam);
+    if (!isConfluenceFaction(this.state.factionByTeam, myTeam)) {
+      const startCx = Math.floor(cpPos.x / GRID_CELL_SIZE);
+      const startCy = Math.floor(cpPos.y / GRID_CELL_SIZE);
+      for (let dx = -2; dx <= 2; dx++) {
+        for (let dy = -2; dy <= 2; dy++) {
+          if (Math.abs(dx) + Math.abs(dy) <= 2) {
+            this.state.grid.addConduit(startCx + dx, startCy + dy, myTeam);
+          }
         }
       }
     }
@@ -1515,7 +1538,7 @@ export class Game {
     buildings: SerializedBuilding[];
     fighters: SerializedFighter[];
     projectiles: SerializedProjectile[];
-    factionsByTeam?: Array<{ team: number; faction: 'conduit' | 'confluence' }>;
+    factionsByTeam?: Array<{ team: number; faction: FactionType }>;
     territoryCircles?: SerializedTerritoryCircle[];
     resourcesPerSlot: number[];
   }): void {
@@ -1673,6 +1696,8 @@ export class Game {
       projectiles,
       resourcesPerSlot,
       hostSlot: 0,
+      factionsByTeam,
+      territoryCircles,
     });
   }
 

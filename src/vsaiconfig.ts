@@ -6,9 +6,12 @@
  */
 
 import type { DifficultyName } from './practiceconfig.js';
+import type { RaceSelection } from './confluence.js';
 
 export interface VsAIConfig {
   difficulty: DifficultyName;
+  playerRace: RaceSelection;
+  aiRace: RaceSelection;
   /** Optional override for AI APM. -1 means "derive from difficulty". */
   aiApm: number;
   startingResources: number;
@@ -23,6 +26,8 @@ export interface VsAIConfig {
 
 export const DEFAULT_VSAI_CONFIG: VsAIConfig = {
   difficulty: 'Normal',
+  playerRace: 'terran',
+  aiRace: 'terran',
   aiApm: -1,
   startingResources: 500,
   mapSize: 'medium',

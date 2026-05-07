@@ -20,6 +20,8 @@
 
 export type SlotType = 'open' | 'human' | 'ai' | 'closed';
 export type AIDifficulty = 'easy' | 'normal' | 'hard' | 'nightmare';
+export type FactionType = 'terran' | 'concentroid';
+export type RaceSelection = FactionType | 'random';
 
 export interface LobbySlot {
   slotIndex: number;       // 0–7
@@ -28,6 +30,7 @@ export interface LobbySlot {
   clientId?: string;       // ws client id that owns this slot
   ready: boolean;          // for human slots
   aiDifficulty?: AIDifficulty;
+  race?: RaceSelection;
 }
 
 /** Full lobby state snapshot broadcast to all clients */
@@ -60,6 +63,7 @@ export interface MsgSlotConfig {
   slotIndex: number;
   slotType: SlotType;
   aiDifficulty?: AIDifficulty;
+  race?: RaceSelection;
 }
 
 /** Host-only: kick a human from a slot */
@@ -101,7 +105,7 @@ export interface MsgGameSnapshot {
   projectiles: SerializedProjectile[];
   fighters: SerializedFighter[];
   buildings: SerializedBuilding[];
-  factionsByTeam?: Array<{ team: number; faction: 'conduit' | 'confluence' }>;
+  factionsByTeam?: Array<{ team: number; faction: FactionType }>;
   territoryCircles?: SerializedTerritoryCircle[];
   /** Resources indexed by slot (sparse — only active slots included). */
   resourcesPerSlot: number[];
@@ -226,7 +230,7 @@ export interface MsgRelayedSnapshot {
   projectiles: SerializedProjectile[];
   fighters: SerializedFighter[];
   buildings: SerializedBuilding[];
-  factionsByTeam?: Array<{ team: number; faction: 'conduit' | 'confluence' }>;
+  factionsByTeam?: Array<{ team: number; faction: FactionType }>;
   territoryCircles?: SerializedTerritoryCircle[];
   resourcesPerSlot: number[];
   hostSlot: number;

@@ -40,6 +40,7 @@ import {
 } from './vsaiconfig.js';
 import { LanClient } from './lan/lanClient.js';
 import type { LobbyState, LobbySlot, AIDifficulty, MsgMatchStart, LanDiscoveredLobby } from './lan/protocol.js';
+import { factionLabel, RACE_SELECTIONS, type RaceSelection } from './confluence.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -646,6 +647,10 @@ export class MainMenu {
     // Left column
     y = this.drawDifficultyRow(ctx, left, y, rowH, 'Enemy Difficulty',
       cfg.difficulty, (v) => cfg.difficulty = v);
+    y = this.drawRaceRow(ctx, left, y, rowH, 'Player Race',
+      cfg.playerRace, (v) => cfg.playerRace = v);
+    y = this.drawRaceRow(ctx, left, y, rowH, 'Enemy Race',
+      cfg.enemyRace, (v) => cfg.enemyRace = v);
     y = this.drawSliderRow(ctx, left, y, rowH, 'Player Resources',
       cfg.playerStartingResources, 0, 5000, 50,
       (v) => cfg.playerStartingResources = v, (v) => `${v}`);
@@ -731,6 +736,10 @@ export class MainMenu {
 
     y = this.drawDifficultyRow(ctx, left, y, rowH, 'AI Difficulty',
       cfg.difficulty, (v) => cfg.difficulty = v);
+    y = this.drawRaceRow(ctx, left, y, rowH, 'Player Race',
+      cfg.playerRace, (v) => cfg.playerRace = v);
+    y = this.drawRaceRow(ctx, left, y, rowH, 'AI Race',
+      cfg.aiRace, (v) => cfg.aiRace = v);
     y = this.drawSliderRow(ctx, left, y, rowH, 'AI APM (-1 = derived)',
       cfg.aiApm, -1, 400, 5,
       (v) => cfg.aiApm = v, (v) => v < 0 ? 'auto' : `${v}`);
@@ -845,6 +854,16 @@ export class MainMenu {
       ctx, x, y, h, label, value, DIFFICULTY_NAMES, onChange,
       (v) => v, // identity
       idx / Math.max(1, DIFFICULTY_NAMES.length - 1),
+    );
+  }
+
+  private drawRaceRow(
+    ctx: CanvasRenderingContext2D, x: number, y: number, h: number,
+    label: string, value: RaceSelection,
+    onChange: (v: RaceSelection) => void,
+  ): number {
+    return this.drawCycleRow<RaceSelection>(
+      ctx, x, y, h, label, value, RACE_SELECTIONS, onChange, factionLabel,
     );
   }
 
@@ -1150,7 +1169,7 @@ export class MainMenu {
     // Hints at bottom
     ctx.font = gameFont(11);
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
-    ctx.fillText('Host: click slot buttons to toggle Open / AI / Closed.  AI slots cycle difficulty.', cx, h - 120);
+    ctx.fillText('Host: toggle slots and AI race.  Players can change their own race before readying.', cx, h - 120);
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.55);
     ctx.fillText('⚠ For others to join, share your LAN IP — e.g. ws://192.168.1.25:8787', cx, h - 104);
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.45);
@@ -1372,7 +1391,7 @@ export class MainMenu {
   ): void {
     const tableTop = 130;
     const rowH = 36;
-    const tableW = 680;
+    const tableW = 760;
     const tableLeft = cx - tableW / 2;
 
     // Header
@@ -1382,8 +1401,9 @@ export class MainMenu {
     ctx.fillText('#', tableLeft + 8, tableTop - 10);
     ctx.fillText('Status', tableLeft + 40, tableTop - 10);
     ctx.fillText('Name', tableLeft + 160, tableTop - 10);
-    ctx.fillText('Type / Difficulty', tableLeft + 380, tableTop - 10);
-    if (isHost) ctx.fillText('Controls', tableLeft + 540, tableTop - 10);
+    ctx.fillText('Type / Difficulty', tableLeft + 360, tableTop - 10);
+    ctx.fillText('Race', tableLeft + 500, tableTop - 10);
+    ctx.fillText('Controls', tableLeft + 612, tableTop - 10);
 
     ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.35);
     ctx.lineWidth = 1;
@@ -1438,12 +1458,37 @@ export class MainMenu {
         ? `AI / ${slot.aiDifficulty ?? 'normal'}`
         : slot.type;
       ctx.fillStyle = colorToCSS(TextColors.normal, 0.6);
-      ctx.fillText(typeText, tableLeft + 384, y);
+      ctx.fillText(typeText, tableLeft + 364, y);
+
+      const race = slot.race ?? 'terran';
+      ctx.fillStyle = colorToCSS(TextColors.normal, 0.72);
+      ctx.fillText(factionLabel(race), tableLeft + 504, y);
+
+      const canChangeRace = (slot.type === 'human' && slot.clientId === this.lanClient.clientId) ||
+        (isHost && slot.type === 'ai') ||
+        (isHost && slot.type === 'human' && i === 0);
+      if (canChangeRace) {
+        const raceRect: HitRect = { x: tableLeft + 608, y: tableTop + i * rowH + 6, w: 54, h: rowH - 14 };
+        const raceHovered = pointInRect(this.mouseXLatched, this.mouseYLatched, raceRect);
+        ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, raceHovered ? 0.8 : 0.4);
+        ctx.lineWidth = 1;
+        ctx.strokeRect(raceRect.x + 0.5, raceRect.y + 0.5, raceRect.w - 1, raceRect.h - 1);
+        ctx.font = gameFont(11);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, raceHovered ? 1.0 : 0.75);
+        ctx.fillText('Race', raceRect.x + raceRect.w / 2, raceRect.y + raceRect.h / 2);
+        if (this.handleClick(raceRect)) {
+          const idx = RACE_SELECTIONS.indexOf(race);
+          const nextRace = RACE_SELECTIONS[(idx + 1) % RACE_SELECTIONS.length];
+          const typeForMsg = slot.type === 'human' ? 'human' : slot.type;
+          this.lanClient.sendSlotConfig(i, typeForMsg, slot.aiDifficulty, nextRace);
+        }
+      }
 
       // Host controls for non-slot-0 slots
       if (isHost && i > 0) {
         // Toggle type button
-        const toggleRect: HitRect = { x: tableLeft + 544, y: tableTop + i * rowH + 6, w: 80, h: rowH - 14 };
+        const toggleRect: HitRect = { x: tableLeft + 666, y: tableTop + i * rowH + 6, w: 54, h: rowH - 14 };
         const toggleHovered = pointInRect(this.mouseXLatched, this.mouseYLatched, toggleRect);
         ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, toggleHovered ? 0.8 : 0.45);
         ctx.lineWidth = 1;
@@ -1455,17 +1500,17 @@ export class MainMenu {
         ctx.fillText(`→ ${nextType}`, toggleRect.x + toggleRect.w / 2, toggleRect.y + toggleRect.h / 2);
         if (this.handleClick(toggleRect)) {
           if (slot.type === 'open') {
-            this.lanClient.sendSlotConfig(i, 'ai', 'normal');
+            this.lanClient.sendSlotConfig(i, 'ai', 'normal', slot.race ?? 'terran');
           } else if (slot.type === 'ai') {
-            this.lanClient.sendSlotConfig(i, 'closed');
+            this.lanClient.sendSlotConfig(i, 'closed', undefined, slot.race ?? 'terran');
           } else {
-            this.lanClient.sendSlotConfig(i, 'open');
+            this.lanClient.sendSlotConfig(i, 'open', undefined, slot.race ?? 'terran');
           }
         }
 
         // AI difficulty cycle (only for AI slots)
         if (slot.type === 'ai') {
-          const diffRect: HitRect = { x: tableLeft + 628, y: tableTop + i * rowH + 6, w: 48, h: rowH - 14 };
+          const diffRect: HitRect = { x: tableLeft + 724, y: tableTop + i * rowH + 6, w: 32, h: rowH - 14 };
           const diffHovered = pointInRect(this.mouseXLatched, this.mouseYLatched, diffRect);
           ctx.strokeStyle = colorToCSS(Colors.radar_allied_status, diffHovered ? 0.8 : 0.4);
           ctx.lineWidth = 1;
@@ -1478,13 +1523,13 @@ export class MainMenu {
             const cur = slot.aiDifficulty ?? 'normal';
             const idx = AI_DIFFICULTIES.indexOf(cur);
             const next = AI_DIFFICULTIES[(idx + 1) % AI_DIFFICULTIES.length];
-            this.lanClient.sendSlotConfig(i, 'ai', next);
+            this.lanClient.sendSlotConfig(i, 'ai', next, slot.race ?? 'terran');
           }
         }
 
         // Kick button for occupied human slots
         if (slot.type === 'human' && slot.clientId) {
-          const kickRect: HitRect = { x: tableLeft + 628, y: tableTop + i * rowH + 6, w: 48, h: rowH - 14 };
+          const kickRect: HitRect = { x: tableLeft + 724, y: tableTop + i * rowH + 6, w: 32, h: rowH - 14 };
           const kickHovered = pointInRect(this.mouseXLatched, this.mouseYLatched, kickRect);
           ctx.strokeStyle = colorToCSS(Colors.alert1, kickHovered ? 0.8 : 0.4);
           ctx.lineWidth = 1;

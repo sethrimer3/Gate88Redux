@@ -1,7 +1,11 @@
 import { Team } from './entities.js';
 import { GRID_CELL_SIZE } from './grid.js';
 
-export type FactionType = 'conduit' | 'confluence';
+export type FactionType = 'terran' | 'concentroid';
+export type RaceSelection = FactionType | 'random';
+
+export const FACTION_TYPES: FactionType[] = ['terran', 'concentroid'];
+export const RACE_SELECTIONS: RaceSelection[] = ['terran', 'concentroid', 'random'];
 
 export interface ConfluenceTerritoryCircle {
   id: string;
@@ -25,5 +29,18 @@ export const CONFLUENCE_NEW_CIRCLE_GROW_DURATION = 0.45;
 export const CONFLUENCE_INCLUDE_MARGIN = CONDUIT_LENGTH * 0.5;
 
 export function isConfluenceFaction(factionByTeam: Map<Team, FactionType>, team: Team): boolean {
-  return factionByTeam.get(team) === 'confluence';
+  return factionByTeam.get(team) === 'concentroid';
+}
+
+export function factionLabel(faction: RaceSelection): string {
+  switch (faction) {
+    case 'terran': return 'Terran';
+    case 'concentroid': return 'Concentroid';
+    case 'random': return 'Random';
+  }
+}
+
+export function resolveRaceSelection(selection: RaceSelection, salt: number = Math.random()): FactionType {
+  if (selection !== 'random') return selection;
+  return (Math.abs(Math.floor(salt * 9973)) % 2) === 0 ? 'terran' : 'concentroid';
 }
