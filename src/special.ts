@@ -62,7 +62,7 @@ const CROSS_LASER_MINE_ABILITY: SpecialAbility = {
 
     // 5-mine fan spread: ±30° and ±15° around the base direction plus centre.
     // Offset keeps the mines from stacking on the ship's collision radius.
-    const halfSpread = Math.PI / 6; // 30 °
+    const halfSpread = Math.PI / 6; // 30°
     const spreadAngles = [
       -halfSpread,
       -halfSpread * 0.5,

@@ -41,6 +41,13 @@ import { Audio } from './audio.js';
 /** Visual body radius of a mine in world units (scaled by camera zoom when drawn). */
 const MINE_BODY_RADIUS = 8;
 
+/**
+ * Speed threshold (world units/sec) below which a mine is considered stopped
+ * and snapped to zero velocity.  Small enough to be imperceptible but large
+ * enough to avoid asymptotic slow-down from float precision.
+ */
+const MINE_STOP_THRESHOLD = 1;
+
 // ---------------------------------------------------------------------------
 // TrapMissile — spawned when a CrossLaserMine's beam is crossed
 // ---------------------------------------------------------------------------
@@ -52,7 +59,10 @@ const MINE_BODY_RADIUS = 8;
  * maximum travel distance.
  */
 export class TrapMissile extends ProjectileBase {
-  /** AOE blast radius — triggers the detonation path in GameState. */
+  /**
+   * AOE blast radius — triggers the detonation path in GameState.
+   * Declared readonly because TrapMissile's radius never changes after spawn.
+   */
   readonly blastRadius: number = MINE_BLAST_RADIUS;
 
   constructor(
@@ -190,14 +200,14 @@ export class CrossLaserMine extends ProjectileBase {
     // ── Phase 1: deceleration ────────────────────────────────────────────
     if (!this.armed) {
       const speed = this.velocity.length();
-      if (speed <= 1) {
+      if (speed <= MINE_STOP_THRESHOLD) {
         // Snap to fully stopped
         this.velocity.set(0, 0);
         this.armed = true;
       } else {
         const newSpeed = Math.max(0, speed - MINE_DECELERATION * dt);
         this.velocity = this.velocity.normalize().scale(newSpeed);
-        if (newSpeed <= 1) {
+        if (newSpeed <= MINE_STOP_THRESHOLD) {
           this.velocity.set(0, 0);
           this.armed = true;
         }
