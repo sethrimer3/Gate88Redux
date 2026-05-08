@@ -5,8 +5,8 @@ import { Team, EntityType, ShipGroup } from './entities.js';
 import { GameState } from './gamestate.js';
 import { BuildingBase, CommandPost, Shipyard } from './building.js';
 import { RepairTurret, TurretBase } from './turret.js';
-import { FighterShip } from './fighter.js';
-import { Bullet, Laser, Missile } from './projectile.js';
+import { FighterShip, SynonymousFighterShip, SynonymousNovaBomberShip } from './fighter.js';
+import { Bullet, Laser, Missile, SynonymousDroneLaser, SynonymousNovaBomb } from './projectile.js';
 import { HUD } from './hud.js';
 import { Colors } from './colors.js';
 import { Audio } from './audio.js';
@@ -260,9 +260,12 @@ export class PracticeMode {
       if (!b.powered) continue;
 
       if (b.shouldSpawnShip()) {
-        const fighter = new FighterShip(
-          b.position.clone(), Team.Enemy, ShipGroup.Red, b,
-        );
+        const synonymous = isSynonymousFaction(state.factionByTeam, Team.Enemy);
+        const fighter = synonymous && b.type === EntityType.BomberYard
+          ? new SynonymousNovaBomberShip(b.bayPosition(), Team.Enemy, ShipGroup.Red, b)
+          : synonymous
+            ? new SynonymousFighterShip(b.bayPosition(), Team.Enemy, ShipGroup.Red, b, state.researchedItems.has('advancedFighters'))
+          : new FighterShip(b.position.clone(), Team.Enemy, ShipGroup.Red, b);
         fighter.launch();
         b.activeShips++;
         state.addEntity(fighter);
@@ -304,12 +307,56 @@ export class PracticeMode {
         const nearby = state.getEntitiesInRange(f.position, f.weaponRange);
         for (const e of nearby) {
           if (e.team === Team.Player && e.alive) {
-            f.consumeShot(WEAPON_STATS.fire.fireRate);
-            state.addEntity(new Bullet(f.team, f.position.clone(), f.angle, f));
+            if (f instanceof SynonymousNovaBomberShip) {
+              const charged = f.consumeChargedNova();
+              if (charged) {
+                const angle = f.position.angleTo(charged.target);
+                state.addEntity(new SynonymousNovaBomb(f.team, f.position.clone(), angle, charged.aoeRadius, charged.damage, charged.travel, f));
+              } else {
+                f.beginNovaCharge(e.position);
+              }
+            } else if (f instanceof SynonymousFighterShip) {
+              f.markCombatSplit();
+              f.consumeShot(f.fireRate);
+              for (let i = 0; i < f.droneCount; i++) {
+                const start = f.firingOrigin(i);
+                const laser = new SynonymousDroneLaser(f.team, start, e.position.clone(), f);
+                state.addEntity(laser);
+                this.damageSynonymousFighterLaser(state, start, e.position, f);
+              }
+            } else {
+              f.consumeShot(WEAPON_STATS.fire.fireRate);
+              const bullet = new Bullet(f.team, f.position.clone(), f.angle, f);
+              bullet.damage = f.weaponDamage;
+              state.addEntity(bullet);
+            }
             break;
           }
         }
       }
+    }
+  }
+
+  private damageSynonymousFighterLaser(state: GameState, start: Vec2, end: Vec2, source: FighterShip): void {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq <= 0) return;
+    const hits: Array<{ target: { position: Vec2; radius: number; alive: boolean; team: Team; takeDamage: (amount: number, source?: FighterShip) => void; id: number }; t: number }> = [];
+    for (const target of state.allEntities()) {
+      if (!target.alive || target.team === source.team || target.team === Team.Neutral) continue;
+      const tx = target.position.x - start.x;
+      const ty = target.position.y - start.y;
+      const t = Math.max(0, Math.min(1, (tx * dx + ty * dy) / lenSq));
+      const px = start.x + dx * t;
+      const py = start.y + dy * t;
+      if (Math.hypot(target.position.x - px, target.position.y - py) <= target.radius + 3) hits.push({ target, t });
+    }
+    hits.sort((a, b) => a.t - b.t);
+    for (let i = 0; i < Math.min(2, hits.length); i++) {
+      const target = hits[i].target;
+      target.takeDamage(1, source);
+      state.recentlyDamaged.add(target.id);
     }
   }
 

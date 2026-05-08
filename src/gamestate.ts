@@ -6,7 +6,7 @@ import { PlayerShip } from './ship.js';
 import { BuildingBase, CommandPost } from './building.js';
 import { Shipyard } from './building.js';
 import { SynonymousMineLayer, TurretBase } from './turret.js';
-import { ProjectileBase, RegenBullet } from './projectile.js';
+import { ProjectileBase, RegenBullet, SynonymousNovaBomb } from './projectile.js';
 import { isSynonymousDriftMine } from './synonymousMine.js';
 import { FighterShip } from './fighter.js';
 import { ParticleSystem } from './particles.js';
@@ -162,6 +162,7 @@ export class GameState {
         if (entity.type === EntityType.CommandPost) entity.synonymousVisualKind = 'base';
         else if (entity.type === EntityType.Factory) entity.synonymousVisualKind = 'factory';
         else if (entity.type === EntityType.ResearchLab) entity.synonymousVisualKind = 'researchlab';
+        else if (entity.type === EntityType.FighterYard || entity.type === EntityType.BomberYard) entity.synonymousVisualKind = 'shipyard';
         else if (entity.type === EntityType.MissileTurret) entity.synonymousVisualKind = 'laserturret';
         else if (entity.type === EntityType.TimeBomb) entity.synonymousVisualKind = 'minelayer';
       }
@@ -286,6 +287,9 @@ export class GameState {
     for (const p of this.projectiles) {
       if (!p.alive) continue;
       p.update(dt);
+      if (p instanceof SynonymousNovaBomb && p.consumePulse()) {
+        this.applyNovaBombPulse(p);
+      }
       if (!p.alive && this.projectileBlastRadius(p) > 0) {
         this.detonateProjectile(p);
       }
@@ -379,6 +383,7 @@ export class GameState {
 
   /** Returns true if the projectile hit and was consumed. */
   private checkHit(proj: ProjectileBase, target: Entity, isRegen: boolean): boolean {
+    if (proj instanceof SynonymousNovaBomb) return false;
     // Regen bullets heal same-team, damage other-team
     if (isRegen && proj.team === target.team) {
       if (target.health >= target.maxHealth) return false;
@@ -891,6 +896,20 @@ export class GameState {
     return 1;
   }
 
+  private applyNovaBombPulse(proj: SynonymousNovaBomb): void {
+    // Nova Bombs apply two fixed-damage pulses; radius/damage are already
+    // scaled by living bomber drones when the projectile is created.
+    for (const e of this.allEntities()) {
+      if (!e.alive || e === proj || e.team === Team.Neutral || e.team === proj.team) continue;
+      if (e.position.distanceTo(proj.position) > proj.aoeRadius + e.radius) continue;
+      e.takeDamage(proj.pulseDamage, proj);
+      this.recentlyDamaged.add(e.id);
+      if (!e.alive) this.playEntityExplosionSound(e);
+    }
+    this.spawnExplosionGlow(proj.position, proj.aoeRadius);
+    this.ringEffects.spawn('shockwave', proj.position, proj.aoeRadius * 0.05, proj.aoeRadius, 0.45, 0.9);
+  }
+
   private seedBranchFrontier(
     originCx: number,
     originCy: number,
@@ -1318,6 +1337,8 @@ export class GameState {
   }
 
   getPlacementStatus(def: BuildDef, cx: number, cy: number, team: Team): { valid: boolean; reason: string } {
+    const capStatus = this.getShipyardCapStatus(def, team);
+    if (!capStatus.valid) return capStatus;
     if (isSynonymousFaction(this.factionByTeam, team)) {
       const cost = SYNONYMOUS_BUILD_COST[def.key] ?? 0;
       if (team === Team.Player && cost > 0 && !this.synonymous.canSpend(team, cost)) {
@@ -1343,6 +1364,22 @@ export class GameState {
     }
     if (this.isNearPowerNetwork(origin.cx, origin.cy, def.footprintCells, team)) return { valid: true, reason: 'OK' };
     return { valid: false, reason: 'Build near command post, generator, or powered conduit' };
+  }
+
+  private getShipyardCapStatus(def: BuildDef, team: Team): { valid: boolean; reason: string } {
+    const type = def.key === 'fighteryard' ? EntityType.FighterYard
+      : def.key === 'bomberyard' ? EntityType.BomberYard
+      : null;
+    if (type === null) return { valid: true, reason: 'OK' };
+    const cap = type === EntityType.FighterYard ? 10 : 5;
+    const count = this.buildings.filter((b) => b.alive && b.team === team && b.type === type).length;
+    if (count >= cap) {
+      return {
+        valid: false,
+        reason: `${def.label} cap reached (${count}/${cap})`,
+      };
+    }
+    return { valid: true, reason: 'OK' };
   }
 
   getStructureFootprintStatus(def: BuildDef, cx: number, cy: number): { valid: boolean; reason: string } {

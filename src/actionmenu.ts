@@ -148,8 +148,9 @@ function getHoveredIndex(items: RadialItem[], centre: Vec2, mouse: Vec2): number
 /** Convert a BuildDef to a RadialItem, gating affordability against `state`. */
 function defToRadialItem(def: BuildDef, state: GameState): RadialItem {
   const cost = buildCostForState(def.key, def.cost, state);
+  const label = isPlayerSynonymous(state) && def.key === 'bomberyard' ? 'Nova\nBombers' : def.radialLabel ?? def.label;
   return {
-    label: def.radialLabel ?? def.label,
+    label,
     sublabel: formatCost(cost, state),
     buildingType: def.key,
     disabled: !canAffordAmount(cost, state),
@@ -209,7 +210,15 @@ function buildYardItems(state: GameState): RadialItem[] {
 }
 
 function availableBuildDefs(state: GameState): BuildDef[] {
-  const synonymousKeys = new Set(['commandpost', 'factory', 'researchlab', 'missileturret', 'synonymousminelayer']);
+  const synonymousKeys = new Set([
+    'commandpost',
+    'factory',
+    'researchlab',
+    'missileturret',
+    'synonymousminelayer',
+    'fighteryard',
+    'bomberyard',
+  ]);
   return [
     ...defsByTier('structure'),
     ...defsByTier('turret'),
@@ -236,7 +245,7 @@ function buildResearchRoot(state: GameState): RadialItem[] {
     if (!(ACTIVE_RESEARCH_ITEMS as readonly string[]).includes(key)) return null;
     const researchKey = key as keyof typeof RESEARCH_COST;
     return {
-      label: RESEARCH_LABELS[key] ?? key,
+      label: isPlayerSynonymous(state) && key === 'bomberyard' ? 'Nova\nBombers' : RESEARCH_LABELS[key] ?? key,
       sublabel: formatCost(RESEARCH_COST[researchKey], state),
       researchItem: key,
       disabled: !canAffordAmount(RESEARCH_COST[researchKey], state),
@@ -254,7 +263,8 @@ function buildResearchRoot(state: GameState): RadialItem[] {
     return [
       category('Ship', ['synonymousSpeed', 'synonymousVitality']),
       category('Weapons', ['synonymousPierce', nextFireSpeed]),
-      category('Structures', ['missileturret', 'synonymousminelayer']),
+      category('Fighters', ['advancedFighters']),
+      category('Structures', ['missileturret', 'synonymousminelayer', 'bomberyard']),
     ];
   }
   return [
@@ -1347,7 +1357,8 @@ class QuickBuildMenu {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = color;
-    ctx.fillText(`${def.label} ${def.footprintCells}x${def.footprintCells}`, screen.x, screen.y - sizePx / 2 - 4);
+    const buildLabel = isPlayerSynonymous(state) && def.key === 'bomberyard' ? 'Nova Bombers' : def.label;
+    ctx.fillText(`${buildLabel} ${def.footprintCells}x${def.footprintCells}`, screen.x, screen.y - sizePx / 2 - 4);
     if (!status.valid) {
       ctx.textBaseline = 'top';
       ctx.fillText(status.reason, screen.x, screen.y + sizePx / 2 + 4);
@@ -1383,7 +1394,7 @@ class QuickBuildMenu {
         ? item.label
         : item.type === 'shape'
           ? item.label
-        : `${item.def.label} ${item.def.footprintCells}x${item.def.footprintCells}`;
+        : `${isPlayerSynonymous(state) && item.def.key === 'bomberyard' ? 'Nova Bombers' : item.def.label} ${item.def.footprintCells}x${item.def.footprintCells}`;
       this.iconRects.push({ index: i, x, y, w, h });
       ctx.fillStyle = selected
         ? colorToCSS(Colors.radar_friendly_status, 0.28)

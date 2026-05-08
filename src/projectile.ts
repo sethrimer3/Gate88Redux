@@ -416,6 +416,102 @@ export class BomberMissile extends ProjectileBase {
 // Laser – instant-hit beam
 // ---------------------------------------------------------------------------
 
+export class SynonymousNovaBomb extends ProjectileBase {
+  readonly aoeRadius: number;
+  readonly pulseDamage: number;
+  readonly maxTravelDistance: number;
+  private traveled = 0;
+  private exploded = false;
+  private pulseTimes = [-1, -1];
+
+  constructor(team: Team, position: Vec2, angle: number, aoeRadius: number, pulseDamage: number, maxTravelDistance: number, source: Entity | null = null) {
+    super({ type: EntityType.Missile, team, position, angle, damage: 0, speed: 145, lifetime: maxTravelDistance / 145 + 1.35, source });
+    this.aoeRadius = aoeRadius;
+    this.pulseDamage = pulseDamage;
+    this.maxTravelDistance = maxTravelDistance;
+    this.radius = ENTITY_RADIUS.missile * 1.8;
+    this.interceptable = false;
+  }
+
+  override update(dt: number): void {
+    if (!this.alive) return;
+    if (!this.exploded) {
+      const step = this.velocity.scale(dt);
+      this.position = this.position.add(step);
+      this.traveled += step.length();
+      this.updateTrail(dt);
+      if (this.traveled >= this.maxTravelDistance) this.triggerExplosion();
+    } else {
+      this.pulseTimes[0] -= dt;
+      this.pulseTimes[1] -= dt;
+    }
+    this.lifetime -= dt;
+    if (this.lifetime <= 0 || (this.exploded && this.pulseTimes[1] < -0.18)) this.destroy();
+  }
+
+  triggerExplosion(): void {
+    if (this.exploded) return;
+    this.exploded = true;
+    this.velocity.set(0, 0);
+    this.pulseTimes = [0, 1];
+    this.lifetime = Math.max(this.lifetime, 1.25);
+  }
+
+  consumePulse(): boolean {
+    if (!this.exploded) return false;
+    for (let i = 0; i < this.pulseTimes.length; i++) {
+      if (this.pulseTimes[i] <= 0 && this.pulseTimes[i] > -0.08) {
+        this.pulseTimes[i] = -0.09;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  override draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive) return;
+    const screen = camera.worldToScreen(this.position);
+    const t = performance.now() * 0.001;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    if (!this.exploded) {
+      this.drawTrail(ctx, camera, colorToCSS(Colors.particles_switch, 0.72), 0.16, 2.2);
+      const r = (5 + Math.sin(t * 19 + this.id) * 1.6) * camera.zoom;
+      ctx.fillStyle = colorToCSS(Colors.explosion, 0.52);
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r * 1.8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = colorToCSS(Colors.particles_switch, 0.9);
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = colorToCSS(Colors.alert2, 0.65);
+      ctx.lineWidth = Math.max(1, camera.zoom);
+      ctx.beginPath();
+      for (let i = 0; i < 7; i++) {
+        const a = t * 7 + i * 2.399963;
+        ctx.moveTo(screen.x, screen.y);
+        ctx.lineTo(screen.x + Math.cos(a) * r * (1.6 + (i % 3)), screen.y + Math.sin(a) * r * (1.6 + (i % 3)));
+      }
+      ctx.stroke();
+    } else {
+      const radius = this.aoeRadius * camera.zoom;
+      ctx.strokeStyle = colorToCSS(Colors.explosion, 0.42);
+      ctx.lineWidth = Math.max(1.4, 2 * camera.zoom);
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = colorToCSS(Colors.particles_switch, 0.22);
+      ctx.setLineDash([7, 6]);
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, radius * (0.55 + 0.08 * Math.sin(t * 8)), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+  }
+}
+
 export class Laser extends ProjectileBase {
   targetPos: Vec2;
 
@@ -506,6 +602,40 @@ export class Laser extends ProjectileBase {
 // ---------------------------------------------------------------------------
 // ExciterBullet – fast, small damage
 // ---------------------------------------------------------------------------
+
+export class SynonymousDroneLaser extends Laser {
+  constructor(team: Team, startPos: Vec2, targetPos: Vec2, source: Entity | null = null) {
+    super(team, startPos, targetPos, source);
+    this.damage = 0;
+    this.lifetime = 0.075;
+  }
+
+  override draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive) return;
+    const from = camera.worldToScreen(this.position);
+    const to = camera.worldToScreen(this.targetPos);
+    const fade = Math.max(0, this.lifetime / 0.075);
+    const fireColor = this.team === Team.Player
+      ? colorToCSS(Colors.particles_switch, 0.62 * fade)
+      : colorToCSS(Colors.enemyfire, 0.54 * fade);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = colorToCSS(Colors.particles_switch, 0.10 * fade);
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+    ctx.strokeStyle = fireColor;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
 
 export class ExciterBullet extends ProjectileBase {
   constructor(

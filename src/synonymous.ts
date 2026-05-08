@@ -17,6 +17,8 @@ export const SYNONYMOUS_CURRENCY_SYMBOL = 'ᐃ';
 export const SYNONYMOUS_BUILD_COST: Record<string, number> = {
   factory: 50,
   researchlab: 50,
+  fighteryard: 80,
+  bomberyard: 120,
   missileturret: 50,
   synonymousminelayer: 65,
 };

@@ -239,4 +239,9 @@ logic with a short backoff would improve robustness.
 - Playtest doctrine counts after the ring geometry change. Rings now normalize to two conduit cells thick with three conduit cells of gap, so old per-ring building counts may need pacing tweaks.
 - Review player conduit painting separately. Building placement now rejects conduits in footprints, but player conduit painting still uses the existing paint-mode rules.
 
+## Synonymous Fighter Follow-up
+
+- LAN snapshot reconciliation still reconstructs remote fighters as generic `FighterShip`/`BomberShip`; extend the network snapshot with faction/unit-variant metadata before relying on Synonymous fighter visuals in multiplayer clients.
+- Nova Bomber sub-drone damage is currently assigned by a conservative adapter in `src/fighter.ts`: incoming damage is applied to one living drone at a time, biased by source angle when available. Future hitbox work could target the nearest visible drone offset directly.
+
 ---

@@ -21,9 +21,9 @@ import { CANNON_HOMING_ENERGY_COST, CANNON_HOMING_COOLDOWN_SECS } from './consta
 import { BuildingBase, CommandPost } from './building.js';
 import { Shipyard } from './building.js';
 import { TurretBase } from './turret.js';
-import { FighterShip, BomberShip } from './fighter.js';
-import { Bullet, GatlingBullet, Laser } from './projectile.js';
-import { GuidedMissile, BomberMissile, HomingBullet, SwarmMissile, ChargedLaserBurst } from './projectile.js';
+import { FighterShip, BomberShip, SynonymousFighterShip, SynonymousNovaBomberShip } from './fighter.js';
+import { Bullet, GatlingBullet, Laser, SynonymousDroneLaser } from './projectile.js';
+import { GuidedMissile, BomberMissile, HomingBullet, SwarmMissile, ChargedLaserBurst, SynonymousNovaBomb } from './projectile.js';
 import { PracticeMode } from './practicemode.js';
 import { cloneDefaultPracticeConfig } from './practiceconfig.js';
 import { TutorialMode } from './tutorial.js';
@@ -806,9 +806,16 @@ export class Game {
       if (b.shouldSpawnShip()) {
         const isBomber = b.type === EntityType.BomberYard;
         const group = b.assignedGroup;
+        const synonymous = isSynonymousFaction(this.state.factionByTeam, Team.Player);
+        const spawnPos = synonymous ? b.bayPosition() : b.position.clone();
         const fighter = isBomber
-          ? new BomberShip(b.position.clone(), Team.Player, group, b)
-          : new FighterShip(b.position.clone(), Team.Player, group, b);
+          ? synonymous
+            ? new SynonymousNovaBomberShip(spawnPos.clone(), Team.Player, group, b)
+            : new BomberShip(spawnPos.clone(), Team.Player, group, b)
+          : synonymous
+            ? new SynonymousFighterShip(spawnPos.clone(), Team.Player, group, b, this.state.researchedItems.has('advancedFighters'))
+            : new FighterShip(spawnPos.clone(), Team.Player, group, b);
+        if (!synonymous && !isBomber && this.state.researchedItems.has('advancedFighters')) fighter.weaponDamage = 2;
         b.activeShips++;
         this.state.addEntity(fighter);
         b.dockedShips++;
@@ -1238,6 +1245,9 @@ export class Game {
   private updatePlayerFighterCombat(): void {
     for (const f of this.state.fighters) {
       if (!f.alive || f.docked || f.team !== Team.Player) continue;
+      if (!(f instanceof BomberShip) && !(f instanceof SynonymousFighterShip)) {
+        f.weaponDamage = this.state.researchedItems.has('advancedFighters') ? 2 : 1;
+      }
       if (!f.canFire()) continue;
 
       const nearby = this.state.getEntitiesInRange(f.position, f.weaponRange);
@@ -1253,13 +1263,34 @@ export class Game {
       }
       if (!target) continue;
       const angle = f.position.angleTo(target.position);
-      if (f instanceof BomberShip) {
+      if (f instanceof SynonymousNovaBomberShip) {
+        const charged = f.consumeChargedNova();
+        if (charged) {
+          const angle = f.position.angleTo(charged.target);
+          this.state.addEntity(new SynonymousNovaBomb(f.team, f.position.clone(), angle, charged.aoeRadius, charged.damage, charged.travel, f));
+          Audio.playSound('laser');
+        } else {
+          f.beginNovaCharge(target.position);
+        }
+      } else if (f instanceof BomberShip) {
         f.consumeShot(WEAPON_STATS.bigmissile.fireRate);
         this.state.addEntity(new BomberMissile(f.team, f.position.clone(), angle, f));
         Audio.playSound('missile');
+      } else if (f instanceof SynonymousFighterShip) {
+        f.markCombatSplit();
+        f.consumeShot(f.fireRate);
+        for (let i = 0; i < f.droneCount; i++) {
+          const start = f.firingOrigin(i);
+          const end = target.position.clone();
+          this.state.addEntity(new SynonymousDroneLaser(f.team, start, end, f));
+          this.damageLaserLineLimited(start, end, f.weaponDamage, 3, 2, f);
+        }
+        Audio.playSound('laser');
       } else {
         f.consumeShot(WEAPON_STATS.fire.fireRate);
-        this.state.addEntity(new Bullet(f.team, f.position.clone(), angle, f));
+        const bullet = new Bullet(f.team, f.position.clone(), angle, f);
+        bullet.damage = f.weaponDamage;
+        this.state.addEntity(bullet);
       }
     }
   }
@@ -2222,14 +2253,14 @@ export class Game {
     });
   }
 
-  private damageLaserLineLimited(start: Vec2, end: Vec2, damage: number, hitRadius: number, pierceCount: number): void {
+  private damageLaserLineLimited(start: Vec2, end: Vec2, damage: number, hitRadius: number, pierceCount: number, source: Entity = this.state.player): void {
     const dx = end.x - start.x;
     const dy = end.y - start.y;
     const lenSq = dx * dx + dy * dy;
     if (lenSq <= 0) return;
     const hits: Array<{ target: Entity; t: number }> = [];
     for (const target of this.state.allEntities()) {
-      if (!target.alive || target.team === Team.Player || target.team === Team.Neutral) continue;
+      if (!target.alive || target.team === source.team || target.team === Team.Neutral) continue;
       const tx = target.position.x - start.x;
       const ty = target.position.y - start.y;
       const t = Math.max(0, Math.min(1, (tx * dx + ty * dy) / lenSq));
@@ -2242,7 +2273,7 @@ export class Game {
     const count = Math.min(pierceCount, hits.length);
     for (let i = 0; i < count; i++) {
       const target = hits[i].target;
-      target.takeDamage(damage, this.state.player);
+      target.takeDamage(damage, source);
       this.state.recentlyDamaged.add(target.id);
       if (!target.alive) {
         this.state.particles.emitExplosion(target.position, target.radius);

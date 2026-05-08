@@ -6,7 +6,7 @@ import { Entity, EntityType, Team, ShipGroup } from './entities.js';
 import { TICK_RATE } from './constants.js';
 import { Shipyard } from './building.js';
 import { Colors, colorToCSS, Color } from './colors.js';
-import { ENTITY_RADIUS, PLAYER_SHIP_SCALE, SHIP_STATS } from './constants.js';
+import { ENTITY_RADIUS, PLAYER_SHIP_SCALE, SHIP_STATS, WEAPON_STATS } from './constants.js';
 
 export type FighterOrder = 'idle' | 'attack' | 'dock' | 'defend' | 'escort' | 'harass' | 'protect' | 'waypoint' | 'follow';
 
@@ -49,6 +49,7 @@ export class FighterShip extends Entity {
   fireTimer: number = 0;
   fireRate: number = 10; // ticks between shots
   weaponRange: number = 250;
+  weaponDamage: number = 1;
   private readonly swarmSeed: number;
   private readonly orbitPhase: number;
   private readonly orbitRadius: number;
@@ -214,6 +215,11 @@ export class FighterShip extends Entity {
 
   consumeShot(cooldownTicks: number): void {
     this.fireTimer = cooldownTicks / TICK_RATE;
+  }
+
+  firingOrigin(index: number = 0): Vec2 {
+    void index;
+    return this.position.clone();
   }
 
   /** Undock from shipyard and take off. */
@@ -386,6 +392,127 @@ export class FighterShip extends Entity {
 }
 
 // ---------------------------------------------------------------------------
+// SynonymousFighterShip - one squad simulated as one fighter, drawn as drones
+// ---------------------------------------------------------------------------
+
+export class SynonymousFighterShip extends FighterShip {
+  droneCount: 3 | 6;
+  private splitPulse = 0;
+
+  constructor(
+    position: Vec2,
+    team: Team,
+    group: ShipGroup,
+    homeYard: Shipyard | null = null,
+    advanced: boolean = false,
+  ) {
+    super(position, team, group, homeYard);
+    this.droneCount = advanced ? 6 : 3;
+    this.weaponDamage = 1;
+    this.fireRate = 34;
+    this.weaponRange = 230;
+  }
+
+  override update(dt: number): void {
+    super.update(dt);
+    this.splitPulse = Math.max(0, this.splitPulse - dt * 5);
+  }
+
+  markCombatSplit(): void {
+    this.splitPulse = 1;
+  }
+
+  override firingOrigin(index: number = 0): Vec2 {
+    const local = this.localDroneOffset(index, this.splitPulse > 0.02);
+    const c = Math.cos(this.angle);
+    const s = Math.sin(this.angle);
+    return new Vec2(
+      this.position.x + local.x * c - local.y * s,
+      this.position.y + local.x * s + local.y * c,
+    );
+  }
+
+  private localDroneOffset(index: number, split: boolean): Vec2 {
+    const base: Array<[number, number]> = [
+      [13, 0],
+      [-9, -10],
+      [-9, 10],
+      [2, -5],
+      [-9, 0],
+      [2, 5],
+    ];
+    const p = base[index % this.droneCount];
+    if (!split) return new Vec2(p[0], p[1]);
+    const wave = performance.now() * 0.006 + this.id * 0.37 + index * 1.9;
+    return new Vec2(
+      p[0] + Math.cos(wave) * 5.5,
+      p[1] + Math.sin(wave * 1.3) * 5.5,
+    );
+  }
+
+  override draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive || this.docked) return;
+    const screen = camera.worldToScreen(this.position);
+    const color = this.team === Team.Player ? Colors.mainguy : Colors.enemy_status;
+    const nodeR = Math.max(1.8, 2.6 * camera.zoom);
+    const split = this.splitPulse > 0.02;
+    this.drawMotionTrail(ctx, camera, color);
+
+    const points: Vec2[] = [];
+    ctx.save();
+    ctx.translate(screen.x, screen.y);
+    ctx.rotate(this.angle);
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < this.droneCount; i++) {
+      const p = this.localDroneOffset(i, split).scale(camera.zoom);
+      points.push(p);
+    }
+
+    if (!split) {
+      ctx.strokeStyle = colorToCSS(color, 0.34);
+      ctx.lineWidth = Math.max(1, 1.1 * camera.zoom);
+      ctx.beginPath();
+      for (let i = 0; i < points.length; i++) {
+        const a = points[i];
+        const b = points[(i + 1) % points.length];
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+      }
+      ctx.stroke();
+    }
+
+    for (let i = 0; i < points.length; i++) {
+      const p = points[i];
+      if (split) {
+        const tri = nodeR * 2.0;
+        ctx.strokeStyle = colorToCSS(Colors.particles_switch, 0.32);
+        ctx.lineWidth = Math.max(0.7, 0.8 * camera.zoom);
+        ctx.beginPath();
+        for (let j = 0; j < 3; j++) {
+          const a = -Math.PI / 2 + j * Math.PI * 2 / 3 + this.drawPhase();
+          const x = p.x + Math.cos(a) * tri;
+          const y = p.y + Math.sin(a) * tri;
+          if (j === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.stroke();
+      }
+      ctx.fillStyle = colorToCSS(color, 0.82);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, nodeR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = colorToCSS(Colors.particles_switch, 0.24);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  private drawPhase(): number {
+    return (performance.now() * 0.001 + this.id * 0.07) % (Math.PI * 2);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // BomberShip – slower, more HP, higher damage
 // ---------------------------------------------------------------------------
 
@@ -469,6 +596,160 @@ export class BomberShip extends FighterShip {
       ctx.stroke();
       ctx.restore();
     }
+  }
+}
+
+const NOVA_BOMBER_DRONES = 10;
+const NOVA_BOMBER_DRONE_HP = 6;
+const NOVA_BOMBER_MAX_AOE = 56;
+const NOVA_BOMBER_CHARGE_SECONDS = 1.15;
+
+export class SynonymousNovaBomberShip extends BomberShip {
+  private droneHp: number[] = Array(NOVA_BOMBER_DRONES).fill(NOVA_BOMBER_DRONE_HP);
+  private chargeTimer = 0;
+  private charging = false;
+  private chargeTarget: Vec2 | null = null;
+
+  constructor(position: Vec2, team: Team, group: ShipGroup, homeYard: Shipyard | null = null) {
+    super(position, team, group, homeYard);
+    this.weaponRange = 245;
+    this.fireRate = 130;
+    this.maxHealth = NOVA_BOMBER_DRONES * NOVA_BOMBER_DRONE_HP;
+    this.health = this.maxHealth;
+  }
+
+  get livingDroneCount(): number {
+    return this.droneHp.reduce((sum, hp) => sum + (hp > 0 ? 1 : 0), 0);
+  }
+
+  get novaAoeRadius(): number {
+    return NOVA_BOMBER_MAX_AOE * Math.max(0, this.livingDroneCount / NOVA_BOMBER_DRONES);
+  }
+
+  get novaDamagePerPulse(): number {
+    const lost = NOVA_BOMBER_DRONES - this.livingDroneCount;
+    return this.livingDroneCount > 0 ? Math.max(1, 5 - Math.floor(lost / 2)) : 0;
+  }
+
+  get novaMaxTravelDistance(): number {
+    return this.weaponRange + 62;
+  }
+
+  beginNovaCharge(target: Vec2): void {
+    if (this.charging || this.livingDroneCount <= 0) return;
+    this.charging = true;
+    this.chargeTimer = 0;
+    this.chargeTarget = target.clone();
+  }
+
+  consumeChargedNova(): { target: Vec2; aoeRadius: number; damage: number; travel: number } | null {
+    if (!this.charging || this.chargeTimer < NOVA_BOMBER_CHARGE_SECONDS || !this.chargeTarget) return null;
+    const result = {
+      target: this.chargeTarget.clone(),
+      aoeRadius: this.novaAoeRadius,
+      damage: this.novaDamagePerPulse,
+      travel: this.novaMaxTravelDistance,
+    };
+    this.charging = false;
+    this.chargeTimer = 0;
+    this.chargeTarget = null;
+    this.consumeShot(WEAPON_STATS.bigmissile.fireRate);
+    return result;
+  }
+
+  override canFire(): boolean {
+    return super.canFire() || this.charging;
+  }
+
+  override update(dt: number): void {
+    super.update(dt);
+    if (this.charging) this.chargeTimer += dt;
+  }
+
+  override takeDamage(amount: number, source?: Entity): void {
+    if (!this.alive || amount <= 0) {
+      super.takeDamage(amount, source);
+      return;
+    }
+    // Conservative sub-drone adapter: incoming damage is assigned to one
+    // living drone at a time, biased by source angle when a source exists.
+    let remaining = amount;
+    let start = 0;
+    if (source) {
+      const angle = Math.atan2(source.position.y - this.position.y, source.position.x - this.position.x);
+      start = Math.abs(Math.floor(((angle + Math.PI) / (Math.PI * 2)) * NOVA_BOMBER_DRONES)) % NOVA_BOMBER_DRONES;
+    }
+    while (remaining > 0 && this.livingDroneCount > 0) {
+      let idx = -1;
+      for (let i = 0; i < NOVA_BOMBER_DRONES; i++) {
+        const probe = (start + i) % NOVA_BOMBER_DRONES;
+        if (this.droneHp[probe] > 0) { idx = probe; break; }
+      }
+      if (idx < 0) break;
+      const applied = Math.min(this.droneHp[idx], remaining);
+      this.droneHp[idx] -= applied;
+      remaining -= applied;
+      start = (idx + 1) % NOVA_BOMBER_DRONES;
+    }
+    this.health = this.droneHp.reduce((sum, hp) => sum + Math.max(0, hp), 0);
+    if (this.health <= 0) this.destroy();
+  }
+
+  private localNovaOffset(index: number): Vec2 {
+    const t = performance.now() * 0.001;
+    const seed = this.id * 0.173 + index * 1.971;
+    const charge = this.charging ? Math.min(1, this.chargeTimer / NOVA_BOMBER_CHARGE_SECONDS) : 0;
+    const collapse = charge < 0.45 ? 1 - charge / 0.45 : (charge - 0.45) / 0.55;
+    const radius = (10 + (index % 5) * 3.1 + Math.sin(t * 1.7 + seed) * 4.5) * (0.18 + 0.82 * collapse);
+    const angle = seed + Math.sin(t * 1.2 + seed * 1.7) * 0.9 + Math.cos(t * 0.73 + index) * 0.55;
+    return new Vec2(Math.cos(angle) * radius, Math.sin(angle) * radius * (0.72 + 0.2 * Math.sin(seed)));
+  }
+
+  override draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive || this.docked) return;
+    const screen = camera.worldToScreen(this.position);
+    const color = this.team === Team.Player ? Colors.mainguy : Colors.enemy_status;
+    const nodeR = Math.max(1.7, 2.4 * camera.zoom);
+    this.drawMotionTrail(ctx, camera, color);
+    ctx.save();
+    ctx.translate(screen.x, screen.y);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = colorToCSS(color, 0.18);
+    ctx.lineWidth = Math.max(0.8, camera.zoom);
+    ctx.beginPath();
+    let first: Vec2 | null = null;
+    let prev: Vec2 | null = null;
+    for (let i = 0; i < NOVA_BOMBER_DRONES; i++) {
+      if (this.droneHp[i] <= 0) continue;
+      const p = this.localNovaOffset(i).scale(camera.zoom);
+      if (!first) first = p;
+      if (prev) { ctx.moveTo(prev.x, prev.y); ctx.lineTo(p.x, p.y); }
+      prev = p;
+    }
+    if (first && prev) { ctx.moveTo(prev.x, prev.y); ctx.lineTo(first.x, first.y); }
+    ctx.stroke();
+    if (this.charging) {
+      const charge = Math.min(1, this.chargeTimer / NOVA_BOMBER_CHARGE_SECONDS);
+      ctx.fillStyle = colorToCSS(Colors.explosion, 0.18 + charge * 0.38);
+      ctx.beginPath();
+      ctx.arc(0, 0, (5 + charge * 15) * camera.zoom, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = colorToCSS(Colors.particles_switch, 0.34 + charge * 0.28);
+      ctx.beginPath();
+      ctx.arc(0, 0, (8 + charge * 20) * camera.zoom, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    for (let i = 0; i < NOVA_BOMBER_DRONES; i++) {
+      if (this.droneHp[i] <= 0) continue;
+      const p = this.localNovaOffset(i).scale(camera.zoom);
+      ctx.fillStyle = colorToCSS(color, 0.78);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, nodeR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = colorToCSS(Colors.particles_switch, 0.22);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 }
 

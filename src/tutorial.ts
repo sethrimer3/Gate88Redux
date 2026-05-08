@@ -23,7 +23,7 @@ export class TutorialMode {
     this.startTime = state.gameTime;
     this.steps = createTutorialSteps();
 
-    hud.showMessage('Welcome to Gate 88!', Colors.friendly_status, 5);
+    hud.showMessage('Welcome to Sign 99!', Colors.friendly_status, 5);
     hud.showMessage('This is a peaceful tutorial — no enemies will appear.', Colors.general_building, 6);
   }
 

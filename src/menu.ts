@@ -525,9 +525,9 @@ export class MainMenu {
 
     ctx.font = 'bold 58px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.titledark);
-    ctx.fillText('GATE 88', cx + 2, titleY + 2);
+    ctx.fillText('SIGN 99', cx + 2, titleY + 2);
     ctx.fillStyle = colorToCSS(TextColors.title);
-    ctx.fillText('GATE 88', cx, titleY);
+    ctx.fillText('SIGN 99', cx, titleY);
 
     ctx.beginPath();
     ctx.moveTo(cx - ruleW * 0.5, titleY + 36);
@@ -1263,7 +1263,7 @@ export class MainMenu {
       this._discoveredLobbies = Array.isArray(data.lobbies) ? data.lobbies : [];
     } catch {
       this._discoveredLobbies = [];
-      this._lanDiscoveryError = 'Automatic LAN discovery requires running the local Gate88 LAN helper. You can still enter the host URL manually.';
+      this._lanDiscoveryError = 'Automatic LAN discovery requires running the local Sign 99 LAN helper. You can still enter the host URL manually.';
     }
   }
 
