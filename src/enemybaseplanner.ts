@@ -39,7 +39,8 @@ import { BuildingBase, CommandPost, Shipyard, PowerGenerator, ResearchLab, Facto
 import { TurretBase } from './turret.js';
 import { GRID_CELL_SIZE, cellCenter, cellKey } from './grid.js';
 import { WORLD_WIDTH, WORLD_HEIGHT } from './constants.js';
-import { getBuildDef } from './builddefs.js';
+import { buildDefForEntityType, getBuildDef } from './builddefs.js';
+import type { BuildDef } from './builddefs.js';
 import { BuilderDrone, isBuilderDrone } from './builderdrone.js';
 import type { BuildOrder } from './builderdrone.js';
 import {
@@ -52,6 +53,8 @@ import {
   generateRingBuildingSlots,
   generateSpokeCells,
   generateBastionLoop,
+  AI_RING_THICKNESS_CONDUITS,
+  AI_RING_SPACING_CONDUITS,
   RingPlan,
   BastionPlan,
 } from './aibaseplan.js';
@@ -59,6 +62,7 @@ import { DoctrineType, Doctrine, DOCTRINES, pickDoctrine } from './aidoctrine.js
 import { RaidPlanner } from './airaids.js';
 import { AIScore, cellOf } from './aiscore.js';
 import { isConfluenceFaction } from './confluence.js';
+import { footprintForBuildingType } from './buildingfootprint.js';
 
 // ---------------------------------------------------------------------------
 // Public snapshot type
@@ -81,6 +85,8 @@ export interface PlannerSnapshot {
 
 /** Maximum number of radial spokes regardless of doctrine or adaptive additions. */
 const MAX_SPOKES = 8;
+const AI_INNER_RING_RADIUS_CELLS = 7;
+const AI_RING_STEP_CELLS = AI_RING_THICKNESS_CONDUITS + AI_RING_SPACING_CONDUITS;
 
 /** 4-connected cardinal neighbour offsets for grid-neighbour operations. */
 const CARDINAL_OFFSETS: ReadonlyArray<readonly [number, number]> = [
@@ -141,10 +147,13 @@ export class EnemyBasePlanner {
   private claimedConduitKeys: Set<string> = new Set();
   /** Keys of building cells that have been queued (avoids double-queuing). */
   private claimedBuildingKeys: Set<string> = new Set();
+  /** Cells reserved by queued or active AI build orders. */
+  private reservedCells: Set<string> = new Set();
 
   // -- Timers -----------------------------------------------------------------
 
   private tickTimer: number = 0;
+  private auditTimer: number = 0;
   private rebuildTimers: number[] = [];
 
   // -- Subsystems -------------------------------------------------------------
@@ -220,23 +229,25 @@ export class EnemyBasePlanner {
       this.doctrine.spokesPerDifficulty[idx] + this.extraSpokes,
       MAX_SPOKES,
     );
-    const outerRadius = recipes.length > 0 ? recipes[recipes.length - 1].radius : 8;
+    const outerRadius = this.ringRadiusForIndex(Math.max(0, recipes.length - 1));
 
     // --- Rings ---------------------------------------------------------------
     const prevRings = this.rings;
     this.rings = [];
     for (let r = 0; r < recipes.length; r++) {
       const recipe = recipes[r];
+      const radiusCells = this.ringRadiusForIndex(r);
       // Use ~π × radius angular slots for a smooth ring.
-      const numSlots = Math.max(10, Math.round(Math.PI * recipe.radius));
+      const numSlots = Math.max(16, Math.round(Math.PI * radiusCells));
       const conduitCells = generateRingCells(
         this.centerCx, this.centerCy,
-        recipe.radius, numSlots, gapProb,
+        radiusCells, numSlots, gapProb,
         this.seed + r * 100,
+        AI_RING_THICKNESS_CONDUITS,
       );
       const rawSlots = generateRingBuildingSlots(
         this.centerCx, this.centerCy,
-        recipe.radius, recipe, conduitCells,
+        radiusCells, recipe, conduitCells,
         this.seed + r * 100 + 50,
       );
       const buildingSlots = rawSlots.map((s) => ({
@@ -251,7 +262,7 @@ export class EnemyBasePlanner {
 
       this.rings.push({
         ringIndex: r,
-        radiusCells: recipe.radius,
+        radiusCells,
         role: recipe.role,
         conduitCells,
         conduitQueuePtr,
@@ -298,6 +309,10 @@ export class EnemyBasePlanner {
     }
   }
 
+  private ringRadiusForIndex(index: number): number {
+    return AI_INNER_RING_RADIUS_CELLS + index * AI_RING_STEP_CELLS;
+  }
+
   // ---------------------------------------------------------------------------
   // Per-tick update
   // ---------------------------------------------------------------------------
@@ -329,6 +344,12 @@ export class EnemyBasePlanner {
   // ---------------------------------------------------------------------------
 
   private updateAdaptive(state: GameState): void {
+    this.auditTimer -= 1;
+    if (this.auditTimer <= 0) {
+      this.auditTimer = Math.max(45, 120 - difficultyIndex(this.config.difficulty) * 15);
+      this.auditConstructionState(state);
+    }
+
     // Track builder attrition.
     const aliveCount = this.builders.filter((b) => b.alive).length;
     const expected   = this.config.enemyMaxBuilders;
@@ -353,6 +374,19 @@ export class EnemyBasePlanner {
       this.generatePlan();
       this.claimedConduitKeys.clear();
       this.claimedBuildingKeys.clear();
+    }
+  }
+
+  private auditConstructionState(state: GameState): void {
+    for (let i = this.queue.length - 1; i >= 0; i--) {
+      const order = this.queue[i];
+      const valid = order.kind === 'conduit'
+        ? state.isConduitPlacementCellClear(order.cx, order.cy).valid || state.grid.hasConduit(order.cx, order.cy)
+        : state.getStructureFootprintStatus(order.def, order.cx, order.cy).valid;
+      if (!valid) {
+        this.releaseOrderReservation(order);
+        this.queue.splice(i, 1);
+      }
     }
   }
 
@@ -459,7 +493,12 @@ export class EnemyBasePlanner {
       if (ptr < spoke.length) {
         const cell = spoke[ptr];
         const k = cellKey(cell.cx, cell.cy);
+        if (!this.canAIPlaceConduit(state, cell.cx, cell.cy)) {
+          this.spokeQueuePtrs[si]++;
+          continue;
+        }
         this.claimedConduitKeys.add(k);
+        this.reserveCells([{ cx: cell.cx, cy: cell.cy }]);
         this.spokeQueuePtrs[si]++;
         return { kind: 'conduit', cx: cell.cx, cy: cell.cy };
       }
@@ -496,8 +535,9 @@ export class EnemyBasePlanner {
       if (state.grid.hasConduit(cell.cx, cell.cy)) {
         this.claimedConduitKeys.add(k); continue;
       }
-      if (!this.isCellInBounds(state, cell.cx, cell.cy)) continue;
+      if (!this.canAIPlaceConduit(state, cell.cx, cell.cy)) continue;
       this.claimedConduitKeys.add(k);
+      this.reserveCells([{ cx: cell.cx, cy: cell.cy }]);
       return { kind: 'conduit', cx: cell.cx, cy: cell.cy };
     }
     return null;
@@ -508,23 +548,23 @@ export class EnemyBasePlanner {
   ): BuildOrder | null {
     for (const slot of ring.buildingSlots) {
       if (slot.queued || slot.placed) continue;
-      const k = cellKey(slot.cx, slot.cy);
-      if (this.claimedBuildingKeys.has(k)) continue;
-
       const def = getBuildDef(slot.buildingKey);
       if (!def) { slot.queued = true; continue; }
-
-      if (!this.isCellInBounds(state, slot.cx, slot.cy)) continue;
+      const candidate = this.findBestBuildingCell(state, slot.cx, slot.cy, def, ring);
+      if (!candidate) continue;
 
       // On lower difficulties, skip slots that are inside hostile fire zones.
       if (difficultyIndex(this.config.difficulty) < 3) {
-        const threat = this.aiScore.threatAt(state, this.team, slot.cx, slot.cy);
+        const threat = this.aiScore.threatAt(state, this.team, candidate.cx, candidate.cy);
         if (threat > 55) continue;
       }
 
+      slot.cx = candidate.cx;
+      slot.cy = candidate.cy;
       slot.queued = true;
-      this.claimedBuildingKeys.add(k);
-      return { kind: 'building', cx: slot.cx, cy: slot.cy, def, layConduitFirst: this.usesConduits(state) };
+      this.claimedBuildingKeys.add(cellKey(candidate.cx, candidate.cy));
+      this.reserveBuildingFootprint(def, candidate.cx, candidate.cy);
+      return { kind: 'building', cx: candidate.cx, cy: candidate.cy, def, layConduitFirst: false };
     }
     return null;
   }
@@ -545,10 +585,11 @@ export class EnemyBasePlanner {
         const k = cellKey(gs.cx, gs.cy);
         if (!this.claimedBuildingKeys.has(k)) {
           const def = getBuildDef('powergenerator');
-          if (def && this.isCellInBounds(state, gs.cx, gs.cy)) {
+          if (def && this.canAIPlaceStructure(state, def, gs.cx, gs.cy)) {
             this.claimedBuildingKeys.add(k);
+            this.reserveBuildingFootprint(def, gs.cx, gs.cy);
             if (bastion.status === 'planned') bastion.status = 'constructing';
-            return { kind: 'building', cx: gs.cx, cy: gs.cy, def, layConduitFirst: this.usesConduits(state) };
+            return { kind: 'building', cx: gs.cx, cy: gs.cy, def, layConduitFirst: false };
           }
         }
       }
@@ -560,10 +601,11 @@ export class EnemyBasePlanner {
         if (!def) continue;
         const k = cellKey(ts.cx, ts.cy);
         if (this.claimedBuildingKeys.has(k)) continue;
-        if (!this.isCellInBounds(state, ts.cx, ts.cy)) continue;
+        if (!this.canAIPlaceStructure(state, def, ts.cx, ts.cy)) continue;
         ts.queued = true;
         this.claimedBuildingKeys.add(k);
-        return { kind: 'building', cx: ts.cx, cy: ts.cy, def, layConduitFirst: this.usesConduits(state) };
+        this.reserveBuildingFootprint(def, ts.cx, ts.cy);
+        return { kind: 'building', cx: ts.cx, cy: ts.cy, def, layConduitFirst: false };
       }
     }
     return null;
@@ -580,8 +622,9 @@ export class EnemyBasePlanner {
       if (state.grid.hasConduit(cell.cx, cell.cy)) {
         this.claimedConduitKeys.add(k); continue;
       }
-      if (!this.isCellInBounds(state, cell.cx, cell.cy)) continue;
+      if (!this.canAIPlaceConduit(state, cell.cx, cell.cy)) continue;
       this.claimedConduitKeys.add(k);
+      this.reserveCells([{ cx: cell.cx, cy: cell.cy }]);
       if (bastion.status === 'planned') bastion.status = 'constructing';
       return { kind: 'conduit', cx: cell.cx, cy: cell.cy };
     }
@@ -592,6 +635,112 @@ export class EnemyBasePlanner {
     const x = (cx + 0.5) * GRID_CELL_SIZE;
     const y = (cy + 0.5) * GRID_CELL_SIZE;
     return x > 0 && x < WORLD_WIDTH && y > 0 && y < WORLD_HEIGHT;
+  }
+
+  private canAIPlaceConduit(state: GameState, cx: number, cy: number): boolean {
+    if (this.reservedCells.has(cellKey(cx, cy))) return false;
+    return state.isConduitPlacementCellClear(cx, cy).valid;
+  }
+
+  private canAIPlaceStructure(state: GameState, def: BuildDef, cx: number, cy: number): boolean {
+    const origin = { cx: cx - Math.floor(def.footprintCells / 2), cy: cy - Math.floor(def.footprintCells / 2) };
+    for (let y = origin.cy; y < origin.cy + def.footprintCells; y++) {
+      for (let x = origin.cx; x < origin.cx + def.footprintCells; x++) {
+        if (this.reservedCells.has(cellKey(x, y))) return false;
+      }
+    }
+    if (!state.getStructureFootprintStatus(def, cx, cy).valid) return false;
+    if (!this.usesConduits(state)) return true;
+    return this.isNearPlannedPower(state, origin.cx, origin.cy, def.footprintCells);
+  }
+
+  private findBestBuildingCell(
+    state: GameState,
+    preferredCx: number,
+    preferredCy: number,
+    def: BuildDef,
+    ring: RingPlan,
+  ): { cx: number; cy: number } | null {
+    let best: { cx: number; cy: number; score: number } | null = null;
+    const angle = Math.atan2(preferredCy - this.centerCy, preferredCx - this.centerCx);
+    const minOffset = Math.ceil(def.footprintCells / 2) + AI_RING_THICKNESS_CONDUITS + 1;
+    for (let radial = minOffset; radial <= minOffset + 5; radial++) {
+      for (let tangent = -6; tangent <= 6; tangent++) {
+        const cx = this.centerCx + Math.round(Math.cos(angle) * (ring.radiusCells + radial) - Math.sin(angle) * tangent);
+        const cy = this.centerCy + Math.round(Math.sin(angle) * (ring.radiusCells + radial) + Math.cos(angle) * tangent);
+        if (this.claimedBuildingKeys.has(cellKey(cx, cy))) continue;
+        if (!this.canAIPlaceStructure(state, def, cx, cy)) continue;
+        const threat = this.aiScore.threatAt(state, this.team, cx, cy);
+        const spacingPenalty = this.nearbyFriendlyBuildingCount(state, cx, cy, 7) * 20;
+        const score = -Math.abs(tangent) * 3 - radial - threat - spacingPenalty;
+        if (!best || score > best.score) best = { cx, cy, score };
+      }
+    }
+    return best ? { cx: best.cx, cy: best.cy } : null;
+  }
+
+  private nearbyFriendlyBuildingCount(state: GameState, cx: number, cy: number, radiusCells: number): number {
+    let count = 0;
+    const r2 = radiusCells * radiusCells;
+    for (const b of state.buildings) {
+      if (!b.alive || b.team !== this.team) continue;
+      const bx = Math.floor(b.position.x / GRID_CELL_SIZE);
+      const by = Math.floor(b.position.y / GRID_CELL_SIZE);
+      const dx = bx - cx;
+      const dy = by - cy;
+      if (dx * dx + dy * dy <= r2) count++;
+    }
+    return count;
+  }
+
+  private isNearPlannedPower(state: GameState, originCx: number, originCy: number, size: number): boolean {
+    for (let y = originCy - 1; y <= originCy + size; y++) {
+      for (let x = originCx - 1; x <= originCx + size; x++) {
+        const border = x === originCx - 1 || x === originCx + size || y === originCy - 1 || y === originCy + size;
+        if (!border) continue;
+        const k = cellKey(x, y);
+        if (this.claimedConduitKeys.has(k)) return true;
+        if (state.grid.conduitTeam(x, y) === this.team) return true;
+        if (state.power.isCellEnergized(this.team, x, y)) return true;
+      }
+    }
+    return false;
+  }
+
+  private reserveBuildingFootprint(def: BuildDef, cx: number, cy: number): void {
+    const origin = { cx: cx - Math.floor(def.footprintCells / 2), cy: cy - Math.floor(def.footprintCells / 2) };
+    const cells: Array<{ cx: number; cy: number }> = [];
+    for (let y = origin.cy; y < origin.cy + def.footprintCells; y++) {
+      for (let x = origin.cx; x < origin.cx + def.footprintCells; x++) cells.push({ cx: x, cy: y });
+    }
+    this.reserveCells(cells);
+  }
+
+  private reserveCells(cells: Array<{ cx: number; cy: number }>): void {
+    for (const c of cells) this.reservedCells.add(cellKey(c.cx, c.cy));
+  }
+
+  private releaseOrderReservation(order: BuildOrder): void {
+    if (order.kind === 'conduit') {
+      this.reservedCells.delete(cellKey(order.cx, order.cy));
+      return;
+    }
+    const origin = { cx: order.cx - Math.floor(order.def.footprintCells / 2), cy: order.cy - Math.floor(order.def.footprintCells / 2) };
+    for (let y = origin.cy; y < origin.cy + order.def.footprintCells; y++) {
+      for (let x = origin.cx; x < origin.cx + order.def.footprintCells; x++) {
+        this.reservedCells.delete(cellKey(x, y));
+      }
+    }
+  }
+
+  private releasePlacedBuildingReservation(ent: BuildingBase, cx: number, cy: number): void {
+    const size = footprintForBuildingType(ent.type);
+    const origin = { cx: cx - Math.floor(size / 2), cy: cy - Math.floor(size / 2) };
+    for (let y = origin.cy; y < origin.cy + size; y++) {
+      for (let x = origin.cx; x < origin.cx + size; x++) {
+        this.reservedCells.delete(cellKey(x, y));
+      }
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -685,14 +834,17 @@ export class EnemyBasePlanner {
       if (!result) continue;
 
       if (result.kind === 'conduit') {
-        if (!state.grid.hasConduit(result.cx, result.cy)) {
+        this.reservedCells.delete(cellKey(result.cx, result.cy));
+        if (state.isConduitPlacementCellClear(result.cx, result.cy).valid) {
           state.grid.addConduit(result.cx, result.cy, this.team);
+        } else if (!state.grid.hasConduit(result.cx, result.cy)) {
+          this.claimedConduitKeys.delete(cellKey(result.cx, result.cy));
         }
         state.power.markDirty();
       } else {
-        if (result.layConduit && !state.grid.hasConduit(result.cx, result.cy)) {
-          state.grid.addConduit(result.cx, result.cy, this.team);
-        }
+        this.releasePlacedBuildingReservation(result.ent, result.cx, result.cy);
+        const def = buildDefForEntityType(result.ent.type);
+        if (!def || !state.getStructureFootprintStatus(def, result.cx, result.cy).valid) continue;
         state.addEntity(result.ent);
         state.applyConfluencePlacement(this.team, result.ent.position, String(result.ent.id));
         this.buildsPlaced++;
@@ -741,6 +893,9 @@ export class EnemyBasePlanner {
   }
 
   private processBuilderRebuilds(state: GameState, cp: CommandPost, dt: number): void {
+    for (const b of this.builders) {
+      if (!b.alive && b.buildOrder) this.releaseOrderReservation(b.buildOrder);
+    }
     this.builders = this.builders.filter((b) => b.alive);
     const wanted = this.config.enemyMaxBuilders - this.builders.length;
 

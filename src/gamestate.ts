@@ -844,7 +844,6 @@ export class GameState {
     for (let y = origin.cy; y < origin.cy + size; y++) {
       for (let x = origin.cx; x < origin.cx + size; x++) {
         inside.add(cellKey(x, y));
-        placed += this.planAutomaticConduit(x, y, building.team);
       }
     }
 
@@ -887,6 +886,7 @@ export class GameState {
 
   private planAutomaticConduit(cx: number, cy: number, team: Team): number {
     if (this.grid.hasConduit(cx, cy) || this.grid.hasPendingConduit(cx, cy)) return 0;
+    if (this.isCellOccupiedByBuilding(cx, cy)) return 0;
     this.grid.queueConduit(cx, cy, team);
     return 1;
   }
@@ -1326,32 +1326,9 @@ export class GameState {
     } else if (this.resources < def.cost && team === Team.Player) {
       return { valid: false, reason: 'Not enough resources' };
     }
+    const footprintStatus = this.getStructureFootprintStatus(def, cx, cy);
+    if (!footprintStatus.valid) return footprintStatus;
     const origin = footprintOrigin(cx, cy, def.footprintCells);
-    const endCx = origin.cx + def.footprintCells - 1;
-    const endCy = origin.cy + def.footprintCells - 1;
-    if (
-      origin.cx < 0 ||
-      origin.cy < 0 ||
-      (endCx + 1) * GRID_CELL_SIZE > WORLD_WIDTH ||
-      (endCy + 1) * GRID_CELL_SIZE > WORLD_HEIGHT
-    ) {
-      return { valid: false, reason: 'Outside world' };
-    }
-    for (const b of this.buildings) {
-      if (!b.alive) continue;
-      const size = footprintForBuildingType(b.type);
-      const bc = {
-        cx: Math.floor(b.position.x / GRID_CELL_SIZE),
-        cy: Math.floor(b.position.y / GRID_CELL_SIZE),
-      };
-      const bo = footprintOrigin(bc.cx, bc.cy, size);
-      const bx2 = bo.cx + size - 1;
-      const by2 = bo.cy + size - 1;
-      const overlaps = origin.cx <= bx2 && endCx >= bo.cx && origin.cy <= by2 && endCy >= bo.cy;
-      if (overlaps) {
-        return { valid: false, reason: 'Cell occupied' };
-      }
-    }
     if (def.key === 'commandpost') return { valid: true, reason: 'OK' };
     if (isSynonymousFaction(this.factionByTeam, team)) return { valid: true, reason: 'OK' };
     if (isConfluenceFaction(this.factionByTeam, team)) {
@@ -1366,6 +1343,75 @@ export class GameState {
     }
     if (this.isNearPowerNetwork(origin.cx, origin.cy, def.footprintCells, team)) return { valid: true, reason: 'OK' };
     return { valid: false, reason: 'Build near command post, generator, or powered conduit' };
+  }
+
+  getStructureFootprintStatus(def: BuildDef, cx: number, cy: number): { valid: boolean; reason: string } {
+    const origin = footprintOrigin(cx, cy, def.footprintCells);
+    const endCx = origin.cx + def.footprintCells - 1;
+    const endCy = origin.cy + def.footprintCells - 1;
+    if (
+      origin.cx < 0 ||
+      origin.cy < 0 ||
+      (endCx + 1) * GRID_CELL_SIZE > WORLD_WIDTH ||
+      (endCy + 1) * GRID_CELL_SIZE > WORLD_HEIGHT
+    ) {
+      return { valid: false, reason: 'Outside world' };
+    }
+    for (let y = origin.cy; y <= endCy; y++) {
+      for (let x = origin.cx; x <= endCx; x++) {
+        if (this.grid.hasConduit(x, y) || this.grid.hasPendingConduit(x, y)) {
+          return { valid: false, reason: 'Cell occupied by conduit' };
+        }
+      }
+    }
+    for (const b of this.buildings) {
+      if (!b.alive) continue;
+      const size = footprintForBuildingType(b.type);
+      const bc = {
+        cx: Math.floor(b.position.x / GRID_CELL_SIZE),
+        cy: Math.floor(b.position.y / GRID_CELL_SIZE),
+      };
+      const bo = footprintOrigin(bc.cx, bc.cy, size);
+      const bx2 = bo.cx + size - 1;
+      const by2 = bo.cy + size - 1;
+      const overlaps = origin.cx <= bx2 && endCx >= bo.cx && origin.cy <= by2 && endCy >= bo.cy;
+      if (overlaps) return { valid: false, reason: 'Cell occupied by building' };
+    }
+    return { valid: true, reason: 'OK' };
+  }
+
+  isConduitPlacementCellClear(cx: number, cy: number): { valid: boolean; reason: string } {
+    if (
+      cx < 0 ||
+      cy < 0 ||
+      (cx + 1) * GRID_CELL_SIZE > WORLD_WIDTH ||
+      (cy + 1) * GRID_CELL_SIZE > WORLD_HEIGHT
+    ) {
+      return { valid: false, reason: 'Outside world' };
+    }
+    if (this.grid.hasConduit(cx, cy) || this.grid.hasPendingConduit(cx, cy)) {
+      return { valid: false, reason: 'Cell occupied by conduit' };
+    }
+    if (this.isCellOccupiedByBuilding(cx, cy)) {
+      return { valid: false, reason: 'Cell occupied by building' };
+    }
+    return { valid: true, reason: 'OK' };
+  }
+
+  isCellOccupiedByBuilding(cx: number, cy: number): boolean {
+    for (const b of this.buildings) {
+      if (!b.alive) continue;
+      const bc = {
+        cx: Math.floor(b.position.x / GRID_CELL_SIZE),
+        cy: Math.floor(b.position.y / GRID_CELL_SIZE),
+      };
+      const size = footprintForBuildingType(b.type);
+      const origin = footprintOrigin(bc.cx, bc.cy, size);
+      if (cx >= origin.cx && cx < origin.cx + size && cy >= origin.cy && cy < origin.cy + size) {
+        return true;
+      }
+    }
+    return false;
   }
 
 

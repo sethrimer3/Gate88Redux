@@ -53,6 +53,7 @@ interface Drone {
   returning?: boolean;
   soldReturn?: boolean;
   manualShapeUntil?: number;
+  manualShaped?: boolean;
 }
 
 interface Formation {
@@ -176,6 +177,7 @@ export class SynonymousSwarmSystem {
       d.returning = false;
       d.soldReturn = false;
       d.manualShapeUntil = time + MANUAL_CONTROL_GRACE_SECONDS;
+      d.manualShaped = true;
     }
   }
 
@@ -190,6 +192,7 @@ export class SynonymousSwarmSystem {
         d.target = base.clone();
         d.returning = true;
         d.manualShapeUntil = 0;
+        d.manualShaped = false;
         changed = true;
       }
     }
@@ -215,6 +218,7 @@ export class SynonymousSwarmSystem {
       d.returning = false;
       d.soldReturn = false;
       d.manualShapeUntil = 0;
+      d.manualShaped = false;
       d.target = this.formationPoint(kind, center, i, visibleRequired);
       d.awakenedAt = time + i * 0.018;
       d.hp = SYNONYMOUS_DRONE_HP;
@@ -254,6 +258,7 @@ export class SynonymousSwarmSystem {
       d.returning = !!options.sold;
       d.soldReturn = !!options.sold;
       d.manualShapeUntil = 0;
+      d.manualShaped = false;
       d.vel = d.vel.add(this.seededJitter(d.id, time, 24));
       reclaimed++;
     }
@@ -289,7 +294,7 @@ export class SynonymousSwarmSystem {
         if (d.hp <= 0) continue;
         if (d.allocatedTo) {
           this.moveTowardTarget(d, dt, ALLOCATED_MAX_SPEED, TARGET_DAMPING);
-        } else if (d.returning || (d.manualShapeUntil ?? 0) > time) {
+        } else if (d.returning || d.manualShaped || (d.manualShapeUntil ?? 0) > time) {
           const speed = d.returning ? RETURN_MAX_SPEED : FREE_DRONE_MAX_SPEED * 1.55;
           this.moveTowardTarget(d, dt, speed, TARGET_DAMPING);
         } else {
@@ -489,6 +494,7 @@ export class SynonymousSwarmSystem {
       d.returning = false;
       d.soldReturn = false;
       d.manualShapeUntil = 0;
+      d.manualShaped = false;
       d.target = d.pos.clone();
       d.vel = d.vel.add(this.seededJitter(d.id, time, 36));
     }
@@ -504,7 +510,7 @@ export class SynonymousSwarmSystem {
       if (!needsVisible && !needsReserve) continue;
       for (let i = drones.length - 1; i >= 0; i--) {
         const d = drones[i];
-        if (d.hp <= 0 || d.allocatedTo || d.returning) continue;
+        if (d.hp <= 0 || d.allocatedTo || d.returning || d.manualShaped) continue;
         if (d.pos.distanceTo(f.center) > BUILDING_ABSORB_RADIUS) continue;
         if (this.liveFormationDrones(f).length < f.visibleRequired) {
           const idx = this.nextOpenFormationIndex(f);

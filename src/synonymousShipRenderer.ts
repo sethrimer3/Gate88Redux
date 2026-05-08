@@ -3,7 +3,7 @@ import { Colors, colorToCSS, type Color } from './colors.js';
 import type { PlayerShip } from './ship.js';
 import { clamp } from './math.js';
 
-type FormationKind = 'idle' | 'building' | 'moving' | 'shooting';
+type FormationKind = 'idle' | 'building' | 'moving' | 'shooting' | 'buildCircle';
 
 interface SwarmParticle {
   x: number;
@@ -114,6 +114,7 @@ export class SynonymousShipRenderer {
 
   private formationFor(ship: PlayerShip, buildingActive: boolean): FormationKind {
     if (ship.synonymousMuzzleFlash > 0 || ship.primaryFireTimer > 0.01) return 'shooting';
+    if (buildingActive && ship.isThrusting && !ship.isBoosting) return 'buildCircle';
     if (ship.velocity.length() > 12 || ship.isThrusting) return 'moving';
     if (buildingActive) return 'building';
     return 'idle';
@@ -141,14 +142,32 @@ export class SynonymousShipRenderer {
       out.ty = Math.sin(angle) * r;
       return;
     }
+    if (kind === 'buildCircle') {
+      const angle = t * Math.PI * 2 + time * 0.22;
+      const pulse = Math.sin(time * 2.4 + out.phase) * 1.6;
+      const r = 20 + pulse;
+      out.tx = Math.cos(angle) * r;
+      out.ty = Math.sin(angle) * r;
+      return;
+    }
     const noseOpen = kind === 'shooting' ? 4.5 * clamp(ship.synonymousMuzzleFlash / 0.22, 0, 1) : 0;
-    const row = i % 7;
-    const depth = t;
-    const x = 22 - depth * 42;
-    const halfWidth = 2 + depth * 17;
-    const y = ((row / 6) * 2 - 1) * halfWidth + Math.sin(out.phase) * 0.8;
-    out.tx = x - (kind === 'shooting' && depth < 0.15 ? noseOpen : 0);
-    out.ty = y + (kind === 'shooting' && depth < 0.15 ? Math.sign(y || (out.seed - 0.5)) * noseOpen : 0);
+    const perimeter = t * 3;
+    const a = { x: 24 - noseOpen, y: 0 };
+    const b = { x: -20, y: -17 };
+    const c = { x: -20, y: 17 };
+    const wobble = Math.sin(time * 5.2 + out.phase) * 0.7;
+    if (perimeter < 1) {
+      out.tx = a.x * (1 - perimeter) + b.x * perimeter;
+      out.ty = a.y * (1 - perimeter) + b.y * perimeter + wobble;
+    } else if (perimeter < 2) {
+      const u = perimeter - 1;
+      out.tx = b.x * (1 - u) + c.x * u;
+      out.ty = b.y * (1 - u) + c.y * u + wobble;
+    } else {
+      const u = perimeter - 2;
+      out.tx = c.x * (1 - u) + a.x * u;
+      out.ty = c.y * (1 - u) + a.y * u + wobble;
+    }
   }
 }
 

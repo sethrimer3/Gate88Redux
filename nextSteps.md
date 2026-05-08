@@ -232,3 +232,11 @@ logic with a short backoff would improve robustness.
 - Mine balance lives in `src/synonymousMine.ts`: 32 damage, 58 AOE radius, 6 mine HP, 23 initial drift speed, and 175 max chase speed. Mine AOE excludes same-team targets through the existing blast-damage team filter.
 - Manual visual QA should confirm the 20-nanobot spinning circle reads clearly and that both friendly and hostile projectiles can detonate mines.
 
+# Terran AI Construction Follow-up
+
+- Add an F3/debug overlay for AI reserved cells, rejected placement reasons, ring bands, spoke paths, and powered/unpowered ring segments.
+- Add simulation tests for Terran AI placement once a test harness exists: duplicate conduit orders, building footprint overlap, conduit-through-building rejection, and builder death releasing reservations.
+- Playtest doctrine counts after the ring geometry change. Rings now normalize to two conduit cells thick with three conduit cells of gap, so old per-ring building counts may need pacing tweaks.
+- Review player conduit painting separately. Building placement now rejects conduits in footprints, but player conduit painting still uses the existing paint-mode rules.
+
+---

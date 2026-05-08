@@ -14,6 +14,9 @@
 
 import { cellKey } from './grid.js';
 
+export const AI_RING_THICKNESS_CONDUITS = 2;
+export const AI_RING_SPACING_CONDUITS = 3;
+
 // ---------------------------------------------------------------------------
 // Geometry helpers
 // ---------------------------------------------------------------------------
@@ -68,34 +71,34 @@ export function generateRingCells(
   numSlots: number,
   gapProbability: number,
   seed: number,
+  thicknessCells: number = 1,
 ): Array<{ cx: number; cy: number }> {
-  // Compute angular sample points with small deterministic jitter.
-  const points: Array<{ cx: number; cy: number }> = [];
-  for (let i = 0; i < numSlots; i++) {
-    const baseAngle = (i / numSlots) * Math.PI * 2;
-    const angleJitter = (hash01plan(centerCx + i, centerCy + radiusCells, seed + 3) - 0.5) * 0.38;
-    const radJitter   = (hash01plan(centerCx + radiusCells, centerCy + i, seed + 4) - 0.5) * 1.3;
-    const r = radiusCells + radJitter;
-    const a = baseAngle + angleJitter;
-    points.push({
-      cx: centerCx + Math.round(Math.cos(a) * r),
-      cy: centerCy + Math.round(Math.sin(a) * r),
-    });
-  }
-
-  // Connect consecutive angular points with Bresenham traces.
   const visited = new Set<string>();
   const cells: Array<{ cx: number; cy: number }> = [];
-  for (let i = 0; i < numSlots; i++) {
-    // Optionally skip arc segments to create intentional gaps.
-    if (hash01plan(i, radiusCells, seed + 5) < gapProbability) continue;
-    const a = points[i];
-    const b = points[(i + 1) % numSlots];
-    for (const cell of traceLine(a.cx, a.cy, b.cx, b.cy)) {
-      const k = cellKey(cell.cx, cell.cy);
-      if (!visited.has(k)) {
-        visited.add(k);
-        cells.push(cell);
+
+  for (let band = 0; band < Math.max(1, thicknessCells); band++) {
+    const radius = radiusCells + band;
+    const points: Array<{ cx: number; cy: number }> = [];
+    for (let i = 0; i < numSlots; i++) {
+      const baseAngle = (i / numSlots) * Math.PI * 2;
+      const angleJitter = (hash01plan(centerCx + i, centerCy + radius, seed + 3) - 0.5) * 0.12;
+      const a = baseAngle + angleJitter;
+      points.push({
+        cx: centerCx + Math.round(Math.cos(a) * radius),
+        cy: centerCy + Math.round(Math.sin(a) * radius),
+      });
+    }
+
+    for (let i = 0; i < numSlots; i++) {
+      if (hash01plan(i, radiusCells, seed + 5) < gapProbability) continue;
+      const a = points[i];
+      const b = points[(i + 1) % numSlots];
+      for (const cell of traceLine(a.cx, a.cy, b.cx, b.cy)) {
+        const k = cellKey(cell.cx, cell.cy);
+        if (!visited.has(k)) {
+          visited.add(k);
+          cells.push(cell);
+        }
       }
     }
   }
