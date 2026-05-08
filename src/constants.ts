@@ -111,6 +111,23 @@ export const RESEARCH_TIME = {
 
 export const PLAYER_SHIP_SCALE = 1.75;
 
+// Hit points
+export const HP_VALUES = {
+  playerShip: 40,
+  fighter: 5,
+  synonymousFighterDrone: 3,
+  bomber: 15,
+  builderDrone: 10,
+  commandPost: 200,
+  powerGenerator: 40,
+  factory: 40,
+  researchLab: 40,
+  fighterYard: 50,
+  bomberYard: 80,
+  turret: 30,
+  synonymousDriftMine: 6,
+} as const;
+
 export const ACTIVE_RESEARCH_ITEMS = [
   'shipHp',
   'shipSpeedEnergy',
@@ -238,17 +255,17 @@ export const WEAPON_STATS = {
 // Ship stats
 export const SHIP_STATS = {
   fighter: {
-    health: 30,
+    health: HP_VALUES.fighter,
     speed: 250,
     turnRate: 4.0,
   },
   bomber: {
-    health: 60,
+    health: HP_VALUES.bomber,
     speed: 180,
     turnRate: 2.5,
   },
   mainguy: {
-    health: 50,
+    health: HP_VALUES.playerShip,
     speed: 280,
     turnRate: 5.0,
   },

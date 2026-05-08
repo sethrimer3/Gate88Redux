@@ -1,6 +1,6 @@
 import { Camera } from './camera.js';
 import { Colors, colorToCSS } from './colors.js';
-import { ENTITY_RADIUS } from './constants.js';
+import { HP_VALUES } from './constants.js';
 import { Entity, EntityType, Team } from './entities.js';
 import { Vec2, clamp } from './math.js';
 import { ProjectileBase } from './projectile.js';
@@ -38,8 +38,8 @@ export class SynonymousDriftMine extends ProjectileBase {
     this.home = home.clone();
     this.maxRadius = maxRadius;
     this.radius = MINE_RADIUS;
-    this.health = 6;
-    this.maxHealth = 6;
+    this.health = HP_VALUES.synonymousDriftMine;
+    this.maxHealth = HP_VALUES.synonymousDriftMine;
     this.interceptable = true;
   }
 

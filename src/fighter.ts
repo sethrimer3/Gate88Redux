@@ -6,7 +6,7 @@ import { Entity, EntityType, Team, ShipGroup } from './entities.js';
 import { TICK_RATE } from './constants.js';
 import { Shipyard } from './building.js';
 import { Colors, colorToCSS, Color } from './colors.js';
-import { ENTITY_RADIUS, PLAYER_SHIP_SCALE, SHIP_STATS, WEAPON_STATS } from './constants.js';
+import { ENTITY_RADIUS, HP_VALUES, PLAYER_SHIP_SCALE, SHIP_STATS, WEAPON_STATS } from './constants.js';
 
 export type FighterOrder = 'idle' | 'attack' | 'dock' | 'defend' | 'escort' | 'harass' | 'protect' | 'waypoint' | 'follow';
 
@@ -397,6 +397,7 @@ export class FighterShip extends Entity {
 
 export class SynonymousFighterShip extends FighterShip {
   droneCount: 3 | 6;
+  private droneHp: number[];
   private splitPulse = 0;
 
   constructor(
@@ -408,9 +409,16 @@ export class SynonymousFighterShip extends FighterShip {
   ) {
     super(position, team, group, homeYard);
     this.droneCount = advanced ? 6 : 3;
+    this.droneHp = Array(this.droneCount).fill(HP_VALUES.synonymousFighterDrone);
+    this.maxHealth = this.droneCount * HP_VALUES.synonymousFighterDrone;
+    this.health = this.maxHealth;
     this.weaponDamage = 1;
     this.fireRate = 34;
     this.weaponRange = 230;
+  }
+
+  get livingDroneCount(): number {
+    return this.droneHp.reduce((sum, hp) => sum + (hp > 0 ? 1 : 0), 0);
   }
 
   override update(dt: number): void {
@@ -423,7 +431,7 @@ export class SynonymousFighterShip extends FighterShip {
   }
 
   override firingOrigin(index: number = 0): Vec2 {
-    const local = this.localDroneOffset(index, this.splitPulse > 0.02);
+    const local = this.localDroneOffset(this.livingDroneIndex(index), this.splitPulse > 0.02);
     const c = Math.cos(this.angle);
     const s = Math.sin(this.angle);
     return new Vec2(
@@ -450,6 +458,41 @@ export class SynonymousFighterShip extends FighterShip {
     );
   }
 
+  override takeDamage(amount: number, source?: Entity): void {
+    if (!this.alive || amount <= 0) {
+      super.takeDamage(amount, source);
+      return;
+    }
+    let remaining = amount;
+    let start = 0;
+    if (source) {
+      const angle = Math.atan2(source.position.y - this.position.y, source.position.x - this.position.x);
+      start = Math.abs(Math.floor(((angle + Math.PI) / (Math.PI * 2)) * this.droneCount)) % this.droneCount;
+    }
+    while (remaining > 0 && this.livingDroneCount > 0) {
+      let idx = -1;
+      for (let i = 0; i < this.droneCount; i++) {
+        const probe = (start + i) % this.droneCount;
+        if (this.droneHp[probe] > 0) { idx = probe; break; }
+      }
+      if (idx < 0) break;
+      const applied = Math.min(this.droneHp[idx], remaining);
+      this.droneHp[idx] -= applied;
+      remaining -= applied;
+      start = (idx + 1) % this.droneCount;
+    }
+    this.health = this.droneHp.reduce((sum, hp) => sum + Math.max(0, hp), 0);
+    if (this.health <= 0) this.destroy();
+  }
+
+  private livingDroneIndex(shotIndex: number): number {
+    for (let i = 0; i < this.droneCount; i++) {
+      const probe = (shotIndex + i) % this.droneCount;
+      if (this.droneHp[probe] > 0) return probe;
+    }
+    return 0;
+  }
+
   override draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     if (!this.alive || this.docked) return;
     const screen = camera.worldToScreen(this.position);
@@ -464,6 +507,7 @@ export class SynonymousFighterShip extends FighterShip {
     ctx.rotate(this.angle);
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < this.droneCount; i++) {
+      if (this.droneHp[i] <= 0) continue;
       const p = this.localDroneOffset(i, split).scale(camera.zoom);
       points.push(p);
     }
@@ -600,7 +644,7 @@ export class BomberShip extends FighterShip {
 }
 
 const NOVA_BOMBER_DRONES = 10;
-const NOVA_BOMBER_DRONE_HP = 6;
+const NOVA_BOMBER_DRONE_HP = HP_VALUES.synonymousFighterDrone;
 const NOVA_BOMBER_MAX_AOE = 56;
 const NOVA_BOMBER_CHARGE_SECONDS = 1.15;
 

@@ -57,9 +57,6 @@ export class AIShip extends PlayerShip {
 
   constructor(position: Vec2, team: Team = Team.Enemy) {
     super(position, team);
-    // Slightly tougher than the human player so a human can't trivially
-    // alpha-strike the AI from full health.
-    this.maxHealth = Math.floor(this.maxHealth * 1.15);
     this.health = this.maxHealth;
   }
 

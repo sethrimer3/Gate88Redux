@@ -27,6 +27,7 @@ import { GRID_CELL_SIZE, cellCenter, footprintCenter } from './grid.js';
 import { GameState } from './gamestate.js';
 import { BuildDef, createBuildingFromDef } from './builddefs.js';
 import { BuildingBase } from './building.js';
+import { HP_VALUES } from './constants.js';
 
 export type BuilderMode = 'build' | 'repair';
 
@@ -87,9 +88,8 @@ export class BuilderDrone extends FighterShip {
     // don't feel like fighters. group=Blue is purely cosmetic.
     super(position, team, ShipGroup.Blue, null);
     this.mode = mode;
-    // Builders take more punishment than combat fighters.
-    this.maxHealth = 60;
-    this.health = 60;
+    this.maxHealth = HP_VALUES.builderDrone;
+    this.health = HP_VALUES.builderDrone;
     // Slower steering / top speed than fighters; they are utility units.
     this.thrustPower = 160;
     this.maxSpeed = 160;

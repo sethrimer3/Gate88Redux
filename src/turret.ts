@@ -5,7 +5,7 @@ import { Camera } from './camera.js';
 import { Entity, EntityType, Team } from './entities.js';
 import { BuildingBase } from './building.js';
 import { Colors, colorToCSS } from './colors.js';
-import { ENTITY_RADIUS, WEAPON_STATS, DT } from './constants.js';
+import { ENTITY_RADIUS, WEAPON_STATS, DT, HP_VALUES } from './constants.js';
 import type { GameState } from './gamestate.js';
 import { SynonymousDriftMine, SYNONYMOUS_MINE_LAYER_RANGE } from './synonymousMine.js';
 
@@ -155,7 +155,7 @@ export class MissileTurret extends TurretBase {
       EntityType.MissileTurret,
       team,
       position,
-      80,
+      HP_VALUES.turret,
       WEAPON_STATS.missile.fireRate,
       400,
     );
@@ -188,7 +188,7 @@ export class ExciterTurret extends TurretBase {
       EntityType.ExciterTurret,
       team,
       position,
-      80,
+      HP_VALUES.turret,
       WEAPON_STATS.exciterbullet.fireRate,
       350,
     );
@@ -227,7 +227,7 @@ export class MassDriverTurret extends TurretBase {
       EntityType.MassDriverTurret,
       team,
       position,
-      100,
+      HP_VALUES.turret,
       WEAPON_STATS.massdriverbullet.fireRate,
       500,
     );
@@ -263,7 +263,7 @@ export class RegenTurret extends TurretBase {
       EntityType.RegenTurret,
       team,
       position,
-      80,
+      HP_VALUES.turret,
       WEAPON_STATS.regenbullet.fireRate,
       300,
     );
@@ -318,7 +318,7 @@ export class RepairTurret extends TurretBase {
       EntityType.RepairTurret,
       team,
       position,
-      85,
+      HP_VALUES.turret,
       WEAPON_STATS.regenbullet.fireRate * 2,
       260,
     );
@@ -359,7 +359,7 @@ export class SynonymousMineLayer extends BuildingBase {
   private mineIndex = 0;
 
   constructor(position: Vec2, team: Team) {
-    super(EntityType.TimeBomb, team, position, 95, ENTITY_RADIUS.building);
+    super(EntityType.TimeBomb, team, position, HP_VALUES.turret, ENTITY_RADIUS.building);
   }
 
   override update(dt: number): void {

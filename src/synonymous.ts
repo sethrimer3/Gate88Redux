@@ -9,7 +9,7 @@ import { teamColor } from './teamutils.js';
 
 export const SYNONYMOUS_DRONE_DIAMETER = GRID_CELL_SIZE * 0.75;
 export const SYNONYMOUS_DRONE_RADIUS = SYNONYMOUS_DRONE_DIAMETER * 0.5;
-export const SYNONYMOUS_DRONE_HP = 5;
+export const SYNONYMOUS_DRONE_HP = 4;
 export const SYNONYMOUS_BASE_PRODUCTION = 1;
 export const SYNONYMOUS_FACTORY_PRODUCTION = 1;
 export const SYNONYMOUS_CURRENCY_SYMBOL = 'ᐃ';
@@ -333,8 +333,9 @@ export class SynonymousSwarmSystem {
       }
       b.powered = true;
       const liveVisible = this.liveFormationDrones(f).length;
-      const surviving = liveVisible + f.reserveCount;
-      b.health = b.maxHealth * clamp(surviving / Math.max(1, f.cost), 0, 1);
+      const reserveMaxHp = this.maxReserve(f) * SYNONYMOUS_DRONE_HP;
+      b.maxHealth = Math.max(1, reserveMaxHp);
+      b.health = clamp(f.reserveCount * SYNONYMOUS_DRONE_HP, 0, b.maxHealth);
       if (liveVisible < f.visibleRequired && f.reserveCount <= 0) {
         this.collapseFormation(f, 0);
         b.destroy();
