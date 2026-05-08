@@ -154,50 +154,50 @@ export const ACTIVE_RESEARCH_ITEMS = [
 // Weapon stats
 export const WEAPON_STATS = {
   fire: {
-    damage: 5,
+    damage: 3,
     speed: 400,
     fireRate: 10,   // ticks between shots
     range: 500,
   },
   gatling: {
-    damage: 1,
+    damage: 0.5,
     speed: 520,
     fireRate: 3,
     range: 260,
   },
   guidedmissile: {
-    damage: 48,
+    damage: 15,
     speed: 480,
     fireRate: 110,
     range: 1000,
   },
   laser: {
-    damage: 7,
+    damage: 3,
     speed: 0,
     fireRate: 32,
     range: 900,
   },
   synonymousLaser: {
-    damage: 11,
+    damage: 3,
     speed: 0,
     fireRate: 56,
     range: 760,
     pierce: 4,
   },
   missile: {
-    damage: 20,
+    damage: 10,
     speed: 300,
     fireRate: 40,
     range: 800,
   },
   bigfire: {
-    damage: 12,
+    damage: 6,
     speed: 350,
     fireRate: 20,
     range: 550,
   },
   bigmissile: {
-    damage: 35,
+    damage: 18,
     speed: 180,
     fireRate: 120,
     range: 900,
@@ -209,43 +209,43 @@ export const WEAPON_STATS = {
     range: 400,
   },
   exciterbeam: {
-    damage: 15,
+    damage: 9,
     speed: 0,      // instant
     fireRate: 30,
     range: 350,
   },
   massdriverbullet: {
-    damage: 25,
+    damage: 30,
     speed: 700,
     fireRate: 45,
     range: 1000,
   },
   regenbullet: {
-    damage: -10,    // heals
+    damage: -1,    // heals
     speed: 400,
     fireRate: 20,
     range: 500,
   },
   bigregenbullet: {
-    damage: -20,
+    damage: -10,
     speed: 350,
     fireRate: 30,
     range: 600,
   },
   shortbullet: {
-    damage: 4,
+    damage: 2,
     speed: 450,
     fireRate: 8,
     range: 300,
   },
   minilaser: {
-    damage: 6,
+    damage: 2,
     speed: 550,
     fireRate: 12,
     range: 450,
   },
   firebomb: {
-    damage: 40,
+    damage: 10,
     speed: 200,
     fireRate: 90,
     range: 400,
@@ -390,4 +390,3 @@ export const MINE_ROTATION_SPEED_MIN = 0.8;
 
 /** Maximum visual rotation speed for a mine (radians/sec). */
 export const MINE_ROTATION_SPEED_MAX = 2.0;
-
