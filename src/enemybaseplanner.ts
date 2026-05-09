@@ -156,7 +156,7 @@ export class EnemyBasePlanner {
   private tickTimer: number = 0;
   private auditTimer: number = 0;
   private rebuildTimers: number[] = [];
-  /** Accumulates time (seconds) since the last ring advancement attempt. */
+  /** Accumulates time (seconds) since the last successful ring advancement. */
   private ringAdvanceStuckTimer: number = 0;
 
   // -- Subsystems -------------------------------------------------------------

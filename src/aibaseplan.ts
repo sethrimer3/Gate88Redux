@@ -81,9 +81,9 @@ export function traceLine(
 
 /**
  * Debug validator: returns true iff every consecutive pair of cells in `path`
- * has Manhattan distance exactly 1 (strictly 4-connected).
+ * has Manhattan distance exactly 1 (strictly 4-connected), false otherwise.
  *
- * Logs a warning on the first violation found so callers can identify the
+ * Logs a warning on the first violated pair so callers can identify the
  * offending cells without silently ignoring the problem.
  */
 export function assert4Connected(
