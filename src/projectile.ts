@@ -116,11 +116,15 @@ export abstract class ProjectileBase extends Entity {
 // ---------------------------------------------------------------------------
 
 export class Bullet extends ProjectileBase {
+  targetEntity: Entity | null = null;
+  private readonly turnRate: number = 0.22;
+
   constructor(
     team: Team,
     position: Vec2,
     angle: number,
     source: Entity | null = null,
+    target: Entity | null = null,
   ) {
     super({
       type: EntityType.Bullet,
@@ -132,6 +136,22 @@ export class Bullet extends ProjectileBase {
       lifetime: WEAPON_STATS.fire.range / WEAPON_STATS.fire.speed,
       source,
     });
+    this.targetEntity = target;
+  }
+
+  update(dt: number): void {
+    if (!this.alive) return;
+    if (this.targetEntity && this.targetEntity.alive) {
+      const desired = this.position.angleTo(this.targetEntity.position);
+      const diff = wrapAngle(desired - this.angle);
+      const steer = Math.max(-this.turnRate * dt, Math.min(this.turnRate * dt, diff));
+      this.angle = wrapAngle(this.angle + steer);
+      this.velocity = new Vec2(
+        Math.cos(this.angle) * this.speed,
+        Math.sin(this.angle) * this.speed,
+      );
+    }
+    super.update(dt);
   }
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
@@ -849,7 +869,7 @@ export class FireBomb extends ProjectileBase {
 export class HomingBullet extends ProjectileBase {
   targetEntity: Entity | null = null;
   /** Radians per second the bullet can turn.  Moderate — not instant. */
-  readonly turnRate: number = 2.0;
+  readonly turnRate: number = 3.1;
 
   constructor(
     team: Team,
@@ -877,11 +897,9 @@ export class HomingBullet extends ProjectileBase {
     // Steer toward target if it is still alive
     if (this.targetEntity && this.targetEntity.alive) {
       const desired = this.position.angleTo(this.targetEntity.position);
-      let diff = desired - this.angle;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      const steer = Math.sign(diff) * Math.min(Math.abs(diff), this.turnRate * dt);
-      this.angle += steer;
+      const diff = wrapAngle(desired - this.angle);
+      const steer = Math.max(-this.turnRate * dt, Math.min(this.turnRate * dt, diff));
+      this.angle = wrapAngle(this.angle + steer);
       this.velocity = new Vec2(
         Math.cos(this.angle) * this.speed,
         Math.sin(this.angle) * this.speed,

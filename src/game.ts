@@ -32,6 +32,7 @@ import { tryFireSpecial } from './special.js';
 import { GATLING_BATTERY_FIRE_COST, GUIDED_MISSILE_CONTROL_BATTERY_DRAIN, GUIDED_MISSILE_INITIAL_BATTERY_COST } from './ship.js';
 import { createBuildingFromDef, getBuildDef, buildDefForEntityType } from './builddefs.js';
 import { worldToCell, footprintCenter, GRID_CELL_SIZE } from './grid.js';
+import { footprintForBuildingType } from './buildingfootprint.js';
 import { gameFont } from './fonts.js';
 import { createSpaceFluid, SpaceFluid } from './spacefluid.js';
 import type { LanClient } from './lan/lanClient.js';
@@ -563,12 +564,7 @@ export class Game {
       this.playerDeathHandled = true;
       this.playerRespawnTimer = Game.RESPAWN_DELAY;
 
-      // Resource penalty: base cost + scaling per building and research item.
-      const playerBuildings = this.state.buildings.filter(
-        (b) => b.alive && b.team === Team.Player,
-      ).length;
-      const researchItems = this.state.researchedItems.size;
-      const penalty = 50 + playerBuildings * 10 + researchItems * 15;
+      const penalty = 40 + this.countShipResearchUpgrades() * 10;
       this.state.resources = Math.max(0, this.state.resources - penalty);
 
       this.hud.showMessage(
@@ -589,6 +585,14 @@ export class Game {
       this.state.player.revive(spawnPos);
       this.hud.showMessage('Respawned!', Colors.friendly_status, 2);
     }
+  }
+
+  private countShipResearchUpgrades(): number {
+    let count = 0;
+    for (const key of this.state.researchedItems) {
+      if (key === 'shipHull' || key === 'shipBattery' || key === 'shipEngine' || key === 'shipShield') count++;
+    }
+    return count;
   }
 
   private updatePlayerFiring(): void {
@@ -788,13 +792,15 @@ export class Game {
     let target: Entity | null = null;
     let bestDist = 600;
     for (const e of this.state.getEnemiesOf(Team.Player)) {
+      if (!this.isHomingTarget(e)) continue;
       const d = player.position.distanceTo(e.position);
       if (d < bestDist) { bestDist = d; target = e; }
     }
 
     player.battery -= CANNON_HOMING_ENERGY_COST;
     player.weaponSpecialCooldown = CANNON_HOMING_COOLDOWN_SECS;
-    this.state.addEntity(new HomingBullet(Team.Player, player.position.clone(), player.angle, player, target));
+    const launchAngle = target ? player.position.angleTo(target.position) : player.position.angleTo(aimWorld);
+    this.state.addEntity(new HomingBullet(Team.Player, player.position.clone(), launchAngle, player, target));
     Audio.playSound('fire');
   }
 
@@ -913,6 +919,7 @@ export class Game {
       this.state.player.position.clone(),
       this.state.player.angle,
       this.state.player,
+      this.findClosestEnemyForTeam(this.state.player.position, Team.Player, 520),
     ));
     Audio.playSound('fire');
   }
@@ -1296,7 +1303,7 @@ export class Game {
         Audio.playSound('laser');
       } else {
         f.consumeShot(WEAPON_STATS.fire.fireRate);
-        const bullet = new Bullet(f.team, f.position.clone(), angle, f);
+        const bullet = new Bullet(f.team, f.position.clone(), angle, f, target);
         bullet.damage = f.weaponDamage;
         this.state.addEntity(bullet);
       }
@@ -1315,6 +1322,28 @@ export class Game {
       }
     }
     return best;
+  }
+
+  private findClosestEnemyForTeam(pos: Vec2, team: Team, range: number): Entity | null {
+    let best: Entity | null = null;
+    let bestDist = range;
+    for (const e of this.state.getEnemiesOf(team)) {
+      if (!e.alive) continue;
+      if (!this.isHomingTarget(e)) continue;
+      const d = e.position.distanceTo(pos);
+      if (d < bestDist) {
+        bestDist = d;
+        best = e;
+      }
+    }
+    return best;
+  }
+
+  private isHomingTarget(entity: Entity): boolean {
+    return entity.type === EntityType.PlayerShip ||
+      entity.type === EntityType.Fighter ||
+      entity.type === EntityType.Bomber ||
+      entity instanceof BuildingBase;
   }
 
   private injectFluidForces(): void {
@@ -2361,7 +2390,13 @@ export class Game {
     const aim = ship.aimWorld;
     const angle = Math.atan2(aim.y - ship.position.y, aim.x - ship.position.x);
     ship.consumePrimaryFire(PLAYER_FIRE_COOLDOWN * ship.fireCooldownMultiplier);
-    this.state.addEntity(new Bullet(ship.team, ship.position.clone(), angle, ship));
+    this.state.addEntity(new Bullet(
+      ship.team,
+      ship.position.clone(),
+      angle,
+      ship,
+      this.findClosestEnemyForTeam(ship.position, ship.team, 520),
+    ));
   }
 
   // -----------------------------------------------------------------------
@@ -2426,6 +2461,7 @@ export class Game {
     // HUD
     this.hud.draw(ctx, w, h);
     this.hud.drawAIChat(ctx, w, h);
+    this.drawBuildingHoverHitpoints(ctx);
     const synonymousPlayer = isSynonymousFaction(this.state.factionByTeam, Team.Player);
     this.hud.drawResources(
       ctx,
@@ -2438,7 +2474,15 @@ export class Game {
         : undefined,
     );
     if (this.state.player.alive) {
-      this.hud.drawPlayerEnergy(ctx, this.state.player.battery, this.state.player.maxBattery, w, h);
+      this.hud.drawPlayerEnergy(
+        ctx,
+        this.state.player.battery,
+        this.state.player.maxBattery,
+        this.state.player.health,
+        this.state.player.maxHealth,
+        w,
+        h,
+      );
       this.hud.drawResearchStatus(ctx, this.state.researchProgress, this.state.researchedItems.size, h);
       if (!synonymousPlayer) {
         // Count unpowered player buildings, excluding only power sources.
@@ -2493,6 +2537,53 @@ export class Game {
       `Bases destroyed: ${this.practiceMode.score.basesDestroyed} | Time: ${Math.floor(this.practiceMode.score.timeSurvived)}s`,
       10, 10,
     );
+  }
+
+  private drawBuildingHoverHitpoints(ctx: CanvasRenderingContext2D): void {
+    const world = this.camera.screenToWorld(Input.mousePos);
+    let hovered: BuildingBase | null = null;
+    let bestDist = Infinity;
+    for (const b of this.state.buildings) {
+      if (!b.alive) continue;
+      const half = footprintForBuildingType(b.type) * GRID_CELL_SIZE * 0.5;
+      const dx = Math.abs(world.x - b.position.x);
+      const dy = Math.abs(world.y - b.position.y);
+      if (dx > half || dy > half) continue;
+      const d = Math.hypot(dx, dy);
+      if (d < bestDist) {
+        hovered = b;
+        bestDist = d;
+      }
+    }
+    if (!hovered) return;
+
+    const screen = this.camera.worldToScreen(hovered.position);
+    const text = `${Math.ceil(hovered.health)}/${Math.ceil(hovered.maxHealth)}`;
+    ctx.save();
+    ctx.font = 'bold 14px "Poiret One", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const metrics = ctx.measureText(text);
+    const padX = 8;
+    const boxW = metrics.width + padX * 2;
+    const boxH = 22;
+    const x = screen.x;
+    const y = screen.y - hovered.radius * this.camera.zoom - 18;
+    ctx.fillStyle = colorToCSS(Colors.friendly_background, 0.72);
+    ctx.strokeStyle = colorToCSS(hovered.team === Team.Player ? Colors.radar_friendly_status : Colors.enemyfire, 0.8);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(x - boxW / 2, y - boxH / 2, boxW, boxH, 4);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = colorToCSS(Colors.general_building, 0.95);
+    ctx.fillText(text, x, y + 1);
+    ctx.restore();
+  }
+
+  private speedGlowFactor(speed: number, maxSpeed: number): number {
+    const normalized = maxSpeed > 0 ? Math.min(1, Math.max(0, speed / maxSpeed)) : 0;
+    return 0.1 + normalized * 0.9;
   }
 
   private drawGlowLayer(): void {
@@ -2568,16 +2659,17 @@ export class Game {
       if (ship.shieldUnlocked && ship.shield > 0) {
         glow.circleWorld(this.camera, ship.position, r * 1.8, Colors.radar_allied_status, 0.10, false, 5);
       }
-      // Engine exhaust glow: soft bloom behind the ship when thrusting.
-      if (this.visualPreset.engineGlow && ship.isThrusting) {
+      // Engine exhaust glow: speed controls both size and opacity.
+      if (this.visualPreset.engineGlow) {
         const td = ship.thrustDir;
+        const speedFactor = this.speedGlowFactor(Math.hypot(ship.velocity.x, ship.velocity.y), ship.maxSpeed * 1.6);
         const exhaustOffset = new Vec2(
           ship.position.x - td.x * r * 1.2,
           ship.position.y - td.y * r * 1.2,
         );
         const exhaustColor = ship.team === Team.Player ? Colors.particles_friendly_exhaust : Colors.particles_enemy_exhaust;
-        const exhaustAlpha = ship.isBoosting ? 0.22 : 0.11;
-        glow.circleWorld(this.camera, exhaustOffset, r * 2.4, exhaustColor, exhaustAlpha);
+        const exhaustAlpha = (ship.isBoosting ? 0.22 : 0.14) * speedFactor;
+        glow.circleWorld(this.camera, exhaustOffset, r * 2.4 * speedFactor, exhaustColor, exhaustAlpha);
         glow.circleWorld(this.camera, exhaustOffset, r * 1.1, Colors.particles_switch, exhaustAlpha * 0.4);
       }
     }
@@ -2594,8 +2686,8 @@ export class Game {
           f.position.y - Math.sin(f.angle) * r * 1.1,
         );
         const speed = Math.hypot(f.velocity.x, f.velocity.y);
-        const speedAlpha = Math.min(1, speed / 80) * 0.14;
-        glow.circleWorld(this.camera, exhaustPos, r * 2.8, exhaustColor, speedAlpha);
+        const speedFactor = this.speedGlowFactor(speed, 250);
+        glow.circleWorld(this.camera, exhaustPos, r * 2.8 * speedFactor, exhaustColor, 0.14 * speedFactor);
       }
     }
 

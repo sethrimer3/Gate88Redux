@@ -354,6 +354,11 @@ export class PlayerShip extends Entity {
     this.primaryWeaponId = available[next];
   }
 
+  selectFirstUnlockedWeapon(unlocked: (id: ShipWeaponId) => boolean): void {
+    const first = SHIP_WEAPON_OPTIONS.find((w) => unlocked(w.id));
+    if (first) this.primaryWeaponId = first.id;
+  }
+
   /**
    * Returns false during the gatling overdrive or overheat states to prevent
    * the player from bypassing the lockdown by switching weapons.  Other

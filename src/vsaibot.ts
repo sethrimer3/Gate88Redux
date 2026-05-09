@@ -620,7 +620,7 @@ export class VsAIDirector {
         ? state.player.position.distanceTo(this.ship.position)
         : 9999;
       state.addEntity(new Bullet(this.ship.team, this.ship.position.clone(),
-        this.ship.angle, this.ship));
+        this.ship.angle, this.ship, state.player.alive ? state.player : null));
       Audio.playSoundAt('fire', playerDist);
     }
 

@@ -52,6 +52,7 @@ export enum EntityType {
   // Buildings
   CommandPost,
   PowerGenerator,
+  Wall,
   FighterYard,
   BomberYard,
   ResearchLab,

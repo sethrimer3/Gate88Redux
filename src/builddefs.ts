@@ -22,6 +22,7 @@ import {
   BuildingBase,
   CommandPost,
   PowerGenerator,
+  Wall,
   Shipyard,
   ResearchLab,
   Factory,
@@ -112,6 +113,15 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     radialLabel: 'Power\nGenerator',
     factory: (pos, team) => new PowerGenerator(pos, team),
   },
+  wall: {
+    key: 'wall',
+    label: 'Wall',
+    cost: BUILDING_COST.wall,
+    footprintCells: 2,
+    buildTime: BUILD_TIME.wall,
+    tier: 'structure',
+    factory: (pos, team) => new Wall(pos, team),
+  },
   fighteryard: {
     key: 'fighteryard',
     label: 'Fighter Yard',
@@ -160,24 +170,24 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     buildTime: BUILD_TIME.missileturret,
     tier: 'turret',
     radialLabel: 'Missile\nTurret',
-    researchKey: 'missileturret',
     factory: (pos, team) => new MissileTurret(pos, team),
   },
   synonymousminelayer: {
     key: 'synonymousminelayer',
     label: 'Mine Layer',
     cost: BUILDING_COST.synonymousminelayer,
-    footprintCells: 3,
+    footprintCells: 5,
     buildTime: BUILD_TIME.synonymousminelayer,
     tier: 'turret',
     radialLabel: 'Mine\nLayer',
+    researchKey: 'synonymousminelayer',
     factory: (pos, team) => new SynonymousMineLayer(pos, team),
   },
   exciterturret: {
     key: 'exciterturret',
     label: 'Exciter Turret',
     cost: BUILDING_COST.exciterturret,
-    footprintCells: 3,
+    footprintCells: 6,
     buildTime: BUILD_TIME.exciterturret,
     tier: 'turret',
     radialLabel: 'Exciter\nTurret',
@@ -224,6 +234,8 @@ export function buildCostForBuildingType(type: EntityType): number {
       return COMMANDPOST_REBUILD_COST;
     case EntityType.PowerGenerator:
       return BUILDING_COST.powergenerator;
+    case EntityType.Wall:
+      return BUILDING_COST.wall;
     case EntityType.FighterYard:
       return BUILDING_COST.fighteryard;
     case EntityType.BomberYard:
@@ -255,6 +267,8 @@ export function buildDefForEntityType(type: EntityType): BuildDef | undefined {
       return BUILD_DEFS.commandpost;
     case EntityType.PowerGenerator:
       return BUILD_DEFS.powergenerator;
+    case EntityType.Wall:
+      return BUILD_DEFS.wall;
     case EntityType.FighterYard:
       return BUILD_DEFS.fighteryard;
     case EntityType.BomberYard:

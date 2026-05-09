@@ -26,6 +26,10 @@ class InputManager {
   mouse2Down = false;
   mouse2Pressed = false;
   mouse2Released = false;
+  /** Middle mouse button / wheel click */
+  mouse3Down = false;
+  mouse3Pressed = false;
+  mouse3Released = false;
   wheelDelta = 0;
 
   constructor() {
@@ -98,6 +102,10 @@ class InputManager {
     } else if (e.button === 2) {
       this.mouse2Down = true;
       this.mouse2Pressed = true;
+    } else if (e.button === 1) {
+      e.preventDefault();
+      this.mouse3Down = true;
+      this.mouse3Pressed = true;
     }
   };
 
@@ -108,6 +116,9 @@ class InputManager {
     } else if (e.button === 2) {
       this.mouse2Down = false;
       this.mouse2Released = true;
+    } else if (e.button === 1) {
+      this.mouse3Down = false;
+      this.mouse3Released = true;
     }
   };
 
@@ -146,13 +157,16 @@ class InputManager {
    * subsystems on the same frame (e.g. closing a radial menu with RMB should
    * not also fire a special ability).
    */
-  consumeMouseButton(button: 0 | 2): void {
+  consumeMouseButton(button: 0 | 1 | 2): void {
     if (button === 0) {
       this.mouseDown = false;
       this.mousePressed = false;
-    } else {
+    } else if (button === 2) {
       this.mouse2Down = false;
       this.mouse2Pressed = false;
+    } else {
+      this.mouse3Down = false;
+      this.mouse3Pressed = false;
     }
   }
 
@@ -176,6 +190,8 @@ class InputManager {
     this.mouseReleased = false;
     this.mouse2Pressed = false;
     this.mouse2Released = false;
+    this.mouse3Pressed = false;
+    this.mouse3Released = false;
     this.wheelDelta = 0;
     this.typedChars = '';
   }

@@ -310,6 +310,7 @@ export class GameState {
     // a powered opposing conduit are destroyed. Unpowered conduits are
     // intangible (pass-through for ships and shots alike).
     this.applyConduitInteraction(dt);
+    this.applyWallInteraction();
 
     // Tick pending conduit fronts. Every eligible frontier cell builds together.
     this.tickPendingConduits(dt);
@@ -438,6 +439,7 @@ export class GameState {
           Audio.playSoundAt('explode2', playerDist);
         } else if (
           target.type === EntityType.MissileTurret ||
+          target.type === EntityType.Wall ||
           target.type === EntityType.TimeBomb ||
           target.type === EntityType.ExciterTurret ||
           target.type === EntityType.MassDriverTurret ||
@@ -644,6 +646,64 @@ export class GameState {
     }
   }
 
+  private applyWallInteraction(): void {
+    const walls = this.buildings.filter((b) => b.alive && b.buildProgress >= 1 && b.type === EntityType.Wall);
+    if (walls.length === 0) return;
+    const shipsToCheck: Entity[] = [];
+    for (const ship of this.playerShips.values()) {
+      if (ship.alive) shipsToCheck.push(ship);
+    }
+    for (const f of this.fighters) {
+      if (f.alive && !f.docked) shipsToCheck.push(f);
+    }
+
+    for (const ship of shipsToCheck) {
+      for (const wall of walls) {
+        this.pushEntityOutOfBuildingFootprint(ship, wall);
+      }
+    }
+  }
+
+  private pushEntityOutOfBuildingFootprint(entity: Entity, building: BuildingBase): void {
+    const bc = {
+      cx: Math.floor(building.position.x / GRID_CELL_SIZE),
+      cy: Math.floor(building.position.y / GRID_CELL_SIZE),
+    };
+    const size = footprintForBuildingType(building.type);
+    const origin = footprintOrigin(bc.cx, bc.cy, size);
+    const left = origin.cx * GRID_CELL_SIZE;
+    const right = (origin.cx + size) * GRID_CELL_SIZE;
+    const top = origin.cy * GRID_CELL_SIZE;
+    const bottom = (origin.cy + size) * GRID_CELL_SIZE;
+    const closestX = Math.max(left, Math.min(right, entity.position.x));
+    const closestY = Math.max(top, Math.min(bottom, entity.position.y));
+    const dx = entity.position.x - closestX;
+    const dy = entity.position.y - closestY;
+    if (dx * dx + dy * dy > entity.radius * entity.radius) return;
+
+    const overlapL = entity.position.x - left;
+    const overlapR = right - entity.position.x;
+    const overlapT = entity.position.y - top;
+    const overlapB = bottom - entity.position.y;
+    const minH = Math.min(overlapL, overlapR);
+    const minV = Math.min(overlapT, overlapB);
+    if (minH <= minV) {
+      if (overlapL < overlapR) {
+        entity.position.x = left - entity.radius;
+        if (entity.velocity.x > 0) entity.velocity.x *= -0.35;
+      } else {
+        entity.position.x = right + entity.radius;
+        if (entity.velocity.x < 0) entity.velocity.x *= -0.35;
+      }
+    } else if (overlapT < overlapB) {
+      entity.position.y = top - entity.radius;
+      if (entity.velocity.y > 0) entity.velocity.y *= -0.35;
+    } else {
+      entity.position.y = bottom + entity.radius;
+      if (entity.velocity.y < 0) entity.velocity.y *= -0.35;
+    }
+  }
+
   private applyFighterSeparation(dt: number): void {
     for (let i = 0; i < this.fighters.length; i++) {
       const a = this.fighters[i];
@@ -823,6 +883,7 @@ export class GameState {
       Audio.playSoundAt('explode2', playerDist);
     } else if (
       target.type === EntityType.MissileTurret ||
+      target.type === EntityType.Wall ||
       target.type === EntityType.TimeBomb ||
       target.type === EntityType.ExciterTurret ||
       target.type === EntityType.MassDriverTurret ||
@@ -838,6 +899,7 @@ export class GameState {
 
   private addAutomaticBuildingConduits(building: BuildingBase): void {
     if (!building.alive || building.team === Team.Neutral) return;
+    if (building.type === EntityType.Wall) return;
     if (isConfluenceFaction(this.factionByTeam, building.team)) return;
     const centerCx = Math.floor(building.position.x / GRID_CELL_SIZE);
     const centerCy = Math.floor(building.position.y / GRID_CELL_SIZE);
@@ -977,8 +1039,23 @@ export class GameState {
       }
     }
     if (!best) return null;
+    if (best.type === EntityType.CommandPost) return null;
     best.startDeleting();
     return best;
+  }
+
+  sellAtGridCell(pos: Vec2, team: Team): 'building' | 'conduit' | null {
+    const cx = Math.floor(pos.x / GRID_CELL_SIZE);
+    const cy = Math.floor(pos.y / GRID_CELL_SIZE);
+    const building = this.startDeletingBuildingAt(pos, team);
+    if (building) return 'building';
+    if (this.grid.conduitTeam(cx, cy) === team || this.grid.pendingConduitTeam(cx, cy) === team) {
+      this.grid.removeConduit(cx, cy);
+      if (team === Team.Player) this.resources += CONDUIT_COST;
+      this.power.markDirty();
+      return 'conduit';
+    }
+    return null;
   }
 
   eraseBlueprintAt(pos: Vec2, team: Team): boolean {
@@ -1355,7 +1432,7 @@ export class GameState {
     const footprintStatus = this.getStructureFootprintStatus(def, cx, cy, replaceConduitTeam);
     if (!footprintStatus.valid) return footprintStatus;
     const origin = footprintOrigin(cx, cy, def.footprintCells);
-    if (def.key === 'commandpost') return { valid: true, reason: 'OK' };
+    if (def.key === 'commandpost' || def.key === 'powergenerator') return { valid: true, reason: 'OK' };
     if (isSynonymousFaction(this.factionByTeam, team)) return { valid: true, reason: 'OK' };
     if (isConfluenceFaction(this.factionByTeam, team)) {
       const center = footprintCenter(cx, cy, def.footprintCells);
@@ -1372,7 +1449,7 @@ export class GameState {
   }
 
   getReplaceableConduitValue(def: BuildDef, cx: number, cy: number, team: Team): number {
-    if (isSynonymousFaction(this.factionByTeam, team) || isConfluenceFaction(this.factionByTeam, team)) return 0;
+    if (def.key === 'wall' || isSynonymousFaction(this.factionByTeam, team) || isConfluenceFaction(this.factionByTeam, team)) return 0;
     const origin = footprintOrigin(cx, cy, def.footprintCells);
     let value = 0;
     for (let y = origin.cy; y < origin.cy + def.footprintCells; y++) {
@@ -1385,7 +1462,7 @@ export class GameState {
   }
 
   sellReplaceableConduitsUnderFootprint(def: BuildDef, cx: number, cy: number, team: Team): number {
-    if (isSynonymousFaction(this.factionByTeam, team) || isConfluenceFaction(this.factionByTeam, team)) return 0;
+    if (def.key === 'wall' || isSynonymousFaction(this.factionByTeam, team) || isConfluenceFaction(this.factionByTeam, team)) return 0;
     const origin = footprintOrigin(cx, cy, def.footprintCells);
     let refunded = 0;
     for (let y = origin.cy; y < origin.cy + def.footprintCells; y++) {

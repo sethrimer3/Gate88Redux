@@ -193,17 +193,20 @@ export class HUD {
     ctx: CanvasRenderingContext2D,
     battery: number,
     maxBattery: number,
+    health: number,
+    maxHealth: number,
     screenW: number,
     screenH: number,
   ): void {
     const frac = Math.max(0, Math.min(1, battery / maxBattery));
+    const hpFrac = Math.max(0, Math.min(1, health / maxHealth));
     const barW = 220;
     const barH = 14;
     const x = 10;
     const y = screenH - 24;
 
     // Label
-    ctx.font = `${HUD_FONT_SIZE}px "Poiret One", sans-serif`;
+    ctx.font = `${Math.floor(HUD_FONT_SIZE * 0.5)}px "Poiret One", sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
 
@@ -223,6 +226,17 @@ export class HUD {
 
     ctx.fillStyle = labelColor;
     ctx.fillText('ENERGY', x, y - barH - 8);
+
+    const hpY = y - barH - 30;
+    ctx.fillStyle = colorToCSS(Colors.healthbar, 0.9);
+    ctx.fillText('HP', x, hpY - barH - 6);
+    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.2);
+    ctx.fillRect(x, hpY - barH, barW, barH);
+    ctx.fillStyle = colorToCSS(Colors.healthbar, 0.86);
+    ctx.fillRect(x, hpY - barH, barW * hpFrac, barH);
+    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.35);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, hpY - barH, barW, barH);
 
     // Background track
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.2);
@@ -275,12 +289,8 @@ export class HUD {
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = colorToCSS(Colors.researchlab_detail, 0.75);
     if (current.item) {
-      const pct = Math.floor((current.progress / Math.max(1, current.timeNeeded)) * 100);
       const secsLeft = Math.max(0, Math.ceil(current.timeNeeded - current.progress));
       ctx.fillText(`${secsLeft} sec`, x, y - 34);
-      ctx.fillText(`Research: ${current.item} ${pct}%`, x, y);
-    } else if (completedCount > 0) {
-      ctx.fillText(`Research complete: ${completedCount}`, x, y);
     }
   }
 }

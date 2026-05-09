@@ -82,14 +82,21 @@ class AudioManager {
   }
 
   /** Play a sound effect by name. */
-  playSound(name: SoundName): void {
+  playSound(name: SoundName, volumeScale: number = 1): void {
     const ctx = this.ensureContext();
     const buffer = this.soundBuffers.get(name);
     if (!buffer || !this.sfxGain) return;
 
     const source = ctx.createBufferSource();
     source.buffer = buffer;
-    source.connect(this.sfxGain);
+    if (volumeScale === 1) {
+      source.connect(this.sfxGain);
+    } else {
+      const gain = ctx.createGain();
+      gain.gain.value = Math.max(0, volumeScale);
+      source.connect(gain);
+      gain.connect(this.sfxGain);
+    }
     source.start(0);
   }
 

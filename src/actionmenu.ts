@@ -226,7 +226,6 @@ function availableBuildDefs(state: GameState): BuildDef[] {
   ].filter((def) => {
     if (isSynonymousFaction(state.factionByTeam, Team.Player) && !synonymousKeys.has(def.key)) return false;
     if (def.hidden) return def.key === 'commandpost' && !state.getPlayerCommandPost() && state.player.alive;
-    if (def.tier === 'turret') return true;
     return isBuildDefAvailable(def, state);
   });
 }
@@ -264,11 +263,11 @@ function buildResearchRoot(state: GameState): RadialItem[] {
       category('Ship', ['synonymousSpeed', 'synonymousVitality']),
       category('Weapons', ['synonymousPierce', nextFireSpeed]),
       category('Fighters', ['advancedFighters']),
-      category('Structures', ['missileturret', 'synonymousminelayer', 'bomberyard']),
+      category('Structures', ['synonymousminelayer', 'bomberyard']),
     ];
   }
   return [
-    category('Structures', ['missileturret', 'exciterturret', 'massdriverturret', 'regenturret', 'bomberyard']),
+    category('Structures', ['synonymousminelayer', 'exciterturret', 'massdriverturret', 'regenturret', 'bomberyard']),
     category('Ship', ['shipHp', 'shipSpeedEnergy', 'shipFireSpeed', 'shipShield']),
     category('Fighters', ['advancedFighters']),
     category('Weapons', ['weaponGatling', 'weaponLaser', 'weaponGuidedMissile'], [
@@ -711,9 +710,15 @@ class LeftHoldMenu {
 
     const items = this.currentItems(state);
     this.normalizeSelectedIndex(items);
+    if (Input.mouse3Pressed && items.length > 0) {
+      Input.consumeMouseButton(1);
+      this.selectedIdx = this.firstSelectableIndex(items);
+      Audio.playSound('menucursor', 0.22);
+      return { action: 'none' };
+    }
     if (Input.wheelDelta !== 0 && items.length > 0) {
       this.selectedIdx = this.nextSelectableIndex(items, this.selectedIdx, Input.wheelDelta > 0 ? 1 : -1);
-      Audio.playSound('menucursor');
+      Audio.playSound('menucursor', 0.22);
     }
 
     this.hoveredIdx = -1;
@@ -858,6 +863,13 @@ class LeftHoldMenu {
     }
     return start;
   }
+
+  private firstSelectableIndex(items: RadialItem[]): number {
+    for (let i = 0; i < items.length; i++) {
+      if (!items[i]?.disabled) return i;
+    }
+    return 0;
+  }
 }
 
 class ShipMenu {
@@ -868,6 +880,7 @@ class ShipMenu {
     const keyDown = Input.isDown('z');
     if (keyDown && !this.open) {
       this.open = true;
+      state.player.selectFirstUnlockedWeapon((id) => this.weaponUnlocked(state, id));
       Audio.playSound('menucursor');
     } else if (!keyDown && this.open) {
       this.open = false;
@@ -879,8 +892,17 @@ class ShipMenu {
       // Prevent weapon switching during gatling overheat / overdrive lockdown
       if (state.player.canSwitchWeapon()) {
         state.player.cyclePrimaryWeapon(Input.wheelDelta > 0 ? 1 : -1, (id) => this.weaponUnlocked(state, id));
-        Audio.playSound('menucursor');
+        Audio.playSound('menucursor', 0.22);
       }
+    }
+
+    if (Input.mouse3Pressed) {
+      Input.consumeMouseButton(1);
+      if (state.player.canSwitchWeapon()) {
+        state.player.selectFirstUnlockedWeapon((id) => this.weaponUnlocked(state, id));
+        Audio.playSound('menucursor', 0.22);
+      }
+      return true;
     }
 
     if (Input.mousePressed) {
@@ -1051,6 +1073,7 @@ class QuickBuildMenu {
     const keyDown = Input.isDown('q');
     if (keyDown && !this.open) {
       this.open = true;
+      this.selectedIndex = 0;
       this.touchedThisDrag.clear();
       this.buildingDragCells.clear();
       this.dragMode = null;
@@ -1067,10 +1090,16 @@ class QuickBuildMenu {
 
     const palette = this.paletteItems(state);
     this.normalizeSelectedIndex(palette);
+    if (Input.mouse3Pressed && palette.length > 0) {
+      Input.consumeMouseButton(1);
+      this.selectedIndex = this.firstSelectableIndex(palette);
+      Audio.playSound('menucursor', 0.22);
+      return { action: 'none' };
+    }
     if (Input.wheelDelta !== 0 && palette.length > 0) {
       const dir = Input.wheelDelta > 0 ? 1 : -1;
       this.selectedIndex = this.nextSelectableIndex(palette, this.selectedIndex, dir);
-      Audio.playSound('menucursor');
+      Audio.playSound('menucursor', 0.22);
     }
 
     if (Input.mousePressed) {
@@ -1087,18 +1116,22 @@ class QuickBuildMenu {
       }
     }
 
+    if (Input.mouse2Pressed) {
+      Input.consumeMouseButton(2);
+      this.touchedThisDrag.clear();
+      this.buildingDragCells.clear();
+      this.dragMode = null;
+      this.lastDragCell = null;
+      const worldPos = camera.screenToWorld(Input.mousePos);
+      const result = state.sellAtGridCell(worldPos, Team.Player);
+      if (result) Audio.playSound('menucursor');
+      return { action: 'none' };
+    }
+
     const selected = palette[this.selectedIndex];
     if (selected?.type === 'building') {
       this.dragMode = null;
       this.touchedThisDrag.clear();
-      if (Input.mouse2Pressed) {
-        Input.consumeMouseButton(2);
-        this.buildingDragCells.clear();
-        const worldPos = camera.screenToWorld(Input.mousePos);
-        const deleting = state.startDeletingBuildingAt(worldPos, Team.Player);
-        if (deleting) Audio.playSound('menucursor');
-        return { action: 'none' };
-      }
       if (!Input.mouseDown) {
         this.buildingDragCells.clear();
         this.lastDragCell = null;
@@ -1132,16 +1165,10 @@ class QuickBuildMenu {
       this.touchedThisDrag.clear();
       this.buildingDragCells.clear();
       this.lastDragCell = null;
-    } else if (Input.mouse2Pressed) {
-      this.dragMode = 'erase';
-      this.touchedThisDrag.clear();
-      this.lastDragCell = null;
     }
 
     if (Input.mouseDown) {
       this.dragMode = 'paint';
-    } else if (Input.mouse2Down) {
-      this.dragMode = 'erase';
     } else {
       this.dragMode = null;
       this.touchedThisDrag.clear();
@@ -1169,16 +1196,6 @@ class QuickBuildMenu {
               state.grid.queueConduit(cell.cx, cell.cy, Team.Player);
             }
           }
-        } else {
-          let removed = false;
-          for (const cell of brush) {
-            if (state.grid.conduitTeam(cell.cx, cell.cy) === Team.Player || state.grid.hasPendingConduit(cell.cx, cell.cy)) {
-              state.grid.removeConduit(cell.cx, cell.cy);
-              removed = true;
-            }
-          }
-          if (removed) state.power.markDirty();
-          Audio.playSound('menucursor');
         }
       }
     }
@@ -1237,6 +1254,13 @@ class QuickBuildMenu {
       if (palette[idx]?.type !== 'header') return idx;
     }
     return start;
+  }
+
+  private firstSelectableIndex(palette: QuickPaletteItem[]): number {
+    for (let i = 0; i < palette.length; i++) {
+      if (palette[i]?.type !== 'header') return i;
+    }
+    return 0;
   }
 
   draw(
