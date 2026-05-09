@@ -194,6 +194,13 @@ export class VsAIDirector {
    */
   private pendingChats: string[] = [];
   /**
+   * Strafe direction toggle timer.  Flips sign every 2 s so the AI
+   * doesn't circle-strafe in a predictable fixed direction.
+   */
+  private strafeDirTimer: number = 0;
+  /** Current strafe direction sign (+1 or -1). */
+  private strafeDirSign: number = 1;
+  /**
    * Optional reference to the base planner for coordination.
    * When set, the director can escort construction sites, defend damaged
    * rings, and harass the player's most valuable asset.
@@ -525,7 +532,7 @@ export class VsAIDirector {
       if (!m.entity.alive || m.entity.team !== Team.Player) continue;
       // Prefer damaged targets — weight distance by inverse health fraction.
       const healthBias = m.entity instanceof PlayerShip
-        ? (1.0 - Math.max(0, (m.entity as PlayerShip).healthFraction)) * 200
+        ? (1.0 - Math.max(0, m.entity.healthFraction)) * 200
         : 0;
       const d = this.ship.position.distanceTo(m.lastSeenPos) - healthBias;
       if (d < bestDist) {
@@ -555,6 +562,13 @@ export class VsAIDirector {
   // -------------------------------------------------------------------
 
   private driveShip(state: GameState, dt: number): void {
+    // Tick the strafe direction timer and flip sign when it expires.
+    this.strafeDirTimer -= dt;
+    if (this.strafeDirTimer <= 0) {
+      this.strafeDirSign *= -1;
+      this.strafeDirTimer = 2.0; // flip direction every 2 s
+    }
+
     if (this.reactionTimer > 0 || !this.goalTarget) {
       // While reaction delay is ticking, coast (no thrust, no aim change).
       this.ship.desiredMove.set(0, 0);
@@ -593,8 +607,7 @@ export class VsAIDirector {
       } else {
         // Strafe perpendicular to maintain a moving target.  Alternate
         // direction every ~2 s so the AI doesn't circle predictably.
-        const strafeSign = Math.floor(state.gameTime / 2) % 2 === 0 ? 1 : -1;
-        const perp = new Vec2(-toTarget.y * strafeSign, toTarget.x * strafeSign);
+        const perp = new Vec2(-toTarget.y * this.strafeDirSign, toTarget.x * this.strafeDirSign);
         this.setMove(perp, 0.7);
       }
       this.ship.wantsFire = dist <= ENGAGE_R + 100;

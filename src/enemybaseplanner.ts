@@ -88,6 +88,8 @@ export interface PlannerSnapshot {
 const MAX_SPOKES = 8;
 const AI_INNER_RING_RADIUS_CELLS = 7;
 const AI_RING_STEP_CELLS = AI_RING_THICKNESS_CONDUITS + AI_RING_SPACING_CONDUITS;
+/** Grid-cell radius within which a player approaching the Command Post triggers a rush alert. */
+const CP_RUSH_DETECTION_CELLS = 12;
 
 /** 4-connected cardinal neighbour offsets for grid-neighbour operations. */
 const CARDINAL_OFFSETS: ReadonlyArray<readonly [number, number]> = [
@@ -391,7 +393,7 @@ export class EnemyBasePlanner {
 
     // Announce if the player is rushing the command post.
     if (state.player.alive
-        && state.player.position.distanceTo(cp.position) < GRID_CELL_SIZE * 12) {
+        && state.player.position.distanceTo(cp.position) < GRID_CELL_SIZE * CP_RUSH_DETECTION_CELLS) {
       this.emitPlannerChat([
         'Intruder detected near command post!',
         'Enemy is attacking our core!',
