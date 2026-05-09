@@ -53,6 +53,7 @@ import {
   generateRingBuildingSlots,
   generateSpokeCells,
   generateBastionLoop,
+  traceLine,
   AI_RING_THICKNESS_CONDUITS,
   AI_RING_SPACING_CONDUITS,
   RingPlan,
@@ -87,6 +88,8 @@ export interface PlannerSnapshot {
 const MAX_SPOKES = 8;
 const AI_INNER_RING_RADIUS_CELLS = 7;
 const AI_RING_STEP_CELLS = AI_RING_THICKNESS_CONDUITS + AI_RING_SPACING_CONDUITS;
+/** Grid-cell radius within which a player approaching the Command Post triggers a rush alert. */
+const CP_RUSH_DETECTION_CELLS = 12;
 
 /** 4-connected cardinal neighbour offsets for grid-neighbour operations. */
 const CARDINAL_OFFSETS: ReadonlyArray<readonly [number, number]> = [
@@ -155,6 +158,20 @@ export class EnemyBasePlanner {
   private tickTimer: number = 0;
   private auditTimer: number = 0;
   private rebuildTimers: number[] = [];
+  /** Accumulates time (seconds) since the last successful ring advancement. */
+  private ringAdvanceStuckTimer: number = 0;
+
+  // -- Chat narration ---------------------------------------------------------
+
+  /**
+   * Pending AI commentary lines for the caller (practicemode.ts) to drain
+   * each tick and forward to hud.showAIChat().
+   */
+  private pendingChats: string[] = [];
+  /** Minimum gap between chat posts from the planner (prevents spam). */
+  private chatCooldown: number = 0;
+  /** Index cycled through per-event phrase lists to add variety. */
+  private chatPhraseIndex: number = 0;
 
   // -- Subsystems -------------------------------------------------------------
 
@@ -181,6 +198,29 @@ export class EnemyBasePlanner {
     this.seed = seed;
     this.doctrineType = pickDoctrine(seed);
     this.doctrine = DOCTRINES[this.doctrineType];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Chat narration
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Drain and return any pending commentary lines since the last call.
+   * Called by PracticeMode.update(); messages are forwarded to HUD.showAIChat().
+   */
+  drainChats(): string[] {
+    if (this.pendingChats.length === 0) return [];
+    const msgs = this.pendingChats.slice();
+    this.pendingChats = [];
+    return msgs;
+  }
+
+  private emitPlannerChat(phrases: string[]): void {
+    if (this.chatCooldown > 0) return;
+    const text = phrases[this.chatPhraseIndex % phrases.length];
+    this.chatPhraseIndex++;
+    this.pendingChats.push(text);
+    this.chatCooldown = 14; // seconds between planner messages
   }
 
   // ---------------------------------------------------------------------------
@@ -254,6 +294,8 @@ export class EnemyBasePlanner {
         ...s,
         queued: false,
         placed: false,
+        connectorCells: [] as Array<{ cx: number; cy: number }>,
+        connectorQueuePtr: -1, // -1 = candidate not yet found
       }));
 
       // Preserve queue pointer from a previous plan if this ring already existed.
@@ -318,6 +360,9 @@ export class EnemyBasePlanner {
   // ---------------------------------------------------------------------------
 
   update(state: GameState, cp: CommandPost, dt: number): void {
+    // Decay chat cooldown.
+    if (this.chatCooldown > 0) this.chatCooldown = Math.max(0, this.chatCooldown - dt);
+
     // 1. Builder lifecycle.
     this.processBuilderRebuilds(state, cp, dt);
     this.assignRepairTargets(state);
@@ -336,6 +381,25 @@ export class EnemyBasePlanner {
       this.tickTimer = this.basePlannerInterval();
       this.maybeAdvanceRing(state);
       this.replanQueue(state);
+    }
+
+    // 5. Narrate notable events.
+    this.updateChatNarration(state);
+  }
+
+  private updateChatNarration(state: GameState): void {
+    const cp = state.getEnemyCommandPost();
+    if (!cp) return;
+
+    // Announce if the player is rushing the command post.
+    if (state.player.alive
+        && state.player.position.distanceTo(cp.position) < GRID_CELL_SIZE * CP_RUSH_DETECTION_CELLS) {
+      this.emitPlannerChat([
+        'Intruder detected near command post!',
+        'Enemy is attacking our core!',
+        'You dare breach our perimeter?!',
+        'All units — defend the command post!',
+      ]);
     }
   }
 
@@ -356,6 +420,12 @@ export class EnemyBasePlanner {
     if (aliveCount < expected - this.adaptive.builderKillsObserved) {
       this.adaptive.builderKillsObserved++;
       this.adaptive.lastBuilderKillTime = state.gameTime;
+      this.emitPlannerChat([
+        'Builder unit lost — dispatching replacement.',
+        'Our worker drone was destroyed!',
+        'Construction interrupted — rebuilding.',
+        "You destroyed our builder. We'll send another.",
+      ]);
     }
 
     // Track Command Post rushes.
@@ -412,6 +482,8 @@ export class EnemyBasePlanner {
         if (Math.abs(slot.cx - cx) <= 1 && Math.abs(slot.cy - cy) <= 1) {
           slot.queued = false;
           slot.placed = false;
+          slot.connectorCells = [];
+          slot.connectorQueuePtr = -1;
         }
       }
     }
@@ -424,24 +496,63 @@ export class EnemyBasePlanner {
   private maybeAdvanceRing(state: GameState): void {
     if (this.currentRing >= this.rings.length - 1) return;
     const ring = this.rings[this.currentRing];
-    const slots = ring.buildingSlots;
-    if (slots.length === 0) { this.currentRing++; return; }
+    const idx = difficultyIndex(this.config.difficulty);
+    const interval = this.basePlannerInterval();
 
-    const queuedOrPlaced = slots.filter((s) => s.queued || s.placed).length;
-    const advanceFrac = 0.85 - 0.10 * difficultyIndex(this.config.difficulty);
-
-    if (queuedOrPlaced / slots.length >= advanceFrac) {
-      const center = cellCenter(this.centerCx, this.centerCy);
-      const worldR  = ring.radiusCells * GRID_CELL_SIZE;
-      state.ringEffects.spawnPowerWave(
-        center,
-        Math.max(40, worldR - GRID_CELL_SIZE),
-        worldR + GRID_CELL_SIZE * 2,
-        1.6,
-        1.0 + 0.15 * difficultyIndex(this.config.difficulty),
-      );
+    // Count conduit cells that are actually placed in the grid.
+    const totalConduit = ring.conduitCells.length;
+    if (totalConduit === 0) {
+      this.ringAdvanceStuckTimer = 0;
       this.currentRing++;
+      return;
     }
+    let placedConduit = 0;
+    for (const cell of ring.conduitCells) {
+      if (state.grid.hasConduit(cell.cx, cell.cy)) placedConduit++;
+    }
+    const conduitFrac = placedConduit / totalConduit;
+
+    // Count building slots that are actually placed.
+    const slots = ring.buildingSlots;
+    const buildingFrac = slots.length > 0
+      ? slots.filter((s) => s.placed).length / slots.length
+      : 1.0;
+
+    // Thresholds scale with difficulty: higher difficulty → more complete ring
+    // required before expanding.  Conduit completion is weighted more heavily
+    // because unpowered rings waste build effort.
+    const reqConduit  = [0.45, 0.55, 0.65, 0.75, 0.85][idx];
+    const reqBuilding = [0.20, 0.30, 0.40, 0.50, 0.60][idx];
+    const ready = conduitFrac >= reqConduit && buildingFrac >= reqBuilding;
+
+    if (!ready) {
+      // Stuck-safety: if the ring is stalling (blocked slots, map edge, etc.)
+      // force-advance after ~90 s so the outer rings still get built.
+      this.ringAdvanceStuckTimer += interval;
+      const STUCK_THRESHOLD = 90;
+      if (this.ringAdvanceStuckTimer < STUCK_THRESHOLD) return;
+    }
+
+    this.ringAdvanceStuckTimer = 0;
+    const center = cellCenter(this.centerCx, this.centerCy);
+    const worldR  = ring.radiusCells * GRID_CELL_SIZE;
+    state.ringEffects.spawnPowerWave(
+      center,
+      Math.max(40, worldR - GRID_CELL_SIZE),
+      worldR + GRID_CELL_SIZE * 2,
+      1.6,
+      1.0 + 0.15 * idx,
+    );
+    const nextRingNum = this.currentRing + 1;
+    this.currentRing++;
+
+    // Announce ring expansion to the player.
+    this.emitPlannerChat([
+      `Ring ${nextRingNum} construction commencing!`,
+      `Expanding base — perimeter ring ${nextRingNum} online.`,
+      `Our base grows. Ring ${nextRingNum} now active.`,
+      `Defensive ring ${nextRingNum} is coming online.`,
+    ]);
   }
 
   // ---------------------------------------------------------------------------
@@ -547,28 +658,145 @@ export class EnemyBasePlanner {
     state: GameState, ring: RingPlan,
   ): BuildOrder | null {
     for (const slot of ring.buildingSlots) {
-      if (slot.queued || slot.placed) continue;
+      if (slot.placed) continue;
+
       const def = getBuildDef(slot.buildingKey);
       if (!def) { slot.queued = true; continue; }
-      const candidate = this.findBestBuildingCell(state, slot.cx, slot.cy, def, ring);
-      if (!candidate) continue;
 
-      // On lower difficulties, skip slots that are inside hostile fire zones.
-      if (difficultyIndex(this.config.difficulty) < 3) {
-        const threat = this.aiScore.threatAt(state, this.team, candidate.cx, candidate.cy);
-        if (threat > 55) continue;
+      // --- Phase A: dispatch pending connector conduits first ---
+      if (slot.connectorQueuePtr >= 0) {
+        while (slot.connectorQueuePtr < slot.connectorCells.length) {
+          const cell = slot.connectorCells[slot.connectorQueuePtr];
+          slot.connectorQueuePtr++;
+          const k = cellKey(cell.cx, cell.cy);
+          if (this.claimedConduitKeys.has(k) || state.grid.hasConduit(cell.cx, cell.cy)) {
+            this.claimedConduitKeys.add(k);
+            continue;
+          }
+          if (!this.canAIPlaceConduit(state, cell.cx, cell.cy)) continue;
+          this.claimedConduitKeys.add(k);
+          this.reserveCells([cell]);
+          return { kind: 'conduit', cx: cell.cx, cy: cell.cy };
+        }
+        // All connectors done; fall through to dispatch the building order.
       }
 
-      slot.cx = candidate.cx;
-      slot.cy = candidate.cy;
+      // --- Phase B: dispatch the building order ---
+      if (slot.queued) continue; // already dispatched
+
+      // If candidate position has not been found yet, find it now.
+      if (slot.connectorQueuePtr < 0) {
+        const candidate = this.findBestBuildingCell(state, slot.cx, slot.cy, def, ring);
+        if (!candidate) continue;
+
+        // On lower difficulties, avoid building in hostile fire zones.
+        if (difficultyIndex(this.config.difficulty) < 3) {
+          const threat = this.aiScore.threatAt(state, this.team, candidate.cx, candidate.cy);
+          if (threat > 55) continue;
+        }
+
+        // Lock candidate and compute connector path.
+        slot.cx = candidate.cx;
+        slot.cy = candidate.cy;
+        this.claimedBuildingKeys.add(cellKey(candidate.cx, candidate.cy));
+        this.reserveBuildingFootprint(def, candidate.cx, candidate.cy);
+        slot.connectorCells = this.computeConnectorPath(state, candidate.cx, candidate.cy, def, ring);
+        slot.connectorQueuePtr = 0;
+
+        // Dispatch first connector if any (subsequent ones come via Phase A).
+        while (slot.connectorQueuePtr < slot.connectorCells.length) {
+          const cell = slot.connectorCells[slot.connectorQueuePtr];
+          slot.connectorQueuePtr++;
+          const k = cellKey(cell.cx, cell.cy);
+          if (this.claimedConduitKeys.has(k) || state.grid.hasConduit(cell.cx, cell.cy)) {
+            this.claimedConduitKeys.add(k);
+            continue;
+          }
+          if (!this.canAIPlaceConduit(state, cell.cx, cell.cy)) continue;
+          this.claimedConduitKeys.add(k);
+          this.reserveCells([cell]);
+          return { kind: 'conduit', cx: cell.cx, cy: cell.cy };
+        }
+        // No connectors needed — fall through to building dispatch immediately.
+      }
+
+      // Validate footprint one more time before dispatching.
+      if (!state.getStructureFootprintStatus(def, slot.cx, slot.cy).valid) continue;
+
       slot.queued = true;
-      this.claimedBuildingKeys.add(cellKey(candidate.cx, candidate.cy));
-      this.reserveBuildingFootprint(def, candidate.cx, candidate.cy);
-      return { kind: 'building', cx: candidate.cx, cy: candidate.cy, def, layConduitFirst: false };
+      return { kind: 'building', cx: slot.cx, cy: slot.cy, def, layConduitFirst: false };
     }
     return null;
   }
 
+  /**
+   * Compute a short 4-connected conduit path from the nearest planned or
+   * active conduit cell to the building footprint's border.
+   *
+   * Returns an empty array if the building is already adjacent to power
+   * (no gap to bridge), or if the nearest conduit is too far away (> 5 cells).
+   * The anchor conduit cell itself is excluded from the result (already
+   * planned/built).  Cells that fall inside the building footprint are also
+   * excluded.
+   */
+  private computeConnectorPath(
+    state: GameState,
+    cx: number, cy: number,
+    def: BuildDef,
+    ring: RingPlan,
+  ): Array<{ cx: number; cy: number }> {
+    const fp = def.footprintCells;
+    const originCx = cx - Math.floor(fp / 2);
+    const originCy = cy - Math.floor(fp / 2);
+
+    // Collect border cells (one cell outside the footprint on every side).
+    const borderCells: Array<{ cx: number; cy: number }> = [];
+    for (let bx = originCx - 1; bx <= originCx + fp; bx++) {
+      borderCells.push({ cx: bx, cy: originCy - 1 });
+      borderCells.push({ cx: bx, cy: originCy + fp });
+    }
+    for (let by = originCy; by < originCy + fp; by++) {
+      borderCells.push({ cx: originCx - 1, cy: by });
+      borderCells.push({ cx: originCx + fp, cy: by });
+    }
+
+    // Find nearest claimed conduit cell to any border cell.
+    let nearestConduit: { cx: number; cy: number } | null = null;
+    let nearestBorder: { cx: number; cy: number } | null = null;
+    let nearestDist = Infinity;
+
+    const searchCells = [...ring.conduitCells, ...this.spokes.flat()];
+    for (const rc of searchCells) {
+      const k = cellKey(rc.cx, rc.cy);
+      if (!this.claimedConduitKeys.has(k) && !state.grid.hasConduit(rc.cx, rc.cy)) continue;
+      for (const bc of borderCells) {
+        const d = Math.abs(rc.cx - bc.cx) + Math.abs(rc.cy - bc.cy);
+        if (d < nearestDist) {
+          nearestDist = d;
+          nearestConduit = rc;
+          nearestBorder = bc;
+        }
+      }
+    }
+
+    // No connector needed if already adjacent or too far to bridge sensibly.
+    if (!nearestConduit || !nearestBorder || nearestDist <= 1 || nearestDist > 5) {
+      return [];
+    }
+
+    // Generate 4-connected path; skip anchor and cells inside footprint.
+    const fullPath = traceLine(
+      nearestConduit.cx, nearestConduit.cy,
+      nearestBorder.cx, nearestBorder.cy,
+    );
+    const result: Array<{ cx: number; cy: number }> = [];
+    for (const cell of fullPath.slice(1)) {
+      if (cell.cx >= originCx && cell.cx < originCx + fp &&
+          cell.cy >= originCy && cell.cy < originCy + fp) break;
+      result.push(cell);
+    }
+    return result;
+  }
   private nextBastionOrder(state: GameState): BuildOrder | null {
     for (const bastion of this.bastions) {
       if (bastion.status === 'abandoned') continue;
@@ -663,7 +891,13 @@ export class EnemyBasePlanner {
   ): { cx: number; cy: number } | null {
     let best: { cx: number; cy: number; score: number } | null = null;
     const angle = Math.atan2(preferredCy - this.centerCy, preferredCx - this.centerCx);
-    const minOffset = Math.ceil(def.footprintCells / 2) + AI_RING_THICKNESS_CONDUITS + 1;
+    // Place buildings just outside the ring conduit band so their inner
+    // footprint border is adjacent to the ring outer edge.  This guarantees
+    // that isNearPlannedPower passes without requiring extra connector cells.
+    //   minOffset = floor(fp/2) + ring_thickness
+    // For fp=3: minOffset=3  → footprint at R+2..R+4, border at R+1 ✓
+    // For fp=4: minOffset=4  → footprint at R+2..R+5, border at R+1 ✓
+    const minOffset = Math.floor(def.footprintCells / 2) + AI_RING_THICKNESS_CONDUITS;
     for (let radial = minOffset; radial <= minOffset + 5; radial++) {
       for (let tangent = -6; tangent <= 6; tangent++) {
         const cx = this.centerCx + Math.round(Math.cos(angle) * (ring.radiusCells + radial) - Math.sin(angle) * tangent);
@@ -853,6 +1087,21 @@ export class EnemyBasePlanner {
           time: state.gameTime,
         });
         state.power.markDirty();
+        // Announce significant buildings.
+        if (result.ent instanceof Shipyard) {
+          this.emitPlannerChat([
+            'Shipyard online — fighters launching soon!',
+            'Ship production facility constructed!',
+            'Our shipyard is operational. Prepare for our fleet.',
+            'Fighter yard complete — reinforcements incoming!',
+          ]);
+        } else if (result.ent instanceof PowerGenerator) {
+          this.emitPlannerChat([
+            'Power generator online — base expanding.',
+            'New power grid sector activated.',
+            'Energy infrastructure complete.',
+          ]);
+        }
         this.markBuildingPlaced(result.cx, result.cy);
       }
     }

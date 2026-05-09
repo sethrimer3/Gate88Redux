@@ -27,7 +27,7 @@ import { Vec2, wrapAngle } from './math.js';
 import { Camera } from './camera.js';
 import { PlayerShip } from './ship.js';
 import { Team, Entity } from './entities.js';
-import { Colors, colorToCSS } from './colors.js';
+import { Colors, Color, colorToCSS } from './colors.js';
 import { Bullet } from './projectile.js';
 import { Audio } from './audio.js';
 import { GameState } from './gamestate.js';
@@ -40,7 +40,13 @@ import type { EnemyBasePlanner } from './enemybaseplanner.js';
 
 const VISION_RADIUS = 900;
 const RETREAT_HEALTH_FRACTION = 0.35;
+/** Health fraction at which the AI rallies back to aggression after retreating. */
+const RALLY_HEALTH_FRACTION = 0.65;
 const PRIMARY_FIRE_COOLDOWN = 0.18;
+
+/** AI chat badge and color for the rival ship in Vs AI mode. */
+export const AI_CHAT_PREFIX = 'RIVAL';
+export const AI_CHAT_COLOR: Color = Colors.alert1;
 
 /**
  * AI-controlled main ship. Lives in the same container as `state.player`
@@ -113,13 +119,53 @@ export class AIShip extends PlayerShip {
 // Vs. AI director
 // ---------------------------------------------------------------------------
 
-type Goal = 'patrol' | 'harass' | 'attack' | 'retreat' | 'defend';
+type Goal = 'patrol' | 'harass' | 'attack' | 'retreat' | 'defend' | 'chase';
 
 interface KnownTarget {
   entity: Entity;
   lastSeenPos: Vec2;
   lastSeenTime: number;
 }
+
+// Varied phrases for each goal — cycled to avoid repetition.
+const GOAL_PHRASES: Record<Goal, string[]> = {
+  patrol:  [
+    'Patrolling the perimeter.',
+    'Scouting the sector.',
+    'Holding position.',
+    'Sweeping the zone.',
+  ],
+  harass:  [
+    "Targeting your power grid!",
+    "Going after your shipyard!",
+    "Disrupting your supply lines.",
+    "Cutting your infrastructure!",
+  ],
+  attack:  [
+    'Moving to attack!',
+    'Engaging your position!',
+    'Pressing the offensive!',
+    'You cannot hide from me.',
+  ],
+  retreat: [
+    'Hull integrity critical — falling back!',
+    'Retreating to repair!',
+    'Taking cover — not done yet.',
+    'Tactical withdrawal in progress.',
+  ],
+  defend:  [
+    'Intercepting threat near base!',
+    'Defending command post!',
+    'You will not breach our perimeter.',
+    'Scrambling to defend!',
+  ],
+  chase:   [
+    "You can't run forever!",
+    'Finishing the fight!',
+    'Pursuing — your ship is almost gone!',
+    "I see you're damaged. Surrender.",
+  ],
+};
 
 export class VsAIDirector {
   readonly config: VsAIConfig;
@@ -130,12 +176,30 @@ export class VsAIDirector {
   private replanTimer: number = 0;
   /** Current high-level goal. */
   goal: Goal = 'patrol';
+  /** Previous goal — used to detect goal changes for chat narration. */
+  private prevGoal: Goal = 'patrol';
   /** Cached current target world position. */
   goalTarget: Vec2 | null = null;
   /** Last-seen player entities. Pruned by age. */
   private memory: Map<number, KnownTarget> = new Map();
   /** Reaction-delay timer so low-difficulty AIs are sluggish. */
   private reactionTimer: number = 0;
+  /** Cycling index used to vary chat phrases within a goal. */
+  private chatPhraseIndex: number = 0;
+  /** Minimum time between chat messages (prevents spam). */
+  private chatCooldown: number = 0;
+  /**
+   * Pending AI chat messages for the caller to drain each tick.
+   * Each entry is a string the game should display to the player.
+   */
+  private pendingChats: string[] = [];
+  /**
+   * Strafe direction toggle timer.  Flips sign every 2 s so the AI
+   * doesn't circle-strafe in a predictable fixed direction.
+   */
+  private strafeDirTimer: number = 0;
+  /** Current strafe direction sign (+1 or -1). */
+  private strafeDirSign: number = 1;
   /**
    * Optional reference to the base planner for coordination.
    * When set, the director can escort construction sites, defend damaged
@@ -146,6 +210,17 @@ export class VsAIDirector {
   constructor(ship: AIShip, config: VsAIConfig) {
     this.ship = ship;
     this.config = config;
+  }
+
+  /**
+   * Drain and return any pending AI chat messages accumulated since the
+   * last call. The caller (game.ts) forwards these to hud.showAIChat().
+   */
+  drainChats(): string[] {
+    if (this.pendingChats.length === 0) return [];
+    const msgs = this.pendingChats.slice();
+    this.pendingChats = [];
+    return msgs;
   }
 
   // -------------------------------------------------------------------
@@ -160,6 +235,9 @@ export class VsAIDirector {
     const tokensPerSec = apm / 60.0;
     this.actionTokens = Math.min(tokensPerSec, this.actionTokens + tokensPerSec * dt);
 
+    // Decay chat cooldown.
+    if (this.chatCooldown > 0) this.chatCooldown = Math.max(0, this.chatCooldown - dt);
+
     // Update vision memory.
     this.refreshVision(state);
 
@@ -172,9 +250,16 @@ export class VsAIDirector {
       }
     }
 
+    // Rally check: if we were retreating and health has recovered, go back on the offensive.
+    if (this.goal === 'retreat' && this.ship.healthFraction >= RALLY_HEALTH_FRACTION) {
+      this.goal = 'attack';
+      this.goalTarget = this.findAttackTarget(state)?.lastSeenPos.clone() ?? null;
+      this.emitChat('attack');
+    }
+
     // Tick the reaction-delay then resolve micro behavior.
     this.reactionTimer = Math.max(0, this.reactionTimer - dt);
-    this.driveShip(state);
+    this.driveShip(state, dt);
   }
 
   private replanInterval(): number {
@@ -189,6 +274,22 @@ export class VsAIDirector {
       return true;
     }
     return false;
+  }
+
+  // -------------------------------------------------------------------
+  // Chat narration
+  // -------------------------------------------------------------------
+
+  private emitChat(goal: Goal): void {
+    // Only chat when the goal has meaningfully changed and the cooldown expired.
+    if (this.chatCooldown > 0) return;
+    const phrases = GOAL_PHRASES[goal];
+    const text = phrases[this.chatPhraseIndex % phrases.length];
+    this.chatPhraseIndex++;
+    this.pendingChats.push(text);
+    // Longer cooldown on Easy (less chatty rival) to match its sluggish personality.
+    const idx = difficultyIndex(this.config.difficulty);
+    this.chatCooldown = [12, 8, 5, 4, 3][idx];
   }
 
   // -------------------------------------------------------------------
@@ -257,12 +358,22 @@ export class VsAIDirector {
   // -------------------------------------------------------------------
 
   private replan(state: GameState): void {
+    this.prevGoal = this.goal;
+
     // Retreat first if low health.
     if (this.ship.healthFraction < RETREAT_HEALTH_FRACTION) {
-      this.goal = 'retreat';
+      this.setGoal('retreat', state);
       const cp = this.findOwnCP(state);
       this.goalTarget = cp ? cp.position.clone() : null;
       this.reactionTimer = this.reactionDelay();
+      return;
+    }
+
+    // Chase when player is very low HP — pursue before they can escape.
+    if (state.player.alive && state.player.healthFraction < 0.25) {
+      this.setGoal('chase', state);
+      this.goalTarget = state.player.position.clone();
+      this.reactionTimer = this.reactionDelay() * 0.5; // faster reaction for chase
       return;
     }
 
@@ -275,7 +386,7 @@ export class VsAIDirector {
     if (this.planner && idx >= 2) {
       const defPoint = this.planner.getHighestPriorityDefensePoint(state);
       if (defPoint) {
-        this.goal = 'defend';
+        this.setGoal('defend', state);
         this.goalTarget = defPoint;
         this.reactionTimer = this.reactionDelay();
         return;
@@ -286,7 +397,7 @@ export class VsAIDirector {
     if (cp) {
       const closestThreat = this.findClosestPlayerEntityNear(cp.position, 600);
       if (closestThreat) {
-        this.goal = 'defend';
+        this.setGoal('defend', state);
         this.goalTarget = closestThreat.position.clone();
         this.reactionTimer = this.reactionDelay();
         return;
@@ -310,7 +421,7 @@ export class VsAIDirector {
         // away raiding, rather than always shadowing construction.
         const raidTarget = this.planner.getActiveRaidTarget();
         if (raidTarget) {
-          this.goal = 'patrol';
+          this.setGoal('patrol', state);
           this.goalTarget = farthest;
           this.reactionTimer = this.reactionDelay();
           return;
@@ -322,7 +433,7 @@ export class VsAIDirector {
     if (this.planner && idx >= 2) {
       const harassPos = this.planner.getSuggestedHarassTarget(state);
       if (harassPos) {
-        this.goal = 'harass';
+        this.setGoal('harass', state);
         this.goalTarget = harassPos;
         this.reactionTimer = this.reactionDelay();
         return;
@@ -335,22 +446,44 @@ export class VsAIDirector {
     const preferHarass = idx >= 2 && harassTarget;
 
     if (preferHarass) {
-      this.goal = 'harass';
+      this.setGoal('harass', state);
       this.goalTarget = harassTarget!.lastSeenPos.clone();
     } else if (attackTarget) {
-      this.goal = 'attack';
+      this.setGoal('attack', state);
       this.goalTarget = attackTarget.lastSeenPos.clone();
     } else {
-      this.goal = 'patrol';
+      this.setGoal('patrol', state);
       const center = cp ? cp.position : this.ship.position;
-      const angle = Math.random() * Math.PI * 2;
-      const radius = 400;
-      this.goalTarget = new Vec2(
-        center.x + Math.cos(angle) * radius,
-        center.y + Math.sin(angle) * radius,
-      );
+      // On Hard+, patrol toward the weakest ring construction site if known.
+      const weakSite = this.planner?.getWeakestRingSegment?.() ?? null;
+      if (weakSite && idx >= 2) {
+        // Patrol between CP and the weakest ring — midpoint keeps the AI
+        // visible without abandoning the base.
+        this.goalTarget = new Vec2(
+          (center.x + weakSite.x) * 0.5,
+          (center.y + weakSite.y) * 0.5,
+        );
+      } else {
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 400;
+        this.goalTarget = new Vec2(
+          center.x + Math.cos(angle) * radius,
+          center.y + Math.sin(angle) * radius,
+        );
+      }
     }
     this.reactionTimer = this.reactionDelay();
+  }
+
+  /**
+   * Set the current goal and emit a chat message when it differs from the
+   * previous one.  Identical consecutive goals are silently collapsed.
+   */
+  private setGoal(goal: Goal, _state: GameState): void {
+    if (this.goal !== goal) {
+      this.goal = goal;
+      this.emitChat(goal);
+    }
   }
 
   private reactionDelay(): number {
@@ -397,7 +530,11 @@ export class VsAIDirector {
     let bestDist = Infinity;
     for (const m of this.memory.values()) {
       if (!m.entity.alive || m.entity.team !== Team.Player) continue;
-      const d = this.ship.position.distanceTo(m.lastSeenPos);
+      // Prefer damaged targets — weight distance by inverse health fraction.
+      const healthBias = m.entity instanceof PlayerShip
+        ? (1.0 - Math.max(0, m.entity.healthFraction)) * 200
+        : 0;
+      const d = this.ship.position.distanceTo(m.lastSeenPos) - healthBias;
       if (d < bestDist) {
         bestDist = d;
         best = m;
@@ -424,7 +561,14 @@ export class VsAIDirector {
   // Ship micro
   // -------------------------------------------------------------------
 
-  private driveShip(state: GameState): void {
+  private driveShip(state: GameState, dt: number): void {
+    // Tick the strafe direction timer and flip sign when it expires.
+    this.strafeDirTimer -= dt;
+    if (this.strafeDirTimer <= 0) {
+      this.strafeDirSign *= -1;
+      this.strafeDirTimer = 2.0; // flip direction every 2 s
+    }
+
     if (this.reactionTimer > 0 || !this.goalTarget) {
       // While reaction delay is ticking, coast (no thrust, no aim change).
       this.ship.desiredMove.set(0, 0);
@@ -449,6 +593,10 @@ export class VsAIDirector {
       // Mosey toward the patrol point at half thrust.
       this.setMove(toTarget, 0.5);
       this.ship.wantsFire = false;
+    } else if (this.goal === 'chase') {
+      // Full-speed pursuit, firing opportunistically.
+      this.setMove(toTarget);
+      this.ship.wantsFire = dist <= 380;
     } else {
       // attack / harass / defend: orbit at engagement range.
       const ENGAGE_R = 280;
@@ -457,8 +605,9 @@ export class VsAIDirector {
       } else if (dist < ENGAGE_R - 80) {
         this.setMove(toTarget.scale(-1)); // back off
       } else {
-        // Strafe perpendicular to keep a moving target.
-        const perp = new Vec2(-toTarget.y, toTarget.x);
+        // Strafe perpendicular to maintain a moving target.  Alternate
+        // direction every ~2 s so the AI doesn't circle predictably.
+        const perp = new Vec2(-toTarget.y * this.strafeDirSign, toTarget.x * this.strafeDirSign);
         this.setMove(perp, 0.7);
       }
       this.ship.wantsFire = dist <= ENGAGE_R + 100;
@@ -476,10 +625,14 @@ export class VsAIDirector {
     }
 
     // Special ability — used sparingly when an obvious cluster of player
-    // assets is in range. Costs an action token.
+    // assets is in range.  On Hard+ the special fires without spending a
+    // token so it isn't bottlenecked by APM; it already has its own
+    // internal cooldown (tryFireSpecial guards this).
     const idx = difficultyIndex(this.config.difficulty);
-    if (idx >= 2 && this.ship.canFireSpecial() && this.spendToken()) {
+    if (idx >= 2 && this.ship.canFireSpecial()) {
       // Aim special at the goal target.
+      tryFireSpecial(state, this.ship, target.clone());
+    } else if (idx < 2 && this.ship.canFireSpecial() && this.spendToken()) {
       tryFireSpecial(state, this.ship, target.clone());
     }
   }

@@ -392,6 +392,9 @@ export class Game {
       // Tick all LAN AI directors (they steer their ships before state.update).
       for (const dir of this.lanAiDirectors) {
         dir.update(this.state, DT);
+        for (const msg of dir.drainChats()) {
+          this.hud.showAIChat('RIVAL', msg, Colors.alert1);
+        }
       }
     }
 
@@ -534,6 +537,10 @@ export class Game {
     // interval; the per-tick driveShip just steers / fires.
     if (this.vsAIDirector) {
       this.vsAIDirector.update(this.state, DT);
+      // Drain rival AI chat and forward to HUD.
+      for (const msg of this.vsAIDirector.drainChats()) {
+        this.hud.showAIChat('RIVAL', msg, Colors.alert1);
+      }
     }
   }
 
@@ -2418,6 +2425,7 @@ export class Game {
 
     // HUD
     this.hud.draw(ctx, w, h);
+    this.hud.drawAIChat(ctx, w, h);
     const synonymousPlayer = isSynonymousFaction(this.state.factionByTeam, Team.Player);
     this.hud.drawResources(
       ctx,

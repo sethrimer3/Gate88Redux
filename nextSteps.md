@@ -2,214 +2,152 @@
 
 ---
 
-## Online Multiplayer — PR 19 Implementation Summary
+## Terran AI Base Construction — PR 20 Implementation Summary
 
-This PR (Build 019) implemented the following phases of the online multiplayer
-plan described in the problem statement.
+This PR (Build 020) addressed the most critical breakage in the Terran enemy AI
+base-construction system.
 
-### What was completed
+### What was fixed
 
-**Phase 1 — Transport abstraction**
-- `src/net/transport.ts`: `MultiplayerTransport` interface + `NET_SNAPSHOT_HZ` / `NET_SNAPSHOT_INTERVAL` constants.
-- `src/lan/lanTransport.ts`: `LanTransport` class implementing the interface by wrapping `LanClient`.
-- Game code can be migrated to use `MultiplayerTransport` in a future pass without changing any transport-level code.
+**1. True 4-connected conduit path generation (`src/aibaseplan.ts`)**
 
-**Phase 2 — Versioned protocol types**
-- `src/net/protocol.ts`: `NetInputSnapshot`, `NetGameSnapshot`, and all sub-types with `protocolVersion`, `seq`, timestamps, `lastProcessedInputSeqBySlot`, and `NetBuildCommand`.
-- `validateInputSnapshot` and `validateGameSnapshot` helpers clamp/reject malformed messages.
+`traceLine()` previously used Bresenham's line algorithm without guarding
+against diagonal steps.  When the algorithm's error term crossed zero in both
+axes in the same iteration, both x *and* y changed, producing a step where
+consecutive cells shared only a corner — not an edge.  Gate88's power graph
+propagates energy only through 4-adjacent (orthogonal) neighbours, so these
+diagonal steps silently broke power flow through every ring and every spoke.
 
-**Phase 3 — Host snapshot production** *(pre-existing, confirmed working)*
-- `broadcastLanSnapshot()` in `src/game.ts` produces snapshots at 20 Hz (`SNAPSHOT_INTERVAL = 1/20`).
+The fix inserts an intermediate orthogonal cell whenever a diagonal step would
+occur: the x-axis step fires first (pushing the intermediate), then the y-axis
+step.  The result is a staircase path that is guaranteed 4-connected.
 
-**Phase 4 — Remote snapshot application with fighter/projectile reconciliation**
-- `applyLanSnapshot()` now reconciles fighters by id:
-  - Updates position/velocity/angle of existing fighters.
-  - Creates lightweight `FighterShip`/`BomberShip` placeholders for new ids.
-  - Destroys fighters absent from the snapshot.
-- Projectile positions are nudged toward host state for visible projectiles.
-  New projectiles are intentionally not created from snapshots (avoids
-  duplicate collision/damage effects on the client).
+A new `assert4Connected(path, label)` helper is exported from `aibaseplan.ts`.
+It logs a console warning on the first violated pair so future regressions are
+immediately visible in debug mode.
 
-**Phase 5 — Client-side prediction soft correction**
-- When a host snapshot includes the local player's slot:
-  - **Large error (>300 px)**: snap immediately to host position.
-  - **Small error (4–300 px)**: accumulate a correction offset blended out
-    over 0.25 s (`LAN_PREDICTION_BLEND_SECS`) without modifying physics,
-    and partially blend velocity (15%) to reduce drift.
-  - Health/battery are always synced from host.
-- Prediction error magnitude is shown in the F3 debug overlay.
+**2. Building placement adjacent to ring conduit (`src/enemybaseplanner.ts`)**
 
-**Phase 6 — Remote input handling on host** *(pre-existing, confirmed working)*
-- `applyRemoteLanInputs()` applies buffered per-slot inputs to remote ships.
-- `sendLanInput()` sends local input every tick as a non-host client.
+`findBestBuildingCell()` used `minOffset = ceil(fp/2) + ringThickness + 1`
+which placed buildings one cell too far from the ring outer edge.  The
+footprint's inner border ended up 2–3 cells from the ring, so the
+`isNearPlannedPower` check consistently failed for buildings between spokes.
 
-**Phase 7 — Online lobby stub**
-- `docs/ONLINE_MULTIPLAYER.md`: full architecture + Supabase SQL schema + WebRTC notes.
-- `.env.example`: `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` placeholders.
-- Menu gracefully says "not configured" when env vars are absent.
+Changed to `minOffset = floor(fp/2) + ringThickness` so buildings are placed
+with their inner footprint border exactly adjacent to the ring outer edge:
 
-**Phase 9 — Menu/HUD integration**
-- "Online Multiplayer" added to the Play menu.
-- New `online_multiplayer` menu state with a `drawOnlineMultiplayer()` screen.
-- Escape key returns to title from the online screen.
-- LAN Multiplayer and all offline modes remain unaffected.
+- fp=3 building: footprint starts at R+2, inner border at R+1 (ring outer edge) ✓
+- fp=4 building: footprint starts at R+2, inner border at R+1 ✓
 
-**Phase 10 — Documentation**
-- `docs/ONLINE_MULTIPLAYER.md` created.
-- `REPOSITORY_GUIDE.md` updated with new files.
-- `nextSteps.md` (this file) updated.
+**3. Connector conduit paths (`src/enemybaseplanner.ts`)**
+
+Added `computeConnectorPath()` which, after a building candidate is locked in,
+searches the ring conduit cells and spoke cells for the nearest planned/active
+conduit cell and generates a 4-connected traceLine path to the building's inner
+border (up to 5 cells max).  The path is stored in `BuildingSlot.connectorCells`
+and dispatched as individual conduit orders before the building order itself.
+
+`BuildingSlot` now carries two new fields: `connectorCells` (the path) and
+`connectorQueuePtr` (current dispatch index; -1 = candidate not yet locked).
+
+`nextBuildingSlotOrder()` is now a two-phase state machine:
+- Phase A: drain pending connector conduit orders for an already-locked slot.
+- Phase B: find candidate, compute connectors, lock slot, dispatch first connector
+  or building if no connectors are needed.
+
+**4. Ring advancement based on real construction progress (`src/enemybaseplanner.ts`)**
+
+`maybeAdvanceRing()` previously advanced rings when enough building slots were
+*queued* (`s.queued || s.placed`), meaning ring 1 could open before a single
+conduit or building in ring 0 was actually constructed.
+
+Changed to count:
+- `placedConduit / totalConduit` — fraction of ring conduit cells actually in
+  the grid (using `state.grid.hasConduit`).
+- `placed / slots.length` — fraction of building slots actually constructed.
+
+Thresholds scale with difficulty (Easy: 45% / 20%, Nightmare: 85% / 60%).  A
+90-second stuck-safety timer forces advancement if a ring is completely blocked
+so the AI never stalls indefinitely on unplaceable slots.
 
 ---
 
 ## What was NOT implemented (remaining work)
 
-### Phase 7 — Full Supabase lobby integration
+### Connector conduit: relay stuck-slot retry
+
+When a building slot fails `getStructureFootprintStatus` at Phase B dispatch
+time (e.g. a player built over the reserved area), `slot.queued` stays false but
+`slot.connectorQueuePtr >= 0`, so it will loop back through Phase A (no-op) and
+then Phase B indefinitely, skipping each time.  A per-slot "skip cooldown" and
+retry counter should be added so the planner eventually gives up on a slot and
+resets it.
+
+### F3 / debug overlay for AI construction
+
+The problem statement requested a debug visualization showing:
+- planned conduit cells, queued conduit cells, active conduits, energized conduits
+- unpowered active conduits
+- planned / blocked building slots
+- active builder targets
+- ring index, ring completion %, connected-to-CP status
+- powered vs total buildings
+
+**File to modify:** `src/game.ts` drawDebugOverlay (or create a new
+`src/aibasedebug.ts`).  The data is available via `EnemyBasePlanner.snapshot()`
+and the new `rings`, `spokes`, `claimedConduitKeys`, and `reservedCells`.
+Expose getters for these or pass the planner reference to the debug renderer.
+
+### Bastion back-spoke connection
+
+`generateBastions()` sets `bastion.spokeBackCells = []` and never populates it.
+Bastions should have a conduit spoke back to the nearest ring so power actually
+reaches them.  Add a `traceLine` from the bastion anchor to the nearest ring
+cell, and queue those cells via a new `nextBastionSpokeOrder()` sub-method.
+
+### Adaptive ring-gap topology
+
+Currently, `gapProbability` randomly omits ring segments.  On Easy difficulty,
+this can accidentally disconnect an entire ring half from all spokes.  A
+post-generation pass should verify each ring arc segment has at least one spoke
+touching it and re-join the segment if not.
+
+### `isNearPlannedPower` semantic split
+
+The function checks `claimedConduitKeys` (queued/planned) alongside actual grid
+conduits and energized cells.  For placement-time decisions this is correct
+(future-looking), but the distinction between "planned" and "actually powered"
+is now more important after the ring-advancement fix.  A future pass could
+rename the function `hasPowerConnector()` and add a separate
+`isActuallyPowered(state, cx, cy)` for diagnostics and more precise validation.
+
+### Player conduit painting vs. AI footprint rejection
+
+`getStructureFootprintStatus` correctly rejects building placements that would
+overlap an enemy conduit.  But when the AI generates connector paths, it does
+not yet reserve those connector cells in `reservedCells` before calling
+`canAIPlaceConduit`.  Two connector orders for adjacent slots could therefore
+race for the same cell.  Fix: call `reserveCells([cell])` for all connector
+cells when locking the slot, not lazily per-dispatch.
+
+---
+
+## Pre-existing Notes (Retained)
+
+### Online Multiplayer — PR 19 Implementation Summary
+
+**Phase 7 — Full Supabase lobby integration**
 
 **Files to create/modify:**
 - `src/online/supabaseLobby.ts` — Supabase client init, lobby CRUD, heartbeat.
 - `src/online/onlineClient.ts` — Online transport adapter implementing `MultiplayerTransport`.
 - `src/menu.ts` — Wire up `drawOnlineMultiplayer` to real lobby list/create/join flows.
 
-**What to do:**
-1. `npm install @supabase/supabase-js`
-2. Initialize client from `import.meta.env.VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`.
-3. Create `lobbies` table (SQL in `docs/ONLINE_MULTIPLAYER.md`).
-4. Host creates lobby row on "Host Online Game"; other players browse or enter room code.
-5. Host sends `updated_at` heartbeat every 15 s; stale lobbies (>60 s) are cleaned up.
-6. Non-host sends `join` message → host confirms → both move to signaling phase.
-
-### Phase 8 — WebRTC DataChannel transport
+**Phase 8 — WebRTC DataChannel transport**
 
 **Files to create:**
 - `src/online/webrtcTransport.ts` — `WebRtcTransport` implementing `MultiplayerTransport`.
 - `src/online/signalingClient.ts` — Supabase-based offer/answer/ICE exchange.
-
-**What to do:**
-
-1. **Signaling** (via Supabase Realtime or a `signals` table):
-   - Host creates an entry in `signals` table with `lobbyId`, `toSlot`, `type: 'offer'`, `sdp`.
-   - Remote clients subscribe to rows addressed to them, send `answer` + ICE candidates back.
-   - ICE candidates are exchanged through the same table.
-
-2. **Peer connections** (star topology):
-   - Host: `new RTCPeerConnection()` per remote client.
-   - Remote: one connection to host.
-   - Use `{ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }` (free STUN).
-   - Document that some symmetric NATs require TURN (paid/self-hosted).
-
-3. **DataChannels**:
-   - `control`: `{ ordered: true }` — lobby messages, match start.
-   - `snapshots`: `{ ordered: false, maxRetransmits: 0 }` — host game snapshots.
-   - `inputs`: `{ ordered: true }` — remote client inputs.
-
-4. **Protocol**:
-   - Use `src/net/protocol.ts` types directly.
-   - Serialise as JSON for the first pass; switch to MessagePack or a custom
-     binary format later if bandwidth becomes a concern.
-
-5. **`WebRtcTransport` adapter**:
-   - Implement `MultiplayerTransport` using the DataChannels.
-   - Host: `sendAuthoritativeSnapshot` → broadcast over `snapshots` channel.
-   - Client: `sendInputSnapshot` → send over `inputs` channel.
-   - Callbacks: wire `onInputSnapshot`, `onAuthoritativeSnapshot`, `onDisconnect`.
-
-6. **Fallback**: if `RTCPeerConnection` is not available or ICE fails, show an
-   error message and suggest LAN mode.
-
-### Full prediction replay / reconciliation (Phase 5 improvement)
-
-The current prediction correction is a soft blend. Full client-side prediction
-would:
-
-1. Store a ring buffer of the last N unacknowledged input snapshots (keyed by `seq`).
-2. When a host snapshot arrives with `lastProcessedInputSeqBySlot[mySlot]`:
-   - Set local ship state to host's authoritative state for our slot.
-   - Reapply all unacknowledged inputs (those with `seq > lastProcessedSeq`).
-3. This eliminates the remaining position error from latency-caused input lag.
-
-**Files to modify:** `src/game.ts` — add `lanUnacknowledgedInputs: NetInputSnapshot[]`
-ring buffer, update `sendLanInput` to enqueue, update `applyLanSnapshot` to replay.
-
-### Building creation from snapshots (Phase 4 improvement)
-
-Currently, remote clients don't create new buildings from snapshots — they only
-sync health/progress of buildings they know about. This means:
-- Buildings placed after match start are invisible on remote clients.
-- To fix: iterate snapshot buildings and create them if their id is unknown,
-  using `buildDefForEntityType` to reconstruct the building type.
-
-**Files to modify:** `src/game.ts` — in `applyLanSnapshot`, check for unknown
-building ids, call `createBuildingFromDef` to place them.
-
-### Remote firing (Phase 6 improvement)
-
-Remote clients currently only have their thrust applied by the host. Their firing
-is not forwarded — the host does not fire weapons on behalf of remote clients.
-
-**Options:**
-1. Forward `firePrimary` / `fireSpecial` in input snapshots → host fires on behalf of remote ship.
-2. Client fires locally (for responsiveness) and host validates/reconciles.
-
-Option 1 is simpler and more host-authoritative. Extend `applyRemoteLanInputs`
-to check `inp.firePrimary` and call the appropriate weapon fire logic for the
-remote ship's slot.
-
-### Disconnect recovery
-
-If the LAN server relay crashes, all clients lose connection. Adding reconnect
-logic with a short backoff would improve robustness.
-
----
-
-## Manual Test Checklist
-
-- [ ] Offline practice mode starts normally.
-- [ ] VS AI mode starts normally.
-- [ ] LAN host lobby: connect to local server, slot 0 auto-assigned.
-- [ ] LAN client lobby: join, receive correct slot, start match.
-- [ ] Host can build and fire; remote client sees entities move.
-- [ ] Remote client can thrust; host sees remote ship move.
-- [ ] Fighter ships appear on remote client from snapshots.
-- [ ] Dead fighters are cleaned up on remote client.
-- [ ] F3 debug overlay shows ping, snapshot seq, prediction error.
-- [ ] Online Multiplayer menu entry opens the stub screen.
-- [ ] Stub screen shows env var instructions when Supabase is not configured.
-- [ ] ESC from online screen returns to title.
-- [ ] Disconnecting host cleanly returns clients to main menu.
-- [ ] TypeScript: `npm run typecheck` passes.
-- [ ] TypeScript server: `npm run typecheck:server` passes.
-
----
-
-## Files Relevant to Next Pass
-
-| File | Relevance |
-|------|-----------|
-| `src/net/transport.ts` | `MultiplayerTransport` interface — entry point for any new transport |
-| `src/net/protocol.ts` | `NetInputSnapshot`, `NetGameSnapshot` — versioned canonical types |
-| `src/lan/lanTransport.ts` | LAN adapter for the transport interface |
-| `src/lan/lanClient.ts` | Raw WebSocket client; used by `LanTransport` |
-| `src/lan/protocol.ts` | LAN WebSocket message types (separate from net/protocol.ts) |
-| `src/game.ts` | `applyLanSnapshot`, `broadcastLanSnapshot`, `applyRemoteLanInputs`, `sendLanInput` |
-| `src/menu.ts` | `drawOnlineMultiplayer`, all LAN lobby draw functions |
-| `server/lanServer.ts` | Node relay — also handles input relay and snapshot relay |
-| `docs/ONLINE_MULTIPLAYER.md` | Architecture, Supabase SQL, WebRTC notes |
-
----
-
-## Recommended Next Prompt
-
-> Gate88Redux Build 019. The online multiplayer transport abstraction and LAN
-> snapshot improvements are done. Now implement Phase 8: WebRTC DataChannel
-> transport. Create `src/online/signalingClient.ts` (Supabase Realtime-based
-> SDP/ICE exchange) and `src/online/webrtcTransport.ts` (implementing
-> `MultiplayerTransport` from `src/net/transport.ts`). Use a star topology
-> (host ↔ each client). Keep existing LAN working. Do not break the build.
-> Document anything unfinished in `nextSteps.md`.
-
----
-
-## Pre-existing Notes (Retained)
 
 ### Confluence follow-up work
 
@@ -232,16 +170,9 @@ logic with a short backoff would improve robustness.
 - Mine balance lives in `src/synonymousMine.ts`: 32 damage, 58 AOE radius, 6 mine HP, 23 initial drift speed, and 175 max chase speed. Mine AOE excludes same-team targets through the existing blast-damage team filter.
 - Manual visual QA should confirm the 20-nanobot spinning circle reads clearly and that both friendly and hostile projectiles can detonate mines.
 
-# Terran AI Construction Follow-up
-
-- Add an F3/debug overlay for AI reserved cells, rejected placement reasons, ring bands, spoke paths, and powered/unpowered ring segments.
-- Add simulation tests for Terran AI placement once a test harness exists: duplicate conduit orders, building footprint overlap, conduit-through-building rejection, and builder death releasing reservations.
-- Playtest doctrine counts after the ring geometry change. Rings now normalize to two conduit cells thick with three conduit cells of gap, so old per-ring building counts may need pacing tweaks.
-- Review player conduit painting separately. Building placement now rejects conduits in footprints, but player conduit painting still uses the existing paint-mode rules.
-
-## Synonymous Fighter Follow-up
+### Synonymous Fighter Follow-up
 
 - LAN snapshot reconciliation still reconstructs remote fighters as generic `FighterShip`/`BomberShip`; extend the network snapshot with faction/unit-variant metadata before relying on Synonymous fighter visuals in multiplayer clients.
 - Nova Bomber sub-drone damage is currently assigned by a conservative adapter in `src/fighter.ts`: incoming damage is applied to one living drone at a time, biased by source angle when available. Future hitbox work could target the nearest visible drone offset directly.
 
----
+
