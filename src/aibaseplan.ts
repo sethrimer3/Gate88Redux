@@ -31,8 +31,16 @@ export function hash01plan(a: number, b: number, seed: number): number {
 }
 
 /**
- * Trace a path of grid cells from (x0,y0) to (x1,y1) using Bresenham's
- * line algorithm. Returns the inclusive sequence of 4-connected cells.
+ * Trace a strictly 4-connected path of grid cells from (x0,y0) to (x1,y1).
+ *
+ * Uses Bresenham's line algorithm but inserts an intermediate orthogonal cell
+ * whenever a step would change both x and y simultaneously (diagonal step).
+ * This guarantees that every consecutive pair of returned cells shares an edge
+ * (Manhattan distance exactly 1), which is required for Gate88 power-graph
+ * propagation where energy only flows through 4-adjacent neighbours.
+ *
+ * Example — (0,0) → (2,1) without fix:  (0,0)→(1,1)→(2,1)  [diagonal!]
+ *           (0,0) → (2,1)   with fix:   (0,0)→(1,0)→(2,0)→(2,1)
  */
 export function traceLine(
   x0: number, y0: number,
@@ -49,10 +57,52 @@ export function traceLine(
     cells.push({ cx: x, cy: y });
     if (x === x1 && y === y1) break;
     const e2 = err * 2;
-    if (e2 > -dy) { err -= dy; x += sx; }
-    if (e2 < dx)  { err += dx; y += sy; }
+    const moveX = e2 > -dy;
+    const moveY = e2 < dx;
+    if (moveX && moveY) {
+      // Diagonal step — insert intermediate horizontal cell first, then step
+      // vertically.  This converts one corner-touching step into two
+      // edge-sharing steps, preserving 4-connectivity.
+      err -= dy;
+      x += sx;
+      cells.push({ cx: x, cy: y }); // intermediate
+      err += dx;
+      y += sy;
+    } else if (moveX) {
+      err -= dy;
+      x += sx;
+    } else {
+      err += dx;
+      y += sy;
+    }
   }
   return cells;
+}
+
+/**
+ * Debug validator: returns true iff every consecutive pair of cells in `path`
+ * has Manhattan distance exactly 1 (strictly 4-connected).
+ *
+ * Logs a warning on the first violation found so callers can identify the
+ * offending cells without silently ignoring the problem.
+ */
+export function assert4Connected(
+  path: ReadonlyArray<{ cx: number; cy: number }>,
+  label = 'path',
+): boolean {
+  for (let i = 1; i < path.length; i++) {
+    const dx = Math.abs(path[i].cx - path[i - 1].cx);
+    const dy = Math.abs(path[i].cy - path[i - 1].cy);
+    if (dx + dy !== 1) {
+      console.warn(
+        `[AI] assert4Connected FAIL in "${label}" at index ${i}: ` +
+        `(${path[i-1].cx},${path[i-1].cy}) → (${path[i].cx},${path[i].cy}) ` +
+        `dist=${dx+dy}`,
+      );
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
@@ -60,7 +110,8 @@ export function traceLine(
  *
  * `numSlots` angular samples are placed around the ring with small
  * deterministic jitter so the ring looks organic. Consecutive slots are
- * connected with Bresenham traces, giving a fully 4-connected loop.
+ * connected with orthogonal (4-connected) traceLine traces, giving a fully
+ * power-propagating loop.
  *
  * `gapProbability` (0..1) controls how many arc segments are left open —
  * higher values create intentional weak points on easier difficulties.
@@ -215,10 +266,21 @@ export interface BuildingSlot {
   cx: number;
   cy: number;
   buildingKey: string;
-  /** True once a build order has been issued for this slot. */
+  /** True once the building build order itself has been dispatched. */
   queued: boolean;
   /** True once the building is confirmed placed (via planner callback). */
   placed: boolean;
+  /**
+   * Short conduit path from the nearest ring/spoke cell to this building's
+   * footprint border.  Dispatched before the building order so the building
+   * is visibly "plugged in" to the base power network.
+   *
+   * Starts as an empty array; populated when the candidate position is first
+   * locked in by the planner.  -1 means the candidate has not yet been found.
+   */
+  connectorCells: Array<{ cx: number; cy: number }>;
+  /** Index of the next connector cell to dispatch as a conduit order. */
+  connectorQueuePtr: number;
 }
 
 export interface RingPlan {
