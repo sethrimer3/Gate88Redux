@@ -138,6 +138,10 @@ export class PracticeMode {
     const cp = state.getEnemyCommandPost();
     if (cp && this.planner) {
       this.planner.update(state, cp, dt);
+      // Drain planner chat narration and forward to HUD.
+      for (const msg of this.planner.drainChats()) {
+        hud.showAIChat('BASE', msg, Colors.alert1);
+      }
     }
 
     // Turrets

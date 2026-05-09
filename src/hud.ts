@@ -24,12 +24,32 @@ const HUD_FONT_SIZE = 30;
 const MESSAGE_LINE_HEIGHT = 34;
 
 // ---------------------------------------------------------------------------
+// AI chat panel — narrates AI thinking in a smaller panel on the right side
+// ---------------------------------------------------------------------------
+
+interface AIChatEntry {
+  prefix: string;
+  text: string;
+  /** Color for the prefix badge (e.g. enemy red or allied cyan). */
+  prefixColor: Color;
+  timeLeft: number;
+  duration: number;
+}
+
+const CHAT_FONT_SIZE = 18;
+const CHAT_LINE_HEIGHT = 22;
+const CHAT_MAX_ENTRIES = 5;
+const CHAT_DEFAULT_DURATION = 8.0;
+const CHAT_FADE_OUT = 1.2;
+
+// ---------------------------------------------------------------------------
 // HUD class
 // ---------------------------------------------------------------------------
 
 export class HUD {
   private messages: HudMessage[] = [];
   private animTime: number = 0;
+  private chatEntries: AIChatEntry[] = [];
 
   /** Queue a new message to display. */
   showMessage(text: string, color: Color = Colors.general_building, duration: number = DEFAULT_DURATION): void {
@@ -39,12 +59,36 @@ export class HUD {
     this.messages.push({ text, color, timeLeft: duration, duration });
   }
 
+  /**
+   * Post an AI commentary line to the chat panel in the lower-right.
+   *
+   * @param prefix  Short badge like "RIVAL" or "BASE" — shown in prefixColor.
+   * @param text    The message body.
+   * @param prefixColor  Color for the badge text.
+   * @param duration  How long the message stays visible (default 8 s).
+   */
+  showAIChat(
+    prefix: string,
+    text: string,
+    prefixColor: Color = Colors.general_building,
+    duration: number = CHAT_DEFAULT_DURATION,
+  ): void {
+    if (this.chatEntries.length >= CHAT_MAX_ENTRIES) {
+      this.chatEntries.shift();
+    }
+    this.chatEntries.push({ prefix, text, prefixColor, timeLeft: duration, duration });
+  }
+
   update(dt: number): void {
     this.animTime += dt;
     for (const msg of this.messages) {
       msg.timeLeft -= dt;
     }
     this.messages = this.messages.filter((m) => m.timeLeft > 0);
+    for (const e of this.chatEntries) {
+      e.timeLeft -= dt;
+    }
+    this.chatEntries = this.chatEntries.filter((e) => e.timeLeft > 0);
   }
 
   draw(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
@@ -73,6 +117,55 @@ export class HUD {
       const y = baseY + i * MESSAGE_LINE_HEIGHT;
       ctx.fillStyle = colorToCSS(msg.color, alpha);
       ctx.fillText(msg.text, screenW * 0.5, y);
+    }
+  }
+
+  /**
+   * Draw the AI chat panel — a small log of AI commentary in the
+   * lower-right of the screen, above the resource counter.
+   *
+   * Each line has a colored prefix badge (e.g. "[RIVAL]") followed by
+   * the message body in a dimmer neutral color.  Lines fade out gradually
+   * as they age.
+   */
+  drawAIChat(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
+    if (this.chatEntries.length === 0) return;
+
+    ctx.font = `${CHAT_FONT_SIZE}px "Poiret One", sans-serif`;
+    ctx.textBaseline = 'bottom';
+    ctx.textAlign = 'right';
+
+    const rightX = screenW - 12;
+    // Start just above the resources line (which is ~44px from bottom for
+    // income text + another ~34px for the resource value).
+    const bottomY = screenH - 90;
+
+    for (let i = this.chatEntries.length - 1; i >= 0; i--) {
+      const entry = this.chatEntries[i];
+      const age = entry.duration - entry.timeLeft;
+      let alpha: number;
+      if (age < 0.25) {
+        alpha = age / 0.25;
+      } else if (entry.timeLeft < CHAT_FADE_OUT) {
+        alpha = entry.timeLeft / CHAT_FADE_OUT;
+      } else {
+        alpha = 1;
+      }
+      // Older lines are dimmer to distinguish from recent ones.
+      const lineIndex = this.chatEntries.length - 1 - i; // 0 = newest
+      const ageDim = Math.max(0.35, 1.0 - lineIndex * 0.12);
+
+      const y = bottomY - lineIndex * CHAT_LINE_HEIGHT;
+
+      // Message body (right-aligned, drawn first so prefix can overdraw)
+      ctx.fillStyle = colorToCSS(Colors.general_building, alpha * ageDim * 0.7);
+      ctx.fillText(entry.text, rightX, y);
+
+      // Measure body width so we can place the prefix to the left of it
+      const bodyW = ctx.measureText(entry.text).width;
+      const prefixStr = `[${entry.prefix}] `;
+      ctx.fillStyle = colorToCSS(entry.prefixColor, alpha * ageDim);
+      ctx.fillText(prefixStr, rightX - bodyW, y);
     }
   }
 

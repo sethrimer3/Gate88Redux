@@ -159,6 +159,18 @@ export class EnemyBasePlanner {
   /** Accumulates time (seconds) since the last successful ring advancement. */
   private ringAdvanceStuckTimer: number = 0;
 
+  // -- Chat narration ---------------------------------------------------------
+
+  /**
+   * Pending AI commentary lines for the caller (practicemode.ts) to drain
+   * each tick and forward to hud.showAIChat().
+   */
+  private pendingChats: string[] = [];
+  /** Minimum gap between chat posts from the planner (prevents spam). */
+  private chatCooldown: number = 0;
+  /** Index cycled through per-event phrase lists to add variety. */
+  private chatPhraseIndex: number = 0;
+
   // -- Subsystems -------------------------------------------------------------
 
   builders: BuilderDrone[] = [];
@@ -184,6 +196,29 @@ export class EnemyBasePlanner {
     this.seed = seed;
     this.doctrineType = pickDoctrine(seed);
     this.doctrine = DOCTRINES[this.doctrineType];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Chat narration
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Drain and return any pending commentary lines since the last call.
+   * Called by PracticeMode.update(); messages are forwarded to HUD.showAIChat().
+   */
+  drainChats(): string[] {
+    if (this.pendingChats.length === 0) return [];
+    const msgs = this.pendingChats.slice();
+    this.pendingChats = [];
+    return msgs;
+  }
+
+  private emitPlannerChat(phrases: string[]): void {
+    if (this.chatCooldown > 0) return;
+    const text = phrases[this.chatPhraseIndex % phrases.length];
+    this.chatPhraseIndex++;
+    this.pendingChats.push(text);
+    this.chatCooldown = 14; // seconds between planner messages
   }
 
   // ---------------------------------------------------------------------------
@@ -323,6 +358,9 @@ export class EnemyBasePlanner {
   // ---------------------------------------------------------------------------
 
   update(state: GameState, cp: CommandPost, dt: number): void {
+    // Decay chat cooldown.
+    if (this.chatCooldown > 0) this.chatCooldown = Math.max(0, this.chatCooldown - dt);
+
     // 1. Builder lifecycle.
     this.processBuilderRebuilds(state, cp, dt);
     this.assignRepairTargets(state);
@@ -341,6 +379,25 @@ export class EnemyBasePlanner {
       this.tickTimer = this.basePlannerInterval();
       this.maybeAdvanceRing(state);
       this.replanQueue(state);
+    }
+
+    // 5. Narrate notable events.
+    this.updateChatNarration(state);
+  }
+
+  private updateChatNarration(state: GameState): void {
+    const cp = state.getEnemyCommandPost();
+    if (!cp) return;
+
+    // Announce if the player is rushing the command post.
+    if (state.player.alive
+        && state.player.position.distanceTo(cp.position) < GRID_CELL_SIZE * 12) {
+      this.emitPlannerChat([
+        'Intruder detected near command post!',
+        'Enemy is attacking our core!',
+        'You dare breach our perimeter?!',
+        'All units — defend the command post!',
+      ]);
     }
   }
 
@@ -361,6 +418,12 @@ export class EnemyBasePlanner {
     if (aliveCount < expected - this.adaptive.builderKillsObserved) {
       this.adaptive.builderKillsObserved++;
       this.adaptive.lastBuilderKillTime = state.gameTime;
+      this.emitPlannerChat([
+        'Builder unit lost — dispatching replacement.',
+        'Our worker drone was destroyed!',
+        'Construction interrupted — rebuilding.',
+        "You destroyed our builder. We'll send another.",
+      ]);
     }
 
     // Track Command Post rushes.
@@ -478,7 +541,16 @@ export class EnemyBasePlanner {
       1.6,
       1.0 + 0.15 * idx,
     );
+    const nextRingNum = this.currentRing + 1;
     this.currentRing++;
+
+    // Announce ring expansion to the player.
+    this.emitPlannerChat([
+      `Ring ${nextRingNum} construction commencing!`,
+      `Expanding base — perimeter ring ${nextRingNum} online.`,
+      `Our base grows. Ring ${nextRingNum} now active.`,
+      `Defensive ring ${nextRingNum} is coming online.`,
+    ]);
   }
 
   // ---------------------------------------------------------------------------
@@ -1013,6 +1085,21 @@ export class EnemyBasePlanner {
           time: state.gameTime,
         });
         state.power.markDirty();
+        // Announce significant buildings.
+        if (result.ent instanceof Shipyard) {
+          this.emitPlannerChat([
+            'Shipyard online — fighters launching soon!',
+            'Ship production facility constructed!',
+            'Our shipyard is operational. Prepare for our fleet.',
+            'Fighter yard complete — reinforcements incoming!',
+          ]);
+        } else if (result.ent instanceof PowerGenerator) {
+          this.emitPlannerChat([
+            'Power generator online — base expanding.',
+            'New power grid sector activated.',
+            'Energy infrastructure complete.',
+          ]);
+        }
         this.markBuildingPlaced(result.cx, result.cy);
       }
     }
