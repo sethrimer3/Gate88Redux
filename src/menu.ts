@@ -1115,10 +1115,18 @@ export class MainMenu {
   // LAN: private helpers
   // -------------------------------------------------------------------
 
-  private openHostLobby(): void {
-    // Create a local LAN client that connects to the local server.
-    this.lanClient = new LanClient('ws://localhost:8787');
+  private async openHostLobby(): Promise<void> {
+    this.setState('lan_host_lobby');
     this._lanLobby = null;
+
+    const helperAvailable = await this.checkLocalLanHelper();
+    if (!helperAvailable) {
+      this.lanClient.disconnect();
+      this.lanClient.lastError = 'LAN helper not running. Start it with "npm run dev:lan" or "npm run lan:server", then retry.';
+      return;
+    }
+
+    this.lanClient = new LanClient('ws://localhost:8787');
 
     this.lanClient.onLobbyUpdate = (lobby) => { this._lanLobby = lobby; };
     this.lanClient.onMatchStart = (msg) => {
@@ -1128,8 +1136,22 @@ export class MainMenu {
     };
     this.lanClient.onDisconnected = () => { this._lanLobby = null; };
     this.lanClient.connect();
+  }
 
-    this.setState('lan_host_lobby');
+  private async checkLocalLanHelper(): Promise<boolean> {
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 750);
+    try {
+      const res = await fetch('http://localhost:8788/lan/self', {
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      return res.ok;
+    } catch {
+      return false;
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
   }
 
   private connectToJoinUrl(): void {
@@ -1203,6 +1225,7 @@ export class MainMenu {
     const statusText = st === 'lobby' ? `Connected — ws://localhost:8787  (your LAN IP:8787 for others)`
       : st === 'connecting' ? 'Connecting to ws://localhost:8787 …'
       : st === 'error' ? `Error: ${this.lanClient.lastError}`
+      : this.lanClient.lastError ? this.lanClient.lastError
       : 'Disconnected';
     ctx.font = gameFont(12);
     ctx.fillStyle = colorToCSS(
@@ -1238,11 +1261,16 @@ export class MainMenu {
       { label: 'Back / Disconnect', action: () => {
         this.lanClient.disconnect();
         this._lanLobby = null;
+        this.lanClient.lastError = '';
         this.setState('lan_type');
       }},
-      { label: 'Start Match', emphasis: allReady, action: () => {
-        this.lanClient.sendStartMatch();
-      }},
+      ...(st === 'lobby'
+        ? [{ label: 'Start Match', emphasis: allReady, action: () => {
+            this.lanClient.sendStartMatch();
+          }}]
+        : [{ label: 'Retry Connect', emphasis: true, action: () => {
+            void this.openHostLobby();
+          }}]),
     ], cx, h - 56);
   }
 
