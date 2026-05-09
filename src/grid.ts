@@ -158,6 +158,10 @@ export class WorldGrid {
     return this.pendingConduits.has(cellKey(cx, cy));
   }
 
+  pendingConduitTeam(cx: number, cy: number): Team | null {
+    return this.pendingConduits.get(cellKey(cx, cy))?.team ?? null;
+  }
+
   pendingConduitCount(): number {
     return this.pendingConduits.size;
   }

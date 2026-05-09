@@ -15,7 +15,7 @@ import { Camera } from './camera.js';
 import { Audio } from './audio.js';
 import { WorldGrid, GRID_CELL_SIZE, cellKey, footprintOrigin, footprintCenter } from './grid.js';
 import { PowerGraph } from './power.js';
-import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN } from './constants.js';
+import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN, CONDUIT_COST } from './constants.js';
 import { WORLD_WIDTH, WORLD_HEIGHT, ENTITY_RADIUS } from './constants.js';
 import { buildCostForBuildingType, buildDefForEntityType, createBuildingFromDef , type BuildDef } from './builddefs.js';
 import { Colors, colorToCSS } from './colors.js';
@@ -1339,15 +1339,20 @@ export class GameState {
   getPlacementStatus(def: BuildDef, cx: number, cy: number, team: Team): { valid: boolean; reason: string } {
     const capStatus = this.getShipyardCapStatus(def, team);
     if (!capStatus.valid) return capStatus;
+    const conduitRefund = this.getReplaceableConduitValue(def, cx, cy, team);
     if (isSynonymousFaction(this.factionByTeam, team)) {
       const cost = SYNONYMOUS_BUILD_COST[def.key] ?? 0;
       if (team === Team.Player && cost > 0 && !this.synonymous.canSpend(team, cost)) {
         return { valid: false, reason: `Need ${cost} ${SYNONYMOUS_CURRENCY_SYMBOL}` };
       }
-    } else if (this.resources < def.cost && team === Team.Player) {
+    } else if (this.resources + conduitRefund < def.cost && team === Team.Player) {
       return { valid: false, reason: 'Not enough resources' };
     }
-    const footprintStatus = this.getStructureFootprintStatus(def, cx, cy);
+    const replaceConduitTeam =
+      !isSynonymousFaction(this.factionByTeam, team) && !isConfluenceFaction(this.factionByTeam, team)
+        ? team
+        : undefined;
+    const footprintStatus = this.getStructureFootprintStatus(def, cx, cy, replaceConduitTeam);
     if (!footprintStatus.valid) return footprintStatus;
     const origin = footprintOrigin(cx, cy, def.footprintCells);
     if (def.key === 'commandpost') return { valid: true, reason: 'OK' };
@@ -1366,6 +1371,35 @@ export class GameState {
     return { valid: false, reason: 'Build near command post, generator, or powered conduit' };
   }
 
+  getReplaceableConduitValue(def: BuildDef, cx: number, cy: number, team: Team): number {
+    if (isSynonymousFaction(this.factionByTeam, team) || isConfluenceFaction(this.factionByTeam, team)) return 0;
+    const origin = footprintOrigin(cx, cy, def.footprintCells);
+    let value = 0;
+    for (let y = origin.cy; y < origin.cy + def.footprintCells; y++) {
+      for (let x = origin.cx; x < origin.cx + def.footprintCells; x++) {
+        if (this.grid.conduitTeam(x, y) === team) value += CONDUIT_COST;
+        if (this.grid.pendingConduitTeam(x, y) === team) value += CONDUIT_COST;
+      }
+    }
+    return value;
+  }
+
+  sellReplaceableConduitsUnderFootprint(def: BuildDef, cx: number, cy: number, team: Team): number {
+    if (isSynonymousFaction(this.factionByTeam, team) || isConfluenceFaction(this.factionByTeam, team)) return 0;
+    const origin = footprintOrigin(cx, cy, def.footprintCells);
+    let refunded = 0;
+    for (let y = origin.cy; y < origin.cy + def.footprintCells; y++) {
+      for (let x = origin.cx; x < origin.cx + def.footprintCells; x++) {
+        if (this.grid.conduitTeam(x, y) === team || this.grid.pendingConduitTeam(x, y) === team) {
+          this.grid.removeConduit(x, y);
+          refunded += CONDUIT_COST;
+        }
+      }
+    }
+    if (refunded > 0) this.power.markDirty();
+    return refunded;
+  }
+
   private getShipyardCapStatus(def: BuildDef, team: Team): { valid: boolean; reason: string } {
     const type = def.key === 'fighteryard' ? EntityType.FighterYard
       : def.key === 'bomberyard' ? EntityType.BomberYard
@@ -1382,7 +1416,12 @@ export class GameState {
     return { valid: true, reason: 'OK' };
   }
 
-  getStructureFootprintStatus(def: BuildDef, cx: number, cy: number): { valid: boolean; reason: string } {
+  getStructureFootprintStatus(
+    def: BuildDef,
+    cx: number,
+    cy: number,
+    replaceConduitTeam?: Team,
+  ): { valid: boolean; reason: string } {
     const origin = footprintOrigin(cx, cy, def.footprintCells);
     const endCx = origin.cx + def.footprintCells - 1;
     const endCy = origin.cy + def.footprintCells - 1;
@@ -1396,7 +1435,12 @@ export class GameState {
     }
     for (let y = origin.cy; y <= endCy; y++) {
       for (let x = origin.cx; x <= endCx; x++) {
-        if (this.grid.hasConduit(x, y) || this.grid.hasPendingConduit(x, y)) {
+        const conduitTeam = this.grid.conduitTeam(x, y);
+        const pendingTeam = this.grid.pendingConduitTeam(x, y);
+        if (
+          (conduitTeam !== null && conduitTeam !== replaceConduitTeam) ||
+          (pendingTeam !== null && pendingTeam !== replaceConduitTeam)
+        ) {
           return { valid: false, reason: 'Cell occupied by conduit' };
         }
       }
