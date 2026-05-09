@@ -26,6 +26,13 @@ const MUSIC_TRACKS = [
 
 export type MusicTrack = typeof MUSIC_TRACKS[number];
 
+const ASSET_BASE_URL = import.meta.env.BASE_URL;
+
+function assetUrl(path: string): string {
+  const base = ASSET_BASE_URL.endsWith('/') ? ASSET_BASE_URL : `${ASSET_BASE_URL}/`;
+  return `${base}${path.replace(/^\/+/, '')}`;
+}
+
 class AudioManager {
   private ctx: AudioContext | null = null;
   private soundBuffers = new Map<string, AudioBuffer>();
@@ -62,7 +69,7 @@ class AudioManager {
     const ctx = this.ensureContext();
     const promises = SOUND_NAMES.map(async (name) => {
       try {
-        const response = await fetch(`/sound/${name}.wav`);
+        const response = await fetch(assetUrl(`sound/${name}.wav`));
         if (!response.ok) return;
         const arrayBuffer = await response.arrayBuffer();
         const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
@@ -97,7 +104,7 @@ class AudioManager {
   /** Play the menu music track. */
   playMenuMusic(): void {
     this.isMenuMusic = true;
-    this.playMusicFile('/music/non-ingame/menu.ogg');
+    this.playMusicFile(assetUrl('music/non-ingame/menu.ogg'));
   }
 
   /** Skip to the next song in the playlist. */
@@ -106,7 +113,7 @@ class AudioManager {
     this.currentTrackIndex =
       (this.currentTrackIndex + 1) % this.musicPlaylist.length;
     const track = this.musicPlaylist[this.currentTrackIndex];
-    this.playMusicFile(`/music/${track}.ogg`);
+    this.playMusicFile(assetUrl(`music/${track}.ogg`));
   }
 
   private playMusicFile(path: string): void {
