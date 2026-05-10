@@ -4,7 +4,7 @@ import { Vec2, wrapAngle } from './math.js';
 import { Camera } from './camera.js';
 import { Input } from './input.js';
 import { Entity, EntityType, Team } from './entities.js';
-import { Colors, colorToCSS } from './colors.js';
+import { Colors, colorToCSS, type Color } from './colors.js';
 import { ENTITY_RADIUS, PLAYER_SHIP_SCALE, SHIP_STATS, PLAYER_SPAWN_INVINCIBILITY_SECS } from './constants.js';
 import { DEFAULT_SPECIAL_ID } from './special.js';
 import type { FactionType } from './confluence.js';
@@ -20,6 +20,8 @@ const SHIELD_REGEN_RATE = 7;
 const SHIELD_REGEN_DELAY = 2.5;
 const PASSIVE_HEALTH_REGEN_DELAY = 5;
 const PASSIVE_HEALTH_REGEN_RATE = 1;
+const TRAIL_LIFETIME = 0.42;
+const TRAIL_MIN_DISTANCE = 3;
 const SHIP_WEAPON_IDS = ['cannon', 'gatling', 'laser', 'guidedmissile', 'synonymousLaser'] as const;
 export type ShipWeaponId = typeof SHIP_WEAPON_IDS[number];
 export const SHIP_WEAPON_OPTIONS: ReadonlyArray<{
@@ -34,6 +36,11 @@ export const SHIP_WEAPON_OPTIONS: ReadonlyArray<{
   { id: 'guidedmissile', label: 'Guided Missile', researchKey: 'weaponGuidedMissile', description: 'Hold fire to steer a heavy explosive missile.' },
   { id: 'synonymousLaser', label: 'Piercing Laser', description: 'Slow Synonymous beam that pierces clustered targets.' },
 ];
+
+interface TrailPoint {
+  pos: Vec2;
+  age: number;
+}
 
 /** Speed multiplier when boosting (Shift held). */
 const BOOST_SPEED_MULT = 1.8;
@@ -82,6 +89,7 @@ export class PlayerShip extends Entity {
   synonymousHealthRegenRate = 0;
   synonymousMuzzleFlash = 0;
   private synonymousRenderer: SynonymousShipRenderer | null = null;
+  private trail: TrailPoint[] = [];
 
   /** Accumulated time used for visual effects like the low-battery flash. */
   drawTime: number = 0;
@@ -176,6 +184,7 @@ export class PlayerShip extends Entity {
 
     // Integrate position
     this.position = this.position.add(this.velocity.scale(dt));
+    this.updateTrail(dt);
 
     // Regenerate battery
     this.battery = Math.min(this.maxBattery, this.battery + this.baseBatteryRegenRate * dt);
@@ -215,6 +224,7 @@ export class PlayerShip extends Entity {
     this.specialFireTimer = 0;
     this.aimWorld = new Vec2(position.x + 100, position.y);
     this.thrustDir = new Vec2(0, 0);
+    this.trail = [{ pos: position.clone(), age: 0 }];
     this.isThrusting = false;
     this.isBoosting = false;
     // Re-apply spawn invincibility on each (re)spawn
@@ -487,10 +497,48 @@ export class PlayerShip extends Entity {
     return this.alive && this.healthRegenDelay <= 0 && this.health > 0 && this.health < this.maxHealth;
   }
 
+  private updateTrail(dt: number): void {
+    for (const point of this.trail) point.age += dt;
+    this.trail = this.trail.filter((point) => point.age <= TRAIL_LIFETIME);
+    const last = this.trail[this.trail.length - 1];
+    if (!last || last.pos.distanceTo(this.position) >= TRAIL_MIN_DISTANCE) {
+      this.trail.push({ pos: this.position.clone(), age: 0 });
+    }
+    if (this.trail.length > 24) this.trail.shift();
+  }
+
+  private drawMotionTrail(ctx: CanvasRenderingContext2D, camera: Camera, color: Color): void {
+    if (this.trail.length < 2) return;
+    const speedCap = this.maxSpeed * (this.isBoosting ? BOOST_SPEED_MULT : 1);
+    const speedFraction = Math.max(0, Math.min(1, this.velocity.length() / Math.max(1, speedCap)));
+    const sizeScale = 0.2 + speedFraction * 0.8;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 7 * sizeScale * camera.zoom;
+    for (let i = 1; i < this.trail.length; i++) {
+      const a = this.trail[i - 1];
+      const b = this.trail[i];
+      const fade = 1 - Math.max(a.age, b.age) / TRAIL_LIFETIME;
+      if (fade <= 0) continue;
+      const from = camera.worldToScreen(a.pos);
+      const to = camera.worldToScreen(b.pos);
+      ctx.strokeStyle = colorToCSS(color, 0.08 + fade * 0.28);
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   // --- Drawing ---
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     if (!this.alive) return;
+    const coreColor = this.team === Team.Player ? Colors.mainguy : Colors.enemy_status;
+    this.drawMotionTrail(ctx, camera, coreColor);
     if (this.faction === 'synonymous') {
       if (!this.synonymousRenderer) this.synonymousRenderer = new SynonymousShipRenderer();
       this.synonymousRenderer.draw(ctx, camera, this, Input.isDown('q'));
@@ -537,7 +585,6 @@ export class PlayerShip extends Entity {
 
     ctx.restore();
 
-    const coreColor = this.team === Team.Player ? Colors.mainguy : Colors.enemy_status;
     const corePulse = 0.5 + 0.5 * Math.sin(this.drawTime * 3.4);
     const coreGlint = 0.5 + 0.5 * Math.sin(this.drawTime * 6.1 + 0.8);
     ctx.save();

@@ -4,7 +4,6 @@
  * Three menus, each opened by holding a key:
  *   Z -> Ship       (ship stats, upgrades, and weapon selection)
  *   X → Research    (all non-researched items from RESEARCH_COST table)
- *   C → Command     (issue tactical orders to Red / Green / Blue fighter groups)
  *
  * Each menu draws a radial of items centred on the player's screen position.
  * The item closest in angle to the mouse cursor is highlighted.
@@ -1450,7 +1449,6 @@ class QuickBuildMenu {
 export class ActionMenu {
   private shipMenu     = new ShipMenu();
   private researchMenu = new LeftHoldMenu('x', buildResearchRoot, '[X] Research');
-  private commandMenu  = new LeftHoldMenu('c', buildCommandRoot,  '[C] Command');
   private paintMenu    = new QuickBuildMenu();
 
   /** True when any of the four hold menus / paint mode is currently open. */
@@ -1476,24 +1474,20 @@ export class ActionMenu {
 
     // Radial menus are mutually exclusive with paint mode.
     let rr: MenuResult = { action: 'none' };
-    let cr: MenuResult = { action: 'none' };
     let shipOpen = false;
     if (!paintOpen) {
       shipOpen = this.shipMenu.update(state);
       rr = this.researchMenu.update(state, camera);
-      cr = this.commandMenu.update(state, camera);
     }
 
     // Intercept build results — enter placement mode instead of placing immediately.
     this.open =
       paintOpen ||
       shipOpen ||
-      this.researchMenu.open ||
-      this.commandMenu.open;
+      this.researchMenu.open;
 
     if (paintResult.action !== 'none') return paintResult;
     if (rr.action !== 'none') return rr;
-    if (cr.action !== 'none') return cr;
     return { action: 'none' };
   }
 
@@ -1506,7 +1500,6 @@ export class ActionMenu {
   ): void {
     this.shipMenu.draw(ctx, state, screenW, screenH);
     this.researchMenu.draw(ctx, state);
-    this.commandMenu.draw(ctx, state);
     this.paintMenu.draw(ctx, state, camera, screenW, screenH);
   }
 

@@ -15,6 +15,7 @@ import { SynonymousDriftMine, SYNONYMOUS_MINE_LAYER_RANGE } from './synonymousMi
 
 export abstract class TurretBase extends BuildingBase {
   targetEntity: Entity | null = null;
+  commandTarget: Entity | null = null;
   fireTimer: number = 0;
   fireRate: number; // ticks between shots
   range: number;
@@ -286,6 +287,18 @@ export class RegenTurret extends TurretBase {
 
   /** Override: targets the nearest damaged friendly unit or building. */
   acquireTarget(entities: Entity[]): void {
+    if (
+      this.commandTarget?.alive &&
+      this.commandTarget.team !== Team.Neutral &&
+      this.commandTarget.team !== this.team &&
+      this.position.distanceTo(this.commandTarget.position) <= this.range
+    ) {
+      this.targetEntity = this.commandTarget;
+      return;
+    }
+    if (this.commandTarget && (!this.commandTarget.alive || this.position.distanceTo(this.commandTarget.position) > this.range)) {
+      this.commandTarget = null;
+    }
     let best: Entity | null = null;
     let bestDist = this.range;
     for (const e of entities) {

@@ -8,7 +8,11 @@
 import type { DifficultyName } from './practiceconfig.js';
 import type { RaceSelection } from './confluence.js';
 
+export const VSAI_RANKED_SCORE_KEY = 'gate88.vsai.rankedHighestScore';
+
 export interface VsAIConfig {
+  ranked: boolean;
+  aiRank: number;
   difficulty: DifficultyName;
   playerRace: RaceSelection;
   aiRace: RaceSelection;
@@ -25,6 +29,8 @@ export interface VsAIConfig {
 }
 
 export const DEFAULT_VSAI_CONFIG: VsAIConfig = {
+  ranked: false,
+  aiRank: 1000,
   difficulty: 'Normal',
   playerRace: 'terran',
   aiRace: 'terran',
@@ -33,6 +39,20 @@ export const DEFAULT_VSAI_CONFIG: VsAIConfig = {
   mapSize: 'medium',
   startingDistance: 2200,
   fogOfWar: false,
+  cheatFullMapKnowledge: false,
+  cheat125xResources: false,
+};
+
+export const RANKED_VSAI_CONFIG: VsAIConfig = {
+  ...DEFAULT_VSAI_CONFIG,
+  ranked: true,
+  aiRank: 1000,
+  difficulty: 'Hard',
+  aiApm: -1,
+  startingResources: 300,
+  mapSize: 'medium',
+  startingDistance: 3000,
+  fogOfWar: true,
   cheatFullMapKnowledge: false,
   cheat125xResources: false,
 };
@@ -49,10 +69,52 @@ export function derivedApm(diff: DifficultyName): number {
 }
 
 export function effectiveApm(cfg: VsAIConfig): number {
+  if (cfg.ranked) return rankedApm(cfg.aiRank);
   return cfg.aiApm >= 0 ? cfg.aiApm : derivedApm(cfg.difficulty);
+}
+
+export function rankedDifficultyName(rank: number): DifficultyName {
+  const t = clampRank(rank) / 3000;
+  if (t < 0.18) return 'Easy';
+  if (t < 0.38) return 'Normal';
+  if (t < 0.62) return 'Hard';
+  if (t < 0.82) return 'Expert';
+  return 'Nightmare';
+}
+
+export function rankedApm(rank: number): number {
+  const t = clampRank(rank) / 3000;
+  return Math.round(18 + 900 * Math.pow(t, 1.7));
+}
+
+export function effectiveDifficultyScalar(cfg: VsAIConfig): number {
+  if (!cfg.ranked) {
+    switch (cfg.difficulty) {
+      case 'Easy': return 0;
+      case 'Normal': return 1;
+      case 'Hard': return 2;
+      case 'Expert': return 3;
+      case 'Nightmare': return 4;
+    }
+  }
+  const t = clampRank(cfg.aiRank) / 3000;
+  return 4 * Math.pow(t, 1.08);
+}
+
+function clampRank(rank: number): number {
+  return Math.max(0, Math.min(3000, rank));
 }
 
 export function cloneDefaultVsAIConfig(): VsAIConfig {
   return { ...DEFAULT_VSAI_CONFIG };
+}
+
+export function cloneRankedVsAIConfig(previous?: VsAIConfig): VsAIConfig {
+  return {
+    ...RANKED_VSAI_CONFIG,
+    aiRank: previous?.aiRank ?? RANKED_VSAI_CONFIG.aiRank,
+    playerRace: previous?.playerRace ?? RANKED_VSAI_CONFIG.playerRace,
+    aiRace: previous?.aiRace ?? RANKED_VSAI_CONFIG.aiRace,
+  };
 }
 

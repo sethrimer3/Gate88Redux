@@ -10,7 +10,7 @@ import { Bullet, Laser, MassDriverBullet, Missile, SynonymousDroneLaser, Synonym
 import { HUD } from './hud.js';
 import { Colors } from './colors.js';
 import { Audio } from './audio.js';
-import { WORLD_WIDTH, WORLD_HEIGHT, WEAPON_STATS } from './constants.js';
+import { BASELINE_RESOURCE_GAIN, RESOURCE_GAIN_RATE, WORLD_WIDTH, WORLD_HEIGHT, WEAPON_STATS } from './constants.js';
 import { EnemyBasePlanner } from './enemybaseplanner.js';
 import {
   PracticeConfig,
@@ -133,13 +133,23 @@ export class PracticeMode {
       else if (extra < 0) state.resources = Math.max(0, state.resources + extra);
     }
 
-    // Enemy "resources" tick (used for future spending and HUD)
-    this.enemyResources += this.enemyIncomeMul * 1.5 * dt;
+    const poweredFactories = state.buildings.filter(
+      (b) => b.alive &&
+        b.team === Team.Enemy &&
+        b.type === EntityType.Factory &&
+        b.powered &&
+        b.buildProgress >= 1,
+    ).length;
+    const difficultyIncomeMul = [0.55, 0.8, 1.0, 1.2, 1.45][difficultyIndex(this.config.difficulty)];
+    this.enemyResources += this.enemyIncomeMul *
+      (BASELINE_RESOURCE_GAIN * difficultyIncomeMul + poweredFactories * RESOURCE_GAIN_RATE) *
+      dt;
 
     // Drive the planner — only when there's still a CP.
     const cp = state.getEnemyCommandPost();
     if (cp && this.planner) {
-      this.planner.update(state, cp, dt);
+      const spent = this.planner.update(state, cp, dt, this.enemyResources);
+      this.enemyResources = Math.max(0, this.enemyResources - spent);
       // Drain planner chat narration and forward to HUD.
       for (const msg of this.planner.drainChats()) {
         hud.showAIChat('BASE', msg, Colors.alert1);

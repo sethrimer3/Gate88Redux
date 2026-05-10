@@ -11,19 +11,19 @@ import { drawEdgeIndicators, drawRadarOverlay } from './radar.js';
 import { ActionMenu, MenuResult } from './actionmenu.js';
 import { HUD } from './hud.js';
 import { MainMenu, MenuAction } from './menu.js';
-import { Colors, colorToCSS } from './colors.js';
+import { Colors, TextColors, colorToCSS } from './colors.js';
 import { Team, EntityType, ShipGroup, Entity } from './entities.js';
 import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS, ACTIVE_RESEARCH_ITEMS, SHIP_STATS, COMMANDPOST_BUILD_RADIUS, POWERGENERATOR_COVERAGE_RADIUS } from './constants.js';
 import { GATLING_OVERDRIVE_DURATION_SECS, GATLING_OVERHEAT_DURATION_SECS, GATLING_OVERDRIVE_FIRE_RATE_DIVISOR } from './constants.js';
 import { LASER_MAX_CHARGE_SECS, LASER_CHARGE_COOLDOWN_SECS, LASER_BURST_BASE_MULTIPLIER, LASER_BURST_ENERGY_SCALING } from './constants.js';
 import { ROCKET_SWARM_COUNT, ROCKET_SWARM_SPREAD_DEGREES, ROCKET_SWARM_ENERGY_COST, ROCKET_SWARM_COOLDOWN_SECS } from './constants.js';
 import { CANNON_HOMING_ENERGY_COST, CANNON_HOMING_COOLDOWN_MULTIPLIER } from './constants.js';
-import { BuildingBase, CommandPost } from './building.js';
+import { BuildingBase, CommandPost, Wall } from './building.js';
 import { Shipyard } from './building.js';
 import { TurretBase } from './turret.js';
 import { FighterShip, BomberShip, SynonymousFighterShip, SynonymousNovaBomberShip } from './fighter.js';
 import { Bullet, GatlingBullet, Laser, SynonymousDroneLaser } from './projectile.js';
-import { GuidedMissile, BomberMissile, HomingBullet, SwarmMissile, ChargedLaserBurst, SynonymousNovaBomb } from './projectile.js';
+import { GuidedMissile, BomberMissile, HomingBullet, SwarmMissile, ChargedLaserBurst, SynonymousNovaBomb, Missile, MassDriverBullet } from './projectile.js';
 import { PracticeMode } from './practicemode.js';
 import { cloneDefaultPracticeConfig } from './practiceconfig.js';
 import { TutorialMode } from './tutorial.js';
@@ -38,10 +38,10 @@ import { createSpaceFluid, SpaceFluid } from './spacefluid.js';
 import type { LanClient } from './lan/lanClient.js';
 import type { MsgMatchStart, MsgRelayedInput, SerializedShip, SerializedBuilding, SerializedFighter, SerializedProjectile, SerializedTerritoryCircle } from './lan/protocol.js';
 import { PlayerShip } from './ship.js';
-import { teamForSlot } from './teamutils.js';
+import { isHostile, isPlayableTeam, teamForSlot } from './teamutils.js';
 import { isConfluenceFaction, isSynonymousFaction, resolveRaceSelection, type FactionType, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_BASE_RADIUS } from './confluence.js';
 import { SYNONYMOUS_BUILD_COST, SYNONYMOUS_CURRENCY_SYMBOL } from './synonymous.js';
-import { cloneDefaultVsAIConfig } from './vsaiconfig.js';
+import { cloneDefaultVsAIConfig, rankedDifficultyName, VSAI_RANKED_SCORE_KEY } from './vsaiconfig.js';
 import { GlowLayer } from './glowlayer.js';
 import { DEFAULT_VISUAL_QUALITY, VISUAL_QUALITY_PRESETS, type VisualQuality, type VisualQualityPreset } from './visualquality.js';
 import { drawConfluenceTerritory, drawDebugOverlay, drawWaypointMarkers, type ShipCommandGroup, type WaypointMarker } from './gameRender.js';
@@ -68,6 +68,7 @@ export class Game {
   private tutorialMode: TutorialMode;
   /** Director for the Vs. AI mode — null in any other mode. */
   private vsAIDirector: VsAIDirector | null = null;
+  private rankedVsAIResultRecorded = false;
 
   private phase: GamePhase = 'menu';
   private lastTimestamp: number = 0;
@@ -76,6 +77,10 @@ export class Game {
   private debugOverlay = false;
   private lastFrameMs = 0;
   private waypointMarkers = new Map<ShipCommandGroup, WaypointMarker>();
+  private commandSelectedFighters: Set<number> = new Set();
+  private commandSelectedTurrets: Set<number> = new Set();
+  private commandDragStart: Vec2 | null = null;
+  private commandDragCurrent: Vec2 | null = null;
   private lastGroupTap: { key: string; count: number; at: number } | null = null;
   private activeGuidedMissile: GuidedMissile | null = null;
   private spaceFluid: SpaceFluid;
@@ -100,6 +105,9 @@ export class Game {
   private playerRespawnTimer: number = 0;
   /** True once the death has been registered so we don't re-trigger. */
   private playerDeathHandled: boolean = false;
+  private playerLoss: boolean = false;
+  private ghostSpectatorPos: Vec2 | null = null;
+  private ghostSpectatorVel: Vec2 = new Vec2(0, 0);
   /** Delay (seconds) before the player ship respawns. */
   private static readonly RESPAWN_DELAY = 3;
 
@@ -378,10 +386,17 @@ export class Game {
       this.debugOverlay = !this.debugOverlay;
     }
 
-    // Action menu is processed FIRST so it can consume arrow keys before the
-    // player ship's handleInput sees them.
-    const menuResult = this.actionMenu.update(this.state, this.camera);
-    this.handleActionResult(menuResult);
+    const commandMode = Input.isDown('c');
+    if (commandMode) {
+      this.updateCommandMode();
+    } else {
+      this.commandDragStart = null;
+      this.commandDragCurrent = null;
+      // Action menu is processed FIRST so it can consume arrow keys before the
+      // player ship's handleInput sees them.
+      const menuResult = this.actionMenu.update(this.state, this.camera);
+      this.handleActionResult(menuResult);
+    }
 
     // Update aim point from current mouse position so the ship's mouse-aim
     // logic in handleInput sees a fresh target this tick.
@@ -390,7 +405,7 @@ export class Game {
       this.state.player.setAimPoint(aimWorld);
     }
 
-    this.updateNumberGroupHotkeys();
+    if (!commandMode) this.updateNumberGroupHotkeys();
     this.updatePlayerFighterOrderTargets();
 
     // LAN host OR online host: apply buffered remote inputs BEFORE the simulation tick so
@@ -426,12 +441,13 @@ export class Game {
 
     // Player respawn logic — trigger on death and revive after a short delay.
     this.updatePlayerRespawn();
+    this.updateGhostSpectator(DT);
 
     // Advance starfield animations (twinkling, shooting stars)
     this.starfield.update(DT);
 
-    // Camera follows player
-    this.camera.update(this.state.player.position, DT);
+    // Camera follows the living ship, or the ghost spectator while dead.
+    this.camera.update(this.ghostSpectatorPos ?? this.state.player.position, DT);
 
     // Emit exhaust particles when the player is thrusting (any WASD key).
     // Exhaust trails opposite the actual thrust direction, which under the new
@@ -521,6 +537,9 @@ export class Game {
     // Player ship fighter spawning from shipyards
     this.updatePlayerShipyards();
     this.updatePlayerFighterCombat();
+    if (this.state.gameMode !== 'practice' && this.state.gameMode !== 'vs_ai') {
+      this.updateLocalPlayerTurrets();
+    }
 
     // Inject fluid forces from all active entities.
     this.spaceFluid.setView(this.camera.position.x, this.camera.position.y, this.camera.zoom);
@@ -532,6 +551,7 @@ export class Game {
     // Mode-specific logic
     if (this.state.gameMode === 'practice' || this.state.gameMode === 'vs_ai') {
       this.practiceMode.update(this.state, this.hud, DT);
+      this.recordRankedVsAIResultIfNeeded();
     } else if (this.state.gameMode === 'tutorial') {
       this.tutorialMode.update(this.state, this.hud, DT);
     } else if (this.state.gameMode === 'lan_host' || this.state.gameMode === 'online_host') {
@@ -578,6 +598,26 @@ export class Game {
     }
   }
 
+  private recordRankedVsAIResultIfNeeded(): void {
+    if (this.state.gameMode !== 'vs_ai' || this.rankedVsAIResultRecorded) return;
+    const cfg = this.mainMenu.vsAIConfig;
+    if (!cfg.ranked || !this.practiceMode.gameOver) return;
+    this.rankedVsAIResultRecorded = true;
+    if (!this.practiceMode.victory) return;
+
+    const score = Math.max(0, Math.min(3000, Math.round(cfg.aiRank)));
+    let previous = 0;
+    try {
+      previous = Number.parseInt(window.localStorage?.getItem(VSAI_RANKED_SCORE_KEY) ?? '0', 10) || 0;
+      if (score > previous) window.localStorage?.setItem(VSAI_RANKED_SCORE_KEY, `${score}`);
+    } catch {
+      previous = 0;
+    }
+    if (score > previous) {
+      this.hud.showMessage(`New ranked high score: ${score}`, Colors.alert2, 8);
+    }
+  }
+
   /**
    * Detect player death, show a respawn countdown, then revive the ship near
    * the command post. Deducts resources proportional to how many buildings
@@ -585,9 +625,30 @@ export class Game {
    * it costs to die) — clamped to zero so you can never go negative.
    */
   private updatePlayerRespawn(): void {
+    if (!this.localTeamHasRespawnCommandPost()) {
+      this.playerLoss = true;
+    }
+
     if (this.state.player.alive) {
       // Reset tracking whenever the player is alive.
       this.playerDeathHandled = false;
+      this.playerRespawnTimer = 0;
+      this.ghostSpectatorPos = null;
+      this.ghostSpectatorVel = new Vec2(0, 0);
+      return;
+    }
+
+    if (!this.ghostSpectatorPos) {
+      this.ghostSpectatorPos = this.state.player.position.clone();
+      this.ghostSpectatorVel = new Vec2(0, 0);
+    }
+
+    const respawnCp = this.findRespawnCommandPost();
+    if (!respawnCp) {
+      if (!this.playerLoss) {
+        this.hud.showMessage('Loss. No Command Post remains.', Colors.alert1, 10);
+      }
+      this.playerLoss = true;
       this.playerRespawnTimer = 0;
       return;
     }
@@ -610,14 +671,62 @@ export class Game {
     // Count down and respawn when the timer expires.
     this.playerRespawnTimer -= DT;
     if (this.playerRespawnTimer <= 0) {
-      const cp = this.state.getPlayerCommandPost();
-      const spawnPos = cp
-        ? new Vec2(cp.position.x, cp.position.y - 60)
-        : new Vec2(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
+      const spawnPos = new Vec2(respawnCp.position.x, respawnCp.position.y - 60);
 
       this.state.player.revive(spawnPos);
+      this.playerLoss = false;
+      this.ghostSpectatorPos = null;
+      this.ghostSpectatorVel = new Vec2(0, 0);
       this.hud.showMessage('Respawned!', Colors.friendly_status, 2);
     }
+  }
+
+  private localPlayerTeam(): Team {
+    if (this.state.gameMode === 'lan_host' ||
+        this.state.gameMode === 'lan_client' ||
+        this.state.gameMode === 'online_host' ||
+        this.state.gameMode === 'online_client') {
+      return teamForSlot(this.lanMySlot);
+    }
+    return Team.Player;
+  }
+
+  private localTeamHasRespawnCommandPost(): boolean {
+    return this.findRespawnCommandPost() !== null;
+  }
+
+  private findRespawnCommandPost(): CommandPost | null {
+    const localTeam = this.localPlayerTeam();
+    const own = this.state.getCommandPostForTeam(localTeam);
+    if (own) return own;
+
+    for (const b of this.state.buildings) {
+      if (!b.alive || b.type !== EntityType.CommandPost || !(b instanceof CommandPost)) continue;
+      if (!isPlayableTeam(b.team)) continue;
+      if (!isHostile(localTeam, b.team)) return b;
+    }
+    return null;
+  }
+
+  private updateGhostSpectator(dt: number): void {
+    if (this.state.player.alive || !this.ghostSpectatorPos) return;
+
+    let dx = 0;
+    let dy = 0;
+    if (Input.isDown('w')) dy -= 1;
+    if (Input.isDown('s')) dy += 1;
+    if (Input.isDown('a')) dx -= 1;
+    if (Input.isDown('d')) dx += 1;
+
+    if (dx !== 0 || dy !== 0) {
+      const len = Math.hypot(dx, dy);
+      const speed = Input.isDown('Shift') ? 1200 : 720;
+      this.ghostSpectatorVel = this.ghostSpectatorVel.add(new Vec2((dx / len) * speed * dt, (dy / len) * speed * dt));
+    }
+    this.ghostSpectatorVel = this.ghostSpectatorVel.scale(1 / (1 + 5 * dt));
+    this.ghostSpectatorPos = this.ghostSpectatorPos.add(this.ghostSpectatorVel.scale(dt));
+    this.ghostSpectatorPos.x = Math.max(0, Math.min(WORLD_WIDTH, this.ghostSpectatorPos.x));
+    this.ghostSpectatorPos.y = Math.max(0, Math.min(WORLD_HEIGHT, this.ghostSpectatorPos.y));
   }
 
   private countShipResearchUpgrades(): number {
@@ -628,11 +737,120 @@ export class Game {
     return count;
   }
 
+  private updateCommandMode(): void {
+    if (Input.mousePressed) {
+      this.commandDragStart = Input.mousePos.clone();
+      this.commandDragCurrent = Input.mousePos.clone();
+      Input.consumeMouseButton(0);
+    }
+    if (this.commandDragStart && Input.mouseDown) {
+      this.commandDragCurrent = Input.mousePos.clone();
+    }
+    if (this.commandDragStart && Input.mouseReleased) {
+      this.commandDragCurrent = Input.mousePos.clone();
+      this.selectCommandUnits();
+      this.commandDragStart = null;
+      this.commandDragCurrent = null;
+      Input.consumeMouseButton(0);
+    }
+    if (Input.mouse2Pressed) {
+      this.issueCommandModeOrder();
+      Input.consumeMouseButton(2);
+    }
+  }
+
+  private selectCommandUnits(): void {
+    const a = this.commandDragStart;
+    const b = this.commandDragCurrent ?? this.commandDragStart;
+    if (!a || !b) return;
+    this.commandSelectedFighters.clear();
+    this.commandSelectedTurrets.clear();
+
+    const minX = Math.min(a.x, b.x);
+    const maxX = Math.max(a.x, b.x);
+    const minY = Math.min(a.y, b.y);
+    const maxY = Math.max(a.y, b.y);
+    const clickSelect = Math.abs(maxX - minX) < 8 && Math.abs(maxY - minY) < 8;
+    const localTeam = this.localPlayerTeam();
+
+    if (clickSelect) {
+      const world = this.camera.screenToWorld(b);
+      let best: FighterShip | TurretBase | null = null;
+      let bestDist = 90;
+      for (const f of this.state.fighters) {
+        if (!f.alive || f.docked || f.team !== localTeam) continue;
+        const d = f.position.distanceTo(world);
+        if (d < bestDist) { best = f; bestDist = d; }
+      }
+      for (const t of this.state.buildings) {
+        if (!t.alive || t.team !== localTeam || !(t instanceof TurretBase)) continue;
+        const d = t.position.distanceTo(world);
+        if (d < bestDist) { best = t; bestDist = d; }
+      }
+      if (best instanceof FighterShip) this.commandSelectedFighters.add(best.id);
+      else if (best instanceof TurretBase) this.commandSelectedTurrets.add(best.id);
+      return;
+    }
+
+    for (const f of this.state.fighters) {
+      if (!f.alive || f.docked || f.team !== localTeam) continue;
+      const p = this.camera.worldToScreen(f.position);
+      if (p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) this.commandSelectedFighters.add(f.id);
+    }
+    for (const t of this.state.buildings) {
+      if (!t.alive || t.team !== localTeam || !(t instanceof TurretBase)) continue;
+      const p = this.camera.worldToScreen(t.position);
+      if (p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) this.commandSelectedTurrets.add(t.id);
+    }
+  }
+
+  private issueCommandModeOrder(): void {
+    const targetPos = this.camera.screenToWorld(Input.mousePos);
+    const localTeam = this.localPlayerTeam();
+    const enemy = this.findCommandEnemyAt(targetPos, localTeam);
+
+    for (const f of this.state.fighters) {
+      if (!this.commandSelectedFighters.has(f.id) || !f.alive || f.team !== localTeam) continue;
+      f.order = 'waypoint';
+      f.targetPos = targetPos.clone();
+      if (f.docked) f.launch();
+    }
+    if (this.commandSelectedFighters.size > 0) {
+      this.waypointMarkers.set('all', { pos: targetPos.clone(), issuedAt: this.state.gameTime });
+    }
+
+    for (const b of this.state.buildings) {
+      if (!this.commandSelectedTurrets.has(b.id) || !b.alive || b.team !== localTeam || !(b instanceof TurretBase)) continue;
+      b.commandTarget = enemy;
+      if (enemy) b.targetEntity = enemy;
+    }
+
+    if (enemy && this.commandSelectedTurrets.size > 0) {
+      this.hud.showMessage(`Focus fire: ${this.commandSelectedTurrets.size} tower${this.commandSelectedTurrets.size === 1 ? '' : 's'}`, Colors.alert2, 1.5);
+    } else if (this.commandSelectedFighters.size > 0) {
+      this.hud.showMessage(`Move order: ${this.commandSelectedFighters.size} ship${this.commandSelectedFighters.size === 1 ? '' : 's'}`, Colors.general_building, 1.5);
+    }
+  }
+
+  private findCommandEnemyAt(pos: Vec2, localTeam: Team): Entity | null {
+    let best: Entity | null = null;
+    let bestDist = 140;
+    for (const e of this.state.allEntities()) {
+      if (!e.alive || !isHostile(localTeam, e.team)) continue;
+      const d = e.position.distanceTo(pos);
+      if (d <= e.radius + bestDist && d < bestDist) {
+        best = e;
+        bestDist = d;
+      }
+    }
+    return best;
+  }
+
   private updatePlayerFiring(): void {
     if (!this.state.player.alive) return;
     const player = this.state.player;
 
-    if (this.actionMenu.open || this.actionMenu.placementMode) {
+    if (Input.isDown('c') || this.actionMenu.open || this.actionMenu.placementMode) {
       // Cancel laser charge if the player opened the menu while charging
       if (player.isLaserCharging && !Input.mouse2Down) {
         player.isLaserCharging = false;
@@ -969,7 +1187,7 @@ export class Game {
       this.activeGuidedMissile = null;
       return;
     }
-    if (!Input.mouseDown || this.actionMenu.open || this.actionMenu.placementMode) {
+    if (!Input.mouseDown || Input.isDown('c') || this.actionMenu.open || this.actionMenu.placementMode) {
       missile.release();
       this.activeGuidedMissile = null;
       return;
@@ -1377,6 +1595,36 @@ export class Game {
     }
   }
 
+  private updateLocalPlayerTurrets(): void {
+    const localTeam = this.localPlayerTeam();
+    const allEntities = this.state.allEntities();
+    for (const b of this.state.buildings) {
+      if (!b.alive || b.team !== localTeam || !(b instanceof TurretBase)) continue;
+      if (b.buildProgress < 1) continue;
+      b.acquireTarget(allEntities);
+      if (!b.canFire()) continue;
+      const target = b.targetEntity;
+      if (!target) continue;
+      b.consumeShot();
+      const playerDist = this.state.player.position.distanceTo(b.position);
+      if (b.type === EntityType.RegenTurret) {
+        target.takeDamage(-10, b);
+        this.state.particles.emitHealing(target.position);
+        b.showBeam(target.position);
+        Audio.playSoundAt('regenbullet', playerDist);
+      } else if (b.type === EntityType.MissileTurret) {
+        this.state.addEntity(new Missile(b.team, b.position.clone(), b.turretAngle, b, target));
+        Audio.playSoundAt('missile', playerDist);
+      } else if (b.type === EntityType.MassDriverTurret) {
+        this.state.addEntity(new MassDriverBullet(b.team, b.position.clone(), b.turretAngle, b));
+        Audio.playSoundAt('massdriverbullet', playerDist);
+      } else {
+        this.state.addEntity(new Bullet(b.team, b.position.clone(), b.turretAngle, b));
+        Audio.playSoundAt(b.type === EntityType.ExciterTurret ? 'exciterbullet' : 'fire', playerDist);
+      }
+    }
+  }
+
   private findNearestEnemyNear(pos: Vec2, range: number): { position: Vec2 } | null {
     let best: { position: Vec2 } | null = null;
     let bestDist = range;
@@ -1488,10 +1736,14 @@ export class Game {
     this.applyVisualQuality(this.visualQuality);
     // Reset any director from a previous match.
     this.vsAIDirector = null;
+    this.rankedVsAIResultRecorded = false;
 
     // Reset respawn tracking.
     this.playerDeathHandled = false;
     this.playerRespawnTimer = 0;
+    this.playerLoss = false;
+    this.ghostSpectatorPos = null;
+    this.ghostSpectatorVel = new Vec2(0, 0);
     this.activeGuidedMissile = null;
     this.damageFlashTimer = 0;
     this.playerPrevHealth = -1;
@@ -1565,10 +1817,21 @@ export class Game {
       // spawn an opposing AIShip + VsAIDirector that acts as a true
       // bot player (independent ship, harassment, retreat, APM).
       const vcfg = this.mainMenu.vsAIConfig;
+      if (vcfg.ranked) {
+        vcfg.difficulty = rankedDifficultyName(vcfg.aiRank);
+        vcfg.aiApm = -1;
+        vcfg.startingResources = 300;
+        vcfg.mapSize = 'medium';
+        vcfg.startingDistance = 3000;
+        vcfg.fogOfWar = true;
+        vcfg.cheatFullMapKnowledge = false;
+        vcfg.cheat125xResources = false;
+      }
       const pcfg = cloneDefaultPracticeConfig();
       pcfg.difficulty = vcfg.difficulty;
       pcfg.enemyIncomeMul = vcfg.cheat125xResources ? 1.25 : 1.0;
       pcfg.fogOfWar = vcfg.fogOfWar;
+      pcfg.mapSize = vcfg.mapSize;
       pcfg.startingDistance = vcfg.startingDistance;
       pcfg.playerStartingResources = vcfg.startingResources;
       pcfg.enemyStartingResources = vcfg.startingResources;
@@ -1589,7 +1852,7 @@ export class Game {
       this.vsAIDirector.planner = this.practiceMode.getPlanner();
 
       this.hud.showMessage(
-        `Vs. AI started — ${vcfg.difficulty}` +
+        (vcfg.ranked ? `Ranked Vs. AI started - rank ${vcfg.aiRank}` : `Vs. AI started - ${vcfg.difficulty}`) +
           (vcfg.cheatFullMapKnowledge ? ' [+full map]' : '') +
           (vcfg.cheat125xResources ? ' [+1.25x res]' : ''),
         Colors.alert2, 4,
@@ -1669,6 +1932,9 @@ export class Game {
     this.vsAIDirector = null;
     this.playerDeathHandled = false;
     this.playerRespawnTimer = 0;
+    this.playerLoss = false;
+    this.ghostSpectatorPos = null;
+    this.ghostSpectatorVel = new Vec2(0, 0);
     this.activeGuidedMissile = null;
     this.damageFlashTimer = 0;
     this.playerPrevHealth = -1;
@@ -1850,6 +2116,9 @@ export class Game {
     this.vsAIDirector = null;
     this.playerDeathHandled = false;
     this.playerRespawnTimer = 0;
+    this.playerLoss = false;
+    this.ghostSpectatorPos = null;
+    this.ghostSpectatorVel = new Vec2(0, 0);
     this.activeGuidedMissile = null;
     this.damageFlashTimer = 0;
     this.playerPrevHealth = -1;
@@ -2508,7 +2777,10 @@ export class Game {
       this.visualPreset.conduitShimmer,
     );
     this.state.drawEntities(ctx, this.camera);
+    this.drawMergedWallOutlines(ctx);
+    this.drawGhostSpectator(ctx);
     drawWaypointMarkers(ctx, this.camera, this.state, this.waypointMarkers);
+    this.drawCommandModeOverlay(ctx, w, h);
     this.drawGlowLayer();
     this.glowLayer.compositeTo(ctx);
 
@@ -2521,6 +2793,7 @@ export class Game {
     }
 
     this.drawScreenOverlays(ctx, w, h);
+    this.drawLossOverlay(ctx, w);
 
     // Action menu
     this.actionMenu.draw(ctx, this.state, this.camera, w, h);
@@ -2562,7 +2835,8 @@ export class Game {
           if (b.buildProgress < 1) continue;
           if (
             b.type === EntityType.CommandPost ||
-            b.type === EntityType.PowerGenerator
+            b.type === EntityType.PowerGenerator ||
+            b.type === EntityType.Wall
           ) continue;
           if (!b.powered) unpowered++;
         }
@@ -2609,19 +2883,163 @@ export class Game {
     );
   }
 
+  private drawGhostSpectator(ctx: CanvasRenderingContext2D): void {
+    if (this.state.player.alive || !this.ghostSpectatorPos) return;
+    const screen = this.camera.worldToScreen(this.ghostSpectatorPos);
+    const pulse = 0.55 + 0.25 * Math.sin(this.state.gameTime * 5);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.35 + pulse * 0.35);
+    ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.08 + pulse * 0.08);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, 18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = colorToCSS(TextColors.normal, 0.55);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(screen.x - 24, screen.y);
+    ctx.lineTo(screen.x - 8, screen.y);
+    ctx.moveTo(screen.x + 8, screen.y);
+    ctx.lineTo(screen.x + 24, screen.y);
+    ctx.moveTo(screen.x, screen.y - 24);
+    ctx.lineTo(screen.x, screen.y - 8);
+    ctx.moveTo(screen.x, screen.y + 8);
+    ctx.lineTo(screen.x, screen.y + 24);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private drawLossOverlay(ctx: CanvasRenderingContext2D, w: number): void {
+    if (!this.playerLoss) return;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.font = 'bold 42px "Poiret One", sans-serif';
+    ctx.shadowColor = colorToCSS(Colors.alert1, 0.8);
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = colorToCSS(Colors.alert1, 0.95);
+    ctx.fillText('Loss.', w * 0.5, 18);
+    ctx.restore();
+  }
+
+  private drawMergedWallOutlines(ctx: CanvasRenderingContext2D): void {
+    const walls = this.state.buildings.filter((b): b is Wall =>
+      b.alive && b.buildProgress >= 1 && b instanceof Wall,
+    );
+    if (walls.length === 0) return;
+
+    const cells = new Set<string>();
+    const entries: Array<{ x: number; y: number; team: Team; shielded: boolean }> = [];
+    for (const wall of walls) {
+      const size = footprintForBuildingType(wall.type);
+      const cx = Math.floor(wall.position.x / GRID_CELL_SIZE);
+      const cy = Math.floor(wall.position.y / GRID_CELL_SIZE);
+      const originX = cx - Math.floor(size / 2);
+      const originY = cy - Math.floor(size / 2);
+      for (let y = originY; y < originY + size; y++) {
+        for (let x = originX; x < originX + size; x++) {
+          cells.add(`${wall.team}:${x},${y}`);
+          entries.push({ x, y, team: wall.team, shielded: wall.maxShield > 0 });
+        }
+      }
+    }
+
+    const pulse = 0.6 + 0.4 * Math.sin(this.state.gameTime * 5);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'square';
+    for (const e of entries) {
+      const wx = e.x * GRID_CELL_SIZE;
+      const wy = e.y * GRID_CELL_SIZE;
+      const p1 = this.camera.worldToScreen(new Vec2(wx, wy));
+      const p2 = this.camera.worldToScreen(new Vec2(wx + GRID_CELL_SIZE, wy + GRID_CELL_SIZE));
+      const left = p1.x, top = p1.y, right = p2.x, bottom = p2.y;
+      const color = e.shielded ? Colors.radar_friendly_status : Colors.powergenerator_detail;
+      ctx.strokeStyle = colorToCSS(e.team === Team.Enemy ? Colors.enemyfire : color, 0.58 + pulse * 0.22);
+      ctx.beginPath();
+      if (!cells.has(`${e.team}:${e.x},${e.y - 1}`)) { ctx.moveTo(left, top); ctx.lineTo(right, top); }
+      if (!cells.has(`${e.team}:${e.x + 1},${e.y}`)) { ctx.moveTo(right, top); ctx.lineTo(right, bottom); }
+      if (!cells.has(`${e.team}:${e.x},${e.y + 1}`)) { ctx.moveTo(right, bottom); ctx.lineTo(left, bottom); }
+      if (!cells.has(`${e.team}:${e.x - 1},${e.y}`)) { ctx.moveTo(left, bottom); ctx.lineTo(left, top); }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  private drawCommandModeOverlay(ctx: CanvasRenderingContext2D, w: number, _h: number): void {
+    const active = Input.isDown('c');
+    if (!active && this.commandSelectedFighters.size === 0 && this.commandSelectedTurrets.size === 0) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const f of this.state.fighters) {
+      if (!this.commandSelectedFighters.has(f.id) || !f.alive) continue;
+      const p = this.camera.worldToScreen(f.position);
+      ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, active ? 0.9 : 0.45);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(9, f.radius * this.camera.zoom * 1.55), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    for (const b of this.state.buildings) {
+      if (!this.commandSelectedTurrets.has(b.id) || !b.alive || !(b instanceof TurretBase)) continue;
+      const p = this.camera.worldToScreen(b.position);
+      const s = footprintForBuildingType(b.type) * GRID_CELL_SIZE * this.camera.zoom;
+      ctx.strokeStyle = colorToCSS(Colors.alert2, active ? 0.9 : 0.45);
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(p.x - s * 0.58, p.y - s * 0.58, s * 1.16, s * 1.16);
+      if (b.commandTarget?.alive) {
+        const t = this.camera.worldToScreen(b.commandTarget.position);
+        ctx.strokeStyle = colorToCSS(Colors.alert1, 0.42);
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(t.x, t.y);
+        ctx.stroke();
+      }
+    }
+    if (active && this.commandDragStart && this.commandDragCurrent) {
+      const x = Math.min(this.commandDragStart.x, this.commandDragCurrent.x);
+      const y = Math.min(this.commandDragStart.y, this.commandDragCurrent.y);
+      const rw = Math.abs(this.commandDragStart.x - this.commandDragCurrent.x);
+      const rh = Math.abs(this.commandDragStart.y - this.commandDragCurrent.y);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.10);
+      ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.85);
+      ctx.lineWidth = 1;
+      ctx.fillRect(x, y, rw, rh);
+      ctx.strokeRect(x + 0.5, y + 0.5, Math.max(0, rw - 1), Math.max(0, rh - 1));
+    }
+    if (active) {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.font = 'bold 15px "Poiret One", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.82);
+      ctx.fillText('COMMAND MODE', w * 0.5, 58);
+    }
+    ctx.restore();
+  }
+
   private drawBuildingHoverHitpoints(ctx: CanvasRenderingContext2D): void {
     const world = this.camera.screenToWorld(Input.mousePos);
     let hovered: BuildingBase | null = null;
+    let hoverAlpha = 0;
     let bestDist = Infinity;
     for (const b of this.state.buildings) {
       if (!b.alive) continue;
       const half = footprintForBuildingType(b.type) * GRID_CELL_SIZE * 0.5;
       const dx = Math.abs(world.x - b.position.x);
       const dy = Math.abs(world.y - b.position.y);
-      if (dx > half || dy > half) continue;
-      const d = Math.hypot(dx, dy);
+      const edgeDx = Math.max(0, dx - half);
+      const edgeDy = Math.max(0, dy - half);
+      const d = Math.hypot(edgeDx, edgeDy);
+      const fadeRadius = 190;
+      if (d > fadeRadius) continue;
       if (d < bestDist) {
         hovered = b;
+        hoverAlpha = 0.8 * (1 - d / fadeRadius);
         bestDist = d;
       }
     }
@@ -2634,8 +3052,8 @@ export class Game {
       const radius = range * this.camera.zoom;
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      ctx.fillStyle = colorToCSS(tint, 0.035);
-      ctx.strokeStyle = colorToCSS(tint, 0.36);
+      ctx.fillStyle = colorToCSS(tint, 0.035 * hoverAlpha / 0.8);
+      ctx.strokeStyle = colorToCSS(tint, 0.36 * hoverAlpha / 0.8);
       ctx.lineWidth = 1.5;
       ctx.setLineDash([8, 6]);
       ctx.beginPath();
@@ -2646,25 +3064,35 @@ export class Game {
       ctx.restore();
     }
     const text = `${Math.ceil(hovered.health)}/${Math.ceil(hovered.maxHealth)}`;
+    const shieldText = hovered instanceof Wall && hovered.maxShield > 0
+      ? `${Math.ceil(hovered.shield)}/${Math.ceil(hovered.maxShield)}`
+      : '';
     ctx.save();
     ctx.font = 'bold 14px "Poiret One", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const metrics = ctx.measureText(text);
+    const metrics = ctx.measureText(shieldText || text);
     const padX = 8;
     const boxW = metrics.width + padX * 2;
-    const boxH = 22;
+    const boxH = shieldText ? 38 : 22;
     const x = screen.x;
     const y = screen.y - hovered.radius * this.camera.zoom - 18;
-    ctx.fillStyle = colorToCSS(Colors.friendly_background, 0.72);
-    ctx.strokeStyle = colorToCSS(tint, 0.8);
+    ctx.fillStyle = colorToCSS(Colors.friendly_background, 0.58 * hoverAlpha / 0.8);
+    ctx.strokeStyle = colorToCSS(tint, hoverAlpha);
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.roundRect(x - boxW / 2, y - boxH / 2, boxW, boxH, 4);
     ctx.fill();
     ctx.stroke();
-    ctx.fillStyle = colorToCSS(hovered.team === Team.Enemy ? Colors.enemyfire : Colors.general_building, 0.95);
-    ctx.fillText(text, x, y + 1);
+    if (shieldText) {
+      ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, hoverAlpha);
+      ctx.fillText(shieldText, x, y - 8);
+      ctx.fillStyle = colorToCSS(hovered.team === Team.Enemy ? Colors.enemyfire : Colors.general_building, hoverAlpha);
+      ctx.fillText(text, x, y + 10);
+    } else {
+      ctx.fillStyle = colorToCSS(hovered.team === Team.Enemy ? Colors.enemyfire : Colors.general_building, hoverAlpha);
+      ctx.fillText(text, x, y + 1);
+    }
     ctx.restore();
   }
 

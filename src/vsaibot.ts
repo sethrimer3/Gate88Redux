@@ -33,8 +33,7 @@ import { Audio } from './audio.js';
 import { GameState } from './gamestate.js';
 import { CommandPost, Shipyard, PowerGenerator } from './building.js';
 import { TurretBase } from './turret.js';
-import { VsAIConfig, effectiveApm } from './vsaiconfig.js';
-import { difficultyIndex } from './practiceconfig.js';
+import { VsAIConfig, effectiveApm, effectiveDifficultyScalar } from './vsaiconfig.js';
 import { tryFireSpecial } from './special.js';
 import type { EnemyBasePlanner } from './enemybaseplanner.js';
 
@@ -263,9 +262,7 @@ export class VsAIDirector {
   }
 
   private replanInterval(): number {
-    // Easy: 4s, Normal: 2.5s, Hard: 1.6s, Expert: 1.0s, Nightmare: 0.6s
-    const idx = difficultyIndex(this.config.difficulty);
-    return [4.0, 2.5, 1.6, 1.0, 0.6][idx];
+    return interpolateDifficulty([4.0, 2.5, 1.6, 1.0, 0.18], this.config);
   }
 
   private spendToken(): boolean {
@@ -288,8 +285,7 @@ export class VsAIDirector {
     this.chatPhraseIndex++;
     this.pendingChats.push(text);
     // Longer cooldown on Easy (less chatty rival) to match its sluggish personality.
-    const idx = difficultyIndex(this.config.difficulty);
-    this.chatCooldown = [12, 8, 5, 4, 3][idx];
+    this.chatCooldown = interpolateDifficulty([12, 8, 5, 4, 1.5], this.config);
   }
 
   // -------------------------------------------------------------------
@@ -378,7 +374,7 @@ export class VsAIDirector {
     }
 
     const cp = this.findOwnCP(state);
-    const idx = difficultyIndex(this.config.difficulty);
+    const idx = Math.floor(effectiveDifficultyScalar(this.config));
 
     // 1. Defensive override — planner signals a high-priority defense point.
     //    Only on Hard+ (idx >= 2): easier difficulties use simpler reactive defense
@@ -487,9 +483,7 @@ export class VsAIDirector {
   }
 
   private reactionDelay(): number {
-    // Easy 0.6s, Normal 0.35, Hard 0.18, Expert 0.08, Nightmare 0.0
-    const idx = difficultyIndex(this.config.difficulty);
-    return [0.6, 0.35, 0.18, 0.08, 0.0][idx];
+    return interpolateDifficulty([0.6, 0.35, 0.18, 0.08, 0.0], this.config);
   }
 
   private findOwnCP(state: GameState): CommandPost | null {
@@ -628,7 +622,7 @@ export class VsAIDirector {
     // assets is in range.  On Hard+ the special fires without spending a
     // token so it isn't bottlenecked by APM; it already has its own
     // internal cooldown (tryFireSpecial guards this).
-    const idx = difficultyIndex(this.config.difficulty);
+    const idx = Math.floor(effectiveDifficultyScalar(this.config));
     if (idx >= 2 && this.ship.canFireSpecial()) {
       // Aim special at the goal target.
       tryFireSpecial(state, this.ship, target.clone());
@@ -646,5 +640,13 @@ export class VsAIDirector {
     }
     this.ship.desiredMove = new Vec2((v.x / len) * scale, (v.y / len) * scale);
   }
+}
+
+function interpolateDifficulty(values: number[], cfg: VsAIConfig): number {
+  const scalar = effectiveDifficultyScalar(cfg);
+  const lo = Math.max(0, Math.min(values.length - 1, Math.floor(scalar)));
+  const hi = Math.max(0, Math.min(values.length - 1, Math.ceil(scalar)));
+  const t = scalar - lo;
+  return values[lo] + (values[hi] - values[lo]) * t;
 }
 

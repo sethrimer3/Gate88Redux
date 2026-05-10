@@ -29,12 +29,13 @@ export abstract class BuildingBase extends Entity {
   deletionDurationSeconds = 3;
   deleting = false;
   synonymousVisualKind: 'base' | 'factory' | 'researchlab' | 'laserturret' | 'minelayer' | 'shipyard' | null = null;
+  animationTime = 0;
 
   constructor(type: EntityType, team: Team, position: Vec2, health: number, radius: number = ENTITY_RADIUS.building) {
     super(type, team, position, health, radius);
     this.velocity.set(0, 0);
   }
-  update(dt: number): void { if (!this.alive) return; if (this.buildProgress < 1) this.buildProgress = this.buildDurationSeconds <= 0 ? 1 : Math.min(1, this.buildProgress + dt / this.buildDurationSeconds); if (this.deleting) this.deletionProgress = Math.min(1, this.deletionProgress + dt / this.deletionDurationSeconds); }
+  update(dt: number): void { if (!this.alive) return; this.animationTime += dt; if (this.buildProgress < 1) this.buildProgress = this.buildDurationSeconds <= 0 ? 1 : Math.min(1, this.buildProgress + dt / this.buildDurationSeconds); if (this.deleting) this.deletionProgress = Math.min(1, this.deletionProgress + dt / this.deletionDurationSeconds); }
   startDeleting(): void { if (!this.deleting) { this.deleting = true; this.deletionProgress = 0; } }
 
   protected getBaseVisual(camera: Camera): BaseVisual {
@@ -52,8 +53,10 @@ export abstract class BuildingBase extends Entity {
     const y = screen.y - v.half;
     ctx.save();
     ctx.globalAlpha = Math.max(0.15, this.buildProgress);
-    ctx.fillStyle = colorToCSS(Colors.general_building, 0.95);
+    const damage = 1 - Math.max(0, Math.min(1, this.healthFraction));
+    ctx.fillStyle = colorToCSS(Colors.general_building, 0.95 - damage * 0.22);
     ctx.fillRect(x, y, v.side, v.side);
+    if (damage > 0.02) this.drawDamageWear(ctx, x, y, v.side, damage);
     ctx.strokeStyle = colorToCSS(Colors.advanced_building, 0.8);
     ctx.lineWidth = Math.max(1, v.side * 0.02);
     ctx.strokeRect(x + 1, y + 1, v.side - 2, v.side - 2);
@@ -76,6 +79,31 @@ export abstract class BuildingBase extends Entity {
     if (this.deleting) this.drawDeletionOverlay(ctx, x, y, v.side);
     ctx.restore();
     return v;
+  }
+
+  protected drawDamageWear(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, damage: number): void {
+    const cracks = Math.min(9, Math.max(2, Math.ceil(damage * 10)));
+    ctx.save();
+    ctx.strokeStyle = colorToCSS(Colors.enemy_background, 0.22 + damage * 0.45);
+    ctx.lineWidth = Math.max(1, s * 0.012);
+    ctx.beginPath();
+    for (let i = 0; i < cracks; i++) {
+      const seed = (this.id * 31 + i * 17) % 97;
+      const px = x + s * (0.16 + ((seed * 37) % 68) / 100);
+      const py = y + s * (0.16 + ((seed * 53) % 68) / 100);
+      const len = s * (0.07 + damage * 0.12);
+      const a = seed * 0.41;
+      ctx.moveTo(px, py);
+      ctx.lineTo(px + Math.cos(a) * len, py + Math.sin(a) * len);
+      if (damage > 0.45) {
+        ctx.moveTo(px, py);
+        ctx.lineTo(px + Math.cos(a + 1.8) * len * 0.55, py + Math.sin(a + 1.8) * len * 0.55);
+      }
+    }
+    ctx.stroke();
+    ctx.fillStyle = colorToCSS(Colors.alert1, damage * 0.18);
+    ctx.fillRect(x, y, s, s);
+    ctx.restore();
   }
 
   private drawSynonymousBuildingBase(ctx: CanvasRenderingContext2D, screen: Vec2, camera: Camera, v: BaseVisual): void {
@@ -162,11 +190,11 @@ export abstract class BuildingBase extends Entity {
 }
 
 export class CommandPost extends BuildingBase { readonly buildRadius = COMMANDPOST_BUILD_RADIUS; constructor(position: Vec2, team: Team) { super(EntityType.CommandPost, team, position, HP_VALUES.commandPost, ENTITY_RADIUS.commandpost); this.powered = true; }
-  draw(ctx: CanvasRenderingContext2D, camera: Camera): void { const screen = camera.worldToScreen(this.position); const v = this.drawBuildingBase(ctx, screen, colorToCSS(Colors.general_building), camera); const x=screen.x-v.half,y=screen.y-v.half; ctx.strokeStyle=colorToCSS(Colors.friendly_status,0.55); ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(screen.x,y+v.side*0.18);ctx.lineTo(screen.x,y+v.side*0.82);ctx.moveTo(x+v.side*0.18,screen.y);ctx.lineTo(x+v.side*0.82,screen.y); ctx.stroke(); }}
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void { const screen = camera.worldToScreen(this.position); const v = this.drawBuildingBase(ctx, screen, colorToCSS(Colors.general_building), camera); const x=screen.x-v.half,y=screen.y-v.half; const pulse=0.45+0.18*Math.sin(this.animationTime*2.4); ctx.strokeStyle=colorToCSS(Colors.friendly_status,0.55+pulse*0.25); ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(screen.x,y+v.side*0.18);ctx.lineTo(screen.x,y+v.side*0.82);ctx.moveTo(x+v.side*0.18,screen.y);ctx.lineTo(x+v.side*0.82,screen.y); ctx.stroke(); ctx.strokeStyle=colorToCSS(Colors.radar_gridlines,0.22); ctx.strokeRect(x+v.side*0.27,y+v.side*0.27,v.side*0.46,v.side*0.46); }}
 
 export class PowerGenerator extends BuildingBase { readonly coverageRadius = POWERGENERATOR_COVERAGE_RADIUS; private pulsePhase=0; constructor(position: Vec2, team: Team){ super(EntityType.PowerGenerator,team,position,HP_VALUES.powerGenerator); this.powered=true;} update(dt:number):void{super.update(dt);this.pulsePhase+=dt*3;} draw(ctx:CanvasRenderingContext2D,camera:Camera):void{ const screen=camera.worldToScreen(this.position); const v=this.drawBuildingBase(ctx,screen,colorToCSS(Colors.powergenerator_detail),camera); const core=v.side*0.24*(0.9+0.1*Math.sin(this.pulsePhase)); ctx.fillStyle=colorToCSS(Colors.powergenerator_detail,0.65); ctx.fillRect(screen.x-core,screen.y-core,core*2,core*2); ctx.strokeStyle=colorToCSS(Colors.powergenerator_coverage,0.2); ctx.strokeRect(screen.x-v.half-2,screen.y-v.half-2,v.side+4,v.side+4); }}
 
-export class Wall extends BuildingBase { constructor(position: Vec2, team: Team){ super(EntityType.Wall, team, position, HP_VALUES.wall); } draw(ctx:CanvasRenderingContext2D,camera:Camera):void{ const screen=camera.worldToScreen(this.position); const v=this.drawBuildingBase(ctx,screen,colorToCSS(Colors.advanced_building),camera); const x=screen.x-v.half,y=screen.y-v.half; ctx.save(); ctx.strokeStyle=colorToCSS(Colors.powergenerator_detail,this.powered?0.55:0.28); ctx.lineWidth=Math.max(1,v.side*0.035); ctx.beginPath(); ctx.moveTo(x+v.side*0.18,y+v.side*0.5); ctx.lineTo(x+v.side*0.82,y+v.side*0.5); ctx.moveTo(x+v.side*0.5,y+v.side*0.18); ctx.lineTo(x+v.side*0.5,y+v.side*0.82); ctx.stroke(); ctx.restore(); }}
+export class Wall extends BuildingBase { shield=0; maxShield=0; private shieldRegenDelay=0; poweredWallUpgrade=false; constructor(position: Vec2, team: Team){ super(EntityType.Wall, team, position, HP_VALUES.wall); this.powered=true; } enablePoweredWall():void{this.poweredWallUpgrade=true;this.maxShield=20;this.shield=this.maxShield;this.shieldRegenDelay=0;} override update(dt:number):void{super.update(dt); if(this.poweredWallUpgrade&&this.alive){this.shieldRegenDelay=Math.max(0,this.shieldRegenDelay-dt); if(this.shieldRegenDelay<=0&&this.shield<this.maxShield)this.shield=Math.min(this.maxShield,this.shield+5*dt);}} override takeDamage(amount:number,source?:Entity):void{if(amount>0&&this.poweredWallUpgrade&&this.shield>0){this.shieldRegenDelay=5;const absorbed=Math.min(this.shield,amount);this.shield-=absorbed;amount-=absorbed;if(amount<=0)return;}super.takeDamage(amount,source);} draw(ctx:CanvasRenderingContext2D,camera:Camera):void{ const screen=camera.worldToScreen(this.position); const v=this.drawBuildingBase(ctx,screen,colorToCSS(Colors.advanced_building),camera); const x=screen.x-v.half,y=screen.y-v.half; const pulse=0.55+0.35*Math.sin(this.animationTime*4); ctx.save(); if(this.poweredWallUpgrade){ctx.globalCompositeOperation='lighter';ctx.strokeStyle=colorToCSS(Colors.radar_friendly_status,0.22+0.28*(this.shield/Math.max(1,this.maxShield)));ctx.lineWidth=Math.max(2,v.side*0.06);ctx.strokeRect(x+2,y+2,v.side-4,v.side-4);} ctx.globalCompositeOperation='source-over'; ctx.strokeStyle=colorToCSS(Colors.powergenerator_detail,0.68+0.22*pulse); ctx.lineWidth=Math.max(2,v.side*0.05); ctx.beginPath(); ctx.moveTo(x+v.side*0.15,y+v.side*0.5); ctx.lineTo(x+v.side*0.85,y+v.side*0.5); ctx.moveTo(x+v.side*0.5,y+v.side*0.15); ctx.lineTo(x+v.side*0.5,y+v.side*0.85); ctx.stroke(); ctx.restore(); }}
 
 export class Shipyard extends BuildingBase { shipCapacity=5; activeShips=0; buildTimer=0; buildInterval=5; assignedGroup: ShipGroup=ShipGroup.Red; holdDocked=false; dockedShips=0; fightersReleased=false;
 constructor(type:EntityType.FighterYard|EntityType.BomberYard,position:Vec2,team:Team){super(type, team, position, type===EntityType.FighterYard ? HP_VALUES.fighterYard : HP_VALUES.bomberYard);this.powered=false;} update(dt:number):void{super.update(dt);if(this.buildProgress>=1&&this.powered&&this.activeShips<this.shipCapacity)this.buildTimer-=dt;} shouldSpawnShip():boolean{if(!this.alive||!this.powered||this.buildProgress<1)return false;if(this.buildTimer<=0&&this.activeShips<this.shipCapacity){this.buildTimer=this.buildInterval;return true;}return false;} bayPosition():Vec2{return this.position.add(new Vec2(0, GRID_CELL_SIZE*1.15));} draw(ctx:CanvasRenderingContext2D,camera:Camera):void{ const screen=camera.worldToScreen(this.position); const isF=this.type===EntityType.FighterYard; const detail=isF?Colors.fighteryard_detail:Colors.bomberyard_detail; if(this.synonymousVisualKind==='shipyard'){this.drawSynonymousShipyard(ctx,camera,screen);return;} const v=this.drawBuildingBase(ctx,screen,colorToCSS(detail),camera); const bayW=v.side*0.55,bayH=v.side*0.18; ctx.fillStyle=colorToCSS(Colors.enemy_background,0.8); ctx.fillRect(screen.x-bayW*0.5,screen.y+v.side*0.2,bayW,bayH); for(let i=0;i<Math.min(this.dockedShips,this.shipCapacity);i++){const col=i%3,row=Math.floor(i/3);const sx=screen.x-v.side*0.28+col*v.side*0.28;const sy=screen.y-v.side*0.24+row*v.side*0.2; ctx.strokeStyle=colorToCSS(detail, this.powered?0.9:0.45); ctx.beginPath(); if(isF){ctx.moveTo(sx+4,sy);ctx.lineTo(sx-3,sy-2);ctx.lineTo(sx-3,sy+2);} else {ctx.moveTo(sx+4,sy);ctx.lineTo(sx,sy-3);ctx.lineTo(sx-4,sy);ctx.lineTo(sx,sy+3);} ctx.closePath();ctx.stroke(); }

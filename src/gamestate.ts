@@ -3,7 +3,7 @@
 import { pointToSegmentDistance, Vec2 } from './math.js';
 import { Entity, Team, EntityType } from './entities.js';
 import { PlayerShip } from './ship.js';
-import { BuildingBase, CommandPost } from './building.js';
+import { BuildingBase, CommandPost, Wall } from './building.js';
 import { Shipyard } from './building.js';
 import { SynonymousMineLayer, TurretBase } from './turret.js';
 import { MassDriverBullet, ProjectileBase, RegenBullet, SynonymousNovaBomb } from './projectile.js';
@@ -169,6 +169,9 @@ export class GameState {
       this.buildings.push(entity);
       if (!isSynonymousFaction(this.factionByTeam, entity.team)) {
         this.addAutomaticBuildingConduits(entity);
+      }
+      if (entity instanceof Wall && entity.team === Team.Player && this.researchedItems.has('poweredWalls')) {
+        entity.enablePoweredWall();
       }
       this.power.markDirty();
     }
@@ -378,8 +381,9 @@ export class GameState {
       return false;
     }
 
-    // Normal projectile: only hit enemies
-    if (proj.team === target.team) return false;
+    // Walls block shots from both teams; other friendly entities keep normal no-friendly-fire rules.
+    if (proj.team === target.team && target.type !== EntityType.Wall) return false;
+    if (target.type === EntityType.Wall && proj.damage < 0) return false;
 
     if (proj instanceof MassDriverBullet) {
       const dist = proj.position.distanceTo(target.position);
@@ -642,6 +646,16 @@ export class GameState {
   private applyWallInteraction(): void {
     const walls = this.buildings.filter((b) => b.alive && b.buildProgress >= 1 && b.type === EntityType.Wall);
     if (walls.length === 0) return;
+    for (const proj of this.projectiles) {
+      if (!proj.alive) continue;
+      for (const wall of walls) {
+        if (this.projectileIntersectsBuildingFootprint(proj, wall)) {
+          this.applyProjectileDamage(proj, wall);
+          proj.destroy();
+          break;
+        }
+      }
+    }
     const shipsToCheck: Entity[] = [];
     for (const ship of this.playerShips.values()) {
       if (ship.alive) shipsToCheck.push(ship);
@@ -728,6 +742,24 @@ export class GameState {
         f.disableShield();
       }
     }
+  }
+
+  private projectileIntersectsBuildingFootprint(projectile: ProjectileBase, building: BuildingBase): boolean {
+    const bc = {
+      cx: Math.floor(building.position.x / GRID_CELL_SIZE),
+      cy: Math.floor(building.position.y / GRID_CELL_SIZE),
+    };
+    const size = footprintForBuildingType(building.type);
+    const origin = footprintOrigin(bc.cx, bc.cy, size);
+    const left = origin.cx * GRID_CELL_SIZE;
+    const right = (origin.cx + size) * GRID_CELL_SIZE;
+    const top = origin.cy * GRID_CELL_SIZE;
+    const bottom = (origin.cy + size) * GRID_CELL_SIZE;
+    const closestX = Math.max(left, Math.min(right, projectile.position.x));
+    const closestY = Math.max(top, Math.min(bottom, projectile.position.y));
+    const dx = projectile.position.x - closestX;
+    const dy = projectile.position.y - closestY;
+    return dx * dx + dy * dy <= projectile.radius * projectile.radius;
   }
 
   // -----------------------------------------------------------------------
@@ -1152,6 +1184,10 @@ export class GameState {
             f.enableShield();
           }
         }
+      } else if (completed === 'poweredWalls') {
+        for (const b of this.buildings) {
+          if (b.alive && b.team === Team.Player && b instanceof Wall) b.enablePoweredWall();
+        }
       }
       this.researchProgress = { item: null, progress: 0, timeNeeded: 0 };
       Audio.playSound('researchcomplete');
@@ -1445,7 +1481,7 @@ export class GameState {
     const footprintStatus = this.getStructureFootprintStatus(def, cx, cy, replaceConduitTeam);
     if (!footprintStatus.valid) return footprintStatus;
     const origin = footprintOrigin(cx, cy, def.footprintCells);
-    if (def.key === 'commandpost' || def.key === 'powergenerator') return { valid: true, reason: 'OK' };
+    if (def.key === 'commandpost' || def.key === 'powergenerator' || def.key === 'wall') return { valid: true, reason: 'OK' };
     if (isSynonymousFaction(this.factionByTeam, team)) return { valid: true, reason: 'OK' };
     if (isConfluenceFaction(this.factionByTeam, team)) {
       const center = footprintCenter(cx, cy, def.footprintCells);

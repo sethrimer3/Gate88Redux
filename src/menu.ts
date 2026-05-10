@@ -37,6 +37,10 @@ import {
 import {
   VsAIConfig,
   cloneDefaultVsAIConfig,
+  cloneRankedVsAIConfig,
+  rankedApm,
+  rankedDifficultyName,
+  VSAI_RANKED_SCORE_KEY,
 } from './vsaiconfig.js';
 import { LanClient } from './lan/lanClient.js';
 import type { LobbyState, LobbySlot, AIDifficulty, MsgMatchStart, LanDiscoveredLobby } from './lan/protocol.js';
@@ -379,8 +383,14 @@ export class MainMenu {
         ];
       case 'play':
         return [
-          { label: 'Vs. AI', action: () => this.setState('vs_ai_setup'),
-            description: 'Match against an AI opponent with its own main ship' },
+          { label: 'Vs. AI [Unranked]', action: () => {
+            this.vsAIConfig = { ...this.vsAIConfig, ranked: false };
+            this.setState('vs_ai_setup');
+          }, description: 'Custom match against an AI opponent' },
+          { label: 'Vs. AI [Ranked]', action: () => {
+            this.vsAIConfig = cloneRankedVsAIConfig(this.vsAIConfig);
+            this.setState('vs_ai_setup');
+          }, description: 'Fair fog-of-war duel with a ranked AI climb' },
           { label: 'LAN Multiplayer', action: () => this.setState('lan_type'),
             description: 'Host or join a LAN game with up to 8 players' },
           { label: 'Online Multiplayer', action: () => this.setState('online_multiplayer'),
@@ -776,57 +786,68 @@ export class MainMenu {
     this.drawBuildBadge(ctx, w);
 
     const cx = w * 0.5;
+    const cfg = this.vsAIConfig;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = 'bold 34px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.title);
-    ctx.fillText('VS. AI SETUP', cx, 70);
+    ctx.fillText(cfg.ranked ? 'VS. AI [RANKED]' : 'VS. AI [UNRANKED]', cx, 70);
 
-    const cfg = this.vsAIConfig;
     const colW = 460;
     const left = cx - colW;
     const right = cx + 12;
     const rowH = 38;
     let y = 140;
 
-    y = this.drawDifficultyRow(ctx, left, y, rowH, 'AI Difficulty',
-      cfg.difficulty, (v) => cfg.difficulty = v);
-    y = this.drawRaceRow(ctx, left, y, rowH, 'Player Race',
-      cfg.playerRace, (v) => cfg.playerRace = v);
-    y = this.drawRaceRow(ctx, left, y, rowH, 'AI Race',
-      cfg.aiRace, (v) => cfg.aiRace = v);
-    y = this.drawSliderRow(ctx, left, y, rowH, 'AI APM (-1 = derived)',
-      cfg.aiApm, -1, 400, 5,
-      (v) => cfg.aiApm = v, (v) => v < 0 ? 'auto' : `${v}`);
-    y = this.drawSliderRow(ctx, left, y, rowH, 'Starting Resources',
-      cfg.startingResources, 0, 5000, 50,
-      (v) => cfg.startingResources = v, (v) => `${v}`);
-    y = this.drawCycleRow<MapSize>(ctx, left, y, rowH, 'Map Size',
-      cfg.mapSize, ['small','medium','large'], (v) => cfg.mapSize = v);
+    if (cfg.ranked) {
+      this.enforceRankedVsAIConfig(cfg);
+      this.drawRankedHighScore(ctx, cx, 112);
+      y = 172;
+      y = this.drawLargeRankSliderRow(ctx, cx - 310, y, 76, cfg);
+      y += 10;
+      y = this.drawRaceRow(ctx, cx - 210, y, rowH, 'Player Race',
+        cfg.playerRace, (v) => cfg.playerRace = v);
+      y = this.drawRaceRow(ctx, cx - 210, y, rowH, 'AI Race',
+        cfg.aiRace, (v) => cfg.aiRace = v);
+    } else {
+      y = this.drawDifficultyRow(ctx, left, y, rowH, 'AI Difficulty',
+        cfg.difficulty, (v) => cfg.difficulty = v);
+      y = this.drawRaceRow(ctx, left, y, rowH, 'Player Race',
+        cfg.playerRace, (v) => cfg.playerRace = v);
+      y = this.drawRaceRow(ctx, left, y, rowH, 'AI Race',
+        cfg.aiRace, (v) => cfg.aiRace = v);
+      y = this.drawSliderRow(ctx, left, y, rowH, 'AI APM (-1 = derived)',
+        cfg.aiApm, -1, 400, 5,
+        (v) => cfg.aiApm = v, (v) => v < 0 ? 'auto' : `${v}`);
+      y = this.drawSliderRow(ctx, left, y, rowH, 'Starting Resources',
+        cfg.startingResources, 0, 5000, 50,
+        (v) => cfg.startingResources = v, (v) => `${v}`);
+      y = this.drawCycleRow<MapSize>(ctx, left, y, rowH, 'Map Size',
+        cfg.mapSize, ['small','medium','large'], (v) => cfg.mapSize = v);
 
-    let yr = 140;
-    yr = this.drawSliderRow(ctx, right, yr, rowH, 'Starting Distance',
-      cfg.startingDistance, 1000, 5000, 200,
-      (v) => cfg.startingDistance = v, (v) => `${v}`);
-    yr = this.drawCheckboxRow(ctx, right, yr, rowH, 'Fog of War',
-      cfg.fogOfWar, (v) => cfg.fogOfWar = v);
+      let yr = 140;
+      yr = this.drawSliderRow(ctx, right, yr, rowH, 'Starting Distance',
+        cfg.startingDistance, 1000, 5000, 200,
+        (v) => cfg.startingDistance = v, (v) => `${v}`);
+      yr = this.drawCheckboxRow(ctx, right, yr, rowH, 'Fog of War',
+        cfg.fogOfWar, (v) => cfg.fogOfWar = v);
 
-    // Cheater section header
-    ctx.font = 'bold 18px "Poiret One", sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
-    ctx.fillText('CHEATER OPTIONS', right, yr + 8);
-    yr += 28;
+      ctx.font = 'bold 18px "Poiret One", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
+      ctx.fillText('CHEATER OPTIONS', right, yr + 8);
+      yr += 28;
 
-    yr = this.drawCheckboxRow(ctx, right, yr, rowH, 'AI Full Map Knowledge',
-      cfg.cheatFullMapKnowledge, (v) => cfg.cheatFullMapKnowledge = v);
-    yr = this.drawCheckboxRow(ctx, right, yr, rowH, 'AI 1.25x Resources',
-      cfg.cheat125xResources, (v) => cfg.cheat125xResources = v);
+      yr = this.drawCheckboxRow(ctx, right, yr, rowH, 'AI Full Map Knowledge',
+        cfg.cheatFullMapKnowledge, (v) => cfg.cheatFullMapKnowledge = v);
+      yr = this.drawCheckboxRow(ctx, right, yr, rowH, 'AI 1.25x Resources',
+        cfg.cheat125xResources, (v) => cfg.cheat125xResources = v);
+    }
 
     const btnY = h - 60;
     this.drawButtonRow(ctx, [
       { label: 'Reset Defaults', action: () => {
-        this.vsAIConfig = cloneDefaultVsAIConfig(); } },
+        this.vsAIConfig = cfg.ranked ? cloneRankedVsAIConfig() : cloneDefaultVsAIConfig(); } },
       { label: 'Back',     action: () => this.setState('play') },
       { label: 'Start Vs. AI', action: () => { this.pendingAction = 'start_vs_ai'; },
         emphasis: true },
@@ -864,6 +885,103 @@ export class MainMenu {
     this.drawButtonRow(ctx, [
       { label: 'Back', action: () => this.setState('title'), emphasis: true },
     ], cx, h - 70);
+  }
+
+  private enforceRankedVsAIConfig(cfg: VsAIConfig): void {
+    cfg.ranked = true;
+    cfg.difficulty = rankedDifficultyName(cfg.aiRank);
+    cfg.aiApm = -1;
+    cfg.startingResources = 300;
+    cfg.mapSize = 'medium';
+    cfg.startingDistance = 3000;
+    cfg.fogOfWar = true;
+    cfg.cheatFullMapKnowledge = false;
+    cfg.cheat125xResources = false;
+  }
+
+  private drawRankedHighScore(ctx: CanvasRenderingContext2D, cx: number, y: number): void {
+    const best = this.readRankedHighScore();
+    const pulse = 0.55 + 0.35 * Math.sin(this.animTime * 3.6);
+    const label = `HIGHEST SCORE  ${best}`;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 22px "Poiret One", sans-serif';
+    ctx.shadowColor = colorToCSS(Colors.alert2, 0.85);
+    ctx.shadowBlur = 16 + 10 * pulse;
+    const grad = ctx.createLinearGradient(cx - 170, y, cx + 170, y);
+    grad.addColorStop(0, colorToCSS(Colors.radar_friendly_status, 0.95));
+    grad.addColorStop(0.5, colorToCSS(Colors.alert2, 1));
+    grad.addColorStop(1, colorToCSS(TextColors.title, 0.95));
+    ctx.fillStyle = grad;
+    ctx.fillText(label, cx, y);
+    ctx.restore();
+  }
+
+  private readRankedHighScore(): number {
+    try {
+      const raw = window.localStorage?.getItem(VSAI_RANKED_SCORE_KEY);
+      const parsed = raw ? Number.parseInt(raw, 10) : 0;
+      return Number.isFinite(parsed) ? Math.max(0, Math.min(3000, parsed)) : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  private drawLargeRankSliderRow(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    h: number,
+    cfg: VsAIConfig,
+  ): number {
+    const sx = x + 180;
+    const sw = 620;
+    const trackY = y + 28;
+    const rank = Math.max(0, Math.min(3000, cfg.aiRank));
+    const t = rank / 3000;
+    const knobX = sx + t * sw;
+
+    ctx.font = 'bold 21px "Poiret One", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = colorToCSS(TextColors.normal, 0.95);
+    ctx.fillText('AI RANK', x, trackY);
+
+    const grad = ctx.createLinearGradient(sx, trackY, sx + sw, trackY);
+    grad.addColorStop(0, colorToCSS(Colors.radar_friendly_status, 0.75));
+    grad.addColorStop(0.55, colorToCSS(Colors.alert2, 0.9));
+    grad.addColorStop(1, colorToCSS(Colors.alert1, 1));
+    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.65);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(sx, trackY - 8, sw, 16);
+    ctx.fillStyle = grad;
+    ctx.fillRect(sx + 1, trackY - 7, Math.max(0, knobX - sx - 1), 14);
+    ctx.fillStyle = colorToCSS(TextColors.title, 0.95);
+    ctx.beginPath();
+    ctx.arc(knobX, trackY, 9, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.font = 'bold 24px "Poiret One", sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = colorToCSS(Colors.alert2, 0.95);
+    ctx.fillText(`${rank}`, sx + sw + 18, trackY - 8);
+    ctx.font = '15px "Poiret One", sans-serif';
+    ctx.fillStyle = colorToCSS(TextColors.normal, 0.78);
+    ctx.fillText(`${rankedDifficultyName(rank)} / ${rankedApm(rank)} APM`, sx + sw + 18, trackY + 16);
+
+    const track: HitRect = { x: sx, y: trackY - 18, w: sw, h: 36 };
+    if (this.handleClick(track) || (Input.mouseDown && pointInRect(Input.mousePos.x, Input.mousePos.y, track))) {
+      const tt = Math.max(0, Math.min(1, (Input.mousePos.x - sx) / sw));
+      const nextRank = Math.round((tt * 3000) / 10) * 10;
+      if (nextRank !== cfg.aiRank) {
+        cfg.aiRank = nextRank;
+        cfg.difficulty = rankedDifficultyName(nextRank);
+        Audio.playSound('menucursor');
+      }
+    }
+
+    return y + h;
   }
 
   private drawThemeColorRow(

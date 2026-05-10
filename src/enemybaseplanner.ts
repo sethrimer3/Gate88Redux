@@ -38,7 +38,7 @@ import { GameState } from './gamestate.js';
 import { BuildingBase, CommandPost, Shipyard, PowerGenerator, ResearchLab, Factory } from './building.js';
 import { TurretBase } from './turret.js';
 import { GRID_CELL_SIZE, cellCenter, cellKey } from './grid.js';
-import { WORLD_WIDTH, WORLD_HEIGHT } from './constants.js';
+import { CONDUIT_COST, WORLD_WIDTH, WORLD_HEIGHT } from './constants.js';
 import { buildDefForEntityType, getBuildDef } from './builddefs.js';
 import type { BuildDef } from './builddefs.js';
 import { BuilderDrone, isBuilderDrone } from './builderdrone.js';
@@ -137,6 +137,8 @@ export class EnemyBasePlanner {
   private bastions: BastionPlan[] = [];
   /** Ring currently being filled. */
   private currentRing: number = 0;
+  /** Number of rings to keep planned; grows outward for as long as space/resources allow. */
+  private plannedRingCount: number = 0;
   /** Total build completions since init. */
   buildsPlaced: number = 0;
   /** Additional spokes added by adaptive behavior. */
@@ -198,6 +200,7 @@ export class EnemyBasePlanner {
     this.seed = seed;
     this.doctrineType = pickDoctrine(seed);
     this.doctrine = DOCTRINES[this.doctrineType];
+    this.plannedRingCount = this.doctrine.ringRecipes.length;
   }
 
   // ---------------------------------------------------------------------------
@@ -269,13 +272,14 @@ export class EnemyBasePlanner {
       this.doctrine.spokesPerDifficulty[idx] + this.extraSpokes,
       MAX_SPOKES,
     );
-    const outerRadius = this.ringRadiusForIndex(Math.max(0, recipes.length - 1));
+    const ringCount = Math.max(this.plannedRingCount, recipes.length);
+    const outerRadius = this.ringRadiusForIndex(Math.max(0, ringCount - 1));
 
     // --- Rings ---------------------------------------------------------------
     const prevRings = this.rings;
     this.rings = [];
-    for (let r = 0; r < recipes.length; r++) {
-      const recipe = recipes[r];
+    for (let r = 0; r < ringCount; r++) {
+      const recipe = this.recipeForRing(r);
       const radiusCells = this.ringRadiusForIndex(r);
       // Use ~π × radius angular slots for a smooth ring.
       const numSlots = Math.max(16, Math.round(Math.PI * radiusCells));
@@ -355,18 +359,25 @@ export class EnemyBasePlanner {
     return AI_INNER_RING_RADIUS_CELLS + index * AI_RING_STEP_CELLS;
   }
 
+  private recipeForRing(index: number) {
+    const recipes = this.doctrine.ringRecipes;
+    if (index < recipes.length) return recipes[index];
+    const outerRecipes = recipes.slice(Math.max(0, recipes.length - 2));
+    return outerRecipes[(index - recipes.length) % Math.max(1, outerRecipes.length)];
+  }
+
   // ---------------------------------------------------------------------------
   // Per-tick update
   // ---------------------------------------------------------------------------
 
-  update(state: GameState, cp: CommandPost, dt: number): void {
+  update(state: GameState, cp: CommandPost, dt: number, enemyResources: number): number {
     // Decay chat cooldown.
     if (this.chatCooldown > 0) this.chatCooldown = Math.max(0, this.chatCooldown - dt);
 
     // 1. Builder lifecycle.
     this.processBuilderRebuilds(state, cp, dt);
     this.assignRepairTargets(state);
-    this.dispatchIdleBuilders();
+    let spent = this.dispatchIdleBuilders(enemyResources);
     this.collectFinishedBuilds(state);
 
     // 2. Adaptive counters.
@@ -381,10 +392,12 @@ export class EnemyBasePlanner {
       this.tickTimer = this.basePlannerInterval();
       this.maybeAdvanceRing(state);
       this.replanQueue(state);
+      spent += this.dispatchIdleBuilders(enemyResources - spent);
     }
 
     // 5. Narrate notable events.
     this.updateChatNarration(state);
+    return spent;
   }
 
   private updateChatNarration(state: GameState): void {
@@ -494,7 +507,13 @@ export class EnemyBasePlanner {
   // ---------------------------------------------------------------------------
 
   private maybeAdvanceRing(state: GameState): void {
-    if (this.currentRing >= this.rings.length - 1) return;
+    if (this.currentRing >= this.rings.length - 1) {
+      if (this.canPlanAnotherRing()) {
+        this.plannedRingCount++;
+        this.generatePlan();
+      }
+      if (this.currentRing >= this.rings.length - 1) return;
+    }
     const ring = this.rings[this.currentRing];
     const idx = difficultyIndex(this.config.difficulty);
     const interval = this.basePlannerInterval();
@@ -545,6 +564,10 @@ export class EnemyBasePlanner {
     );
     const nextRingNum = this.currentRing + 1;
     this.currentRing++;
+    if (this.currentRing >= this.rings.length - 2 && this.canPlanAnotherRing()) {
+      this.plannedRingCount++;
+      this.generatePlan();
+    }
 
     // Announce ring expansion to the player.
     this.emitPlannerChat([
@@ -560,7 +583,18 @@ export class EnemyBasePlanner {
   // ---------------------------------------------------------------------------
 
   private basePlannerInterval(): number {
-    return Math.max(0.6, 4.0 / difficultyTickMul(this.config.difficulty));
+    return Math.max(0.22, 4.0 / difficultyTickMul(this.config.difficulty));
+  }
+
+  private canPlanAnotherRing(): boolean {
+    const nextRadius = this.ringRadiusForIndex(this.plannedRingCount);
+    const marginCells = Math.min(
+      this.centerCx,
+      this.centerCy,
+      Math.floor(WORLD_WIDTH / GRID_CELL_SIZE) - this.centerCx,
+      Math.floor(WORLD_HEIGHT / GRID_CELL_SIZE) - this.centerCy,
+    );
+    return nextRadius + 10 < marginCells;
   }
 
   /**
@@ -574,7 +608,8 @@ export class EnemyBasePlanner {
    *   5. Bastion construction (Raider / Adaptive, Hard+).
    */
   private replanQueue(state: GameState): void {
-    const TARGET = 5 + difficultyIndex(this.config.difficulty);
+    const idx = difficultyIndex(this.config.difficulty);
+    const TARGET = [5, 8, 12, 18, 28][idx];
     while (this.queue.length < TARGET) {
       const order = this.nextBuildOrder(state);
       if (!order) break;
@@ -1051,14 +1086,77 @@ export class EnemyBasePlanner {
     }
   }
 
-  private dispatchIdleBuilders(): void {
-    if (this.queue.length === 0) return;
+  private dispatchIdleBuilders(enemyResources: number): number {
+    if (this.queue.length === 0) return 0;
+    let spent = 0;
     for (const b of this.builders) {
       if (!b.alive || b.mode === 'repair' || b.buildOrder || b.isBuilding) continue;
-      const order = this.queue.shift();
-      if (!order) return;
+      const orderIndex = this.pickAffordableOrderIndex(enemyResources - spent);
+      if (orderIndex < 0) break;
+      const [order] = this.queue.splice(orderIndex, 1);
+      spent += this.orderCost(order);
       b.buildOrder = order;
     }
+    return spent;
+  }
+
+  private pickAffordableOrderIndex(enemyResources: number): number {
+    const idx = difficultyIndex(this.config.difficulty);
+    const affordable: Array<{ index: number; order: BuildOrder; priority: number; cost: number }> = [];
+    for (let i = 0; i < this.queue.length; i++) {
+      const order = this.queue[i];
+      const cost = this.orderCost(order);
+      if (cost <= enemyResources) {
+        affordable.push({ index: i, order, priority: this.orderStrategicPriority(order), cost });
+      }
+    }
+    if (affordable.length === 0) return -1;
+
+    if (idx <= 1) return affordable[0].index;
+
+    const topPriority = Math.max(...this.queue.map((order) => this.orderStrategicPriority(order)));
+    const topQueued = this.queue.find((order) => this.orderStrategicPriority(order) === topPriority);
+    const topCost = topQueued ? this.orderCost(topQueued) : 0;
+    const shouldSaveForTop = topQueued && topCost > enemyResources && topCost - enemyResources < this.savingsPatience();
+    if (shouldSaveForTop && enemyResources < this.bankPressureThreshold()) return -1;
+
+    affordable.sort((a, b) => {
+      const pa = b.priority - a.priority;
+      if (pa !== 0) return pa;
+      const spend = b.cost - a.cost;
+      if (spend !== 0) return spend;
+      return a.index - b.index;
+    });
+    return affordable[0].index;
+  }
+
+  private orderCost(order: BuildOrder): number {
+    return order.kind === 'conduit' ? CONDUIT_COST : order.def.cost;
+  }
+
+  private orderStrategicPriority(order: BuildOrder): number {
+    if (order.kind === 'conduit') return 20;
+    switch (order.def.key) {
+      case 'powergenerator': return 100;
+      case 'researchlab': return 95;
+      case 'fighteryard':
+      case 'bomberyard': return 90;
+      case 'factory': return 78;
+      case 'massdriverturret':
+      case 'exciterturret':
+      case 'regenturret': return 72;
+      case 'missileturret': return 66;
+      case 'wall': return 35;
+      default: return 50;
+    }
+  }
+
+  private savingsPatience(): number {
+    return [0, 25, 90, 170, 260][difficultyIndex(this.config.difficulty)];
+  }
+
+  private bankPressureThreshold(): number {
+    return [0, 80, 180, 320, 520][difficultyIndex(this.config.difficulty)];
   }
 
   private collectFinishedBuilds(state: GameState): void {

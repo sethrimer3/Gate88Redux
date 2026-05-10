@@ -198,7 +198,8 @@ export class PowerGraph {
       // same rule symmetrically to the player's network.
       if (
         b.type === EntityType.CommandPost ||
-        b.type === EntityType.PowerGenerator
+        b.type === EntityType.PowerGenerator ||
+        b.type === EntityType.Wall
       ) {
         b.powered = true;
       } else {

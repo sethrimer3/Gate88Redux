@@ -80,6 +80,7 @@ export const RESEARCH_COST = {
   bomberyard: 300,
   cloak: 350,
   advancedFighters: 280,
+  poweredWalls: 260,
 } as const;
 
 // Research times (in ticks)
@@ -107,6 +108,7 @@ export const RESEARCH_TIME = {
   bomberyard: 900,
   cloak: 840,
   advancedFighters: 780,
+  poweredWalls: 660,
 } as const;
 
 export const PLAYER_SHIP_SCALE = 1.75;
@@ -150,6 +152,7 @@ export const ACTIVE_RESEARCH_ITEMS = [
   'regenturret',
   'bomberyard',
   'advancedFighters',
+  'poweredWalls',
 ] as const;
 
 // Weapon stats
