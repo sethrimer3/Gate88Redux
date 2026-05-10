@@ -12,9 +12,30 @@ export class Camera {
   private screenWidth: number = 800;
   private screenHeight: number = 600;
 
+  /** Logical screen width (CSS pixels). */
+  get screenW(): number { return this.screenWidth; }
+  /** Logical screen height (CSS pixels). */
+  get screenH(): number { return this.screenHeight; }
+
   setScreenSize(width: number, height: number): void {
     this.screenWidth = width;
     this.screenHeight = height;
+  }
+
+  /**
+   * Convert a world-space X coordinate to screen-space X without allocating
+   * a Vec2 object.  Prefer this in hot render paths over worldToScreen.
+   */
+  screenX(worldX: number): number {
+    return (worldX - this.position.x) * this.zoom + this.screenWidth * 0.5;
+  }
+
+  /**
+   * Convert a world-space Y coordinate to screen-space Y without allocating
+   * a Vec2 object.  Prefer this in hot render paths over worldToScreen.
+   */
+  screenY(worldY: number): number {
+    return (worldY - this.position.y) * this.zoom + this.screenHeight * 0.5;
   }
 
   /** Smoothly follow a target position. Call once per frame. */

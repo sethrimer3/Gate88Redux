@@ -83,6 +83,9 @@ export class Game {
   private visualPreset: VisualQualityPreset = VISUAL_QUALITY_PRESETS[DEFAULT_VISUAL_QUALITY];
   private vignetteGradient: CanvasGradient | null = null;
   private scanlinePattern: CanvasPattern | null = null;
+  private fringeGradientL: CanvasGradient | null = null;
+  private fringeGradientR: CanvasGradient | null = null;
+  private flashGradient: CanvasGradient | null = null;
   private overlayW = 0;
   private overlayH = 0;
   /** Counts down after the player takes damage; drives the red-edge damage flash. */
@@ -186,7 +189,7 @@ export class Game {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
     if (!ctx) throw new Error('Failed to get 2D context');
     this.ctx = ctx;
 
@@ -219,6 +222,9 @@ export class Game {
     this.glowLayer.resize(window.innerWidth, window.innerHeight);
     this.vignetteGradient = null;
     this.scanlinePattern = null;
+    this.fringeGradientL = null;
+    this.fringeGradientR = null;
+    this.flashGradient = null;
   }
 
   private applyVisualQuality(quality: VisualQuality): void {
@@ -2757,6 +2763,20 @@ export class Game {
       this.vignetteGradient = ctx.createRadialGradient(cx, cy, outerR * 0.54, cx, cy, outerR);
       this.vignetteGradient.addColorStop(0.0, 'rgba(0,0,0,0)');
       this.vignetteGradient.addColorStop(1.0, 'rgba(0,0,0,0.42)');
+
+      // Flash gradient — cached at full alpha; actual alpha applied via globalAlpha.
+      this.flashGradient = ctx.createRadialGradient(cx, cy, outerR * 0.35, cx, cy, outerR * 1.05);
+      this.flashGradient.addColorStop(0, 'rgba(255,0,0,0)');
+      this.flashGradient.addColorStop(1, 'rgba(255,0,0,1)');
+
+      // Color-fringe gradients — cached since they are static strips.
+      const fringeW = Math.round(w * 0.12);
+      this.fringeGradientL = ctx.createLinearGradient(0, 0, fringeW, 0);
+      this.fringeGradientL.addColorStop(0, 'rgba(255,30,0,0.055)');
+      this.fringeGradientL.addColorStop(1, 'rgba(255,30,0,0)');
+      this.fringeGradientR = ctx.createLinearGradient(w, 0, w - fringeW, 0);
+      this.fringeGradientR.addColorStop(0, 'rgba(0,60,255,0.045)');
+      this.fringeGradientR.addColorStop(1, 'rgba(0,60,255,0)');
     }
 
     const territory = Math.max(-1, Math.min(1, this.camera.position.x / (WORLD_WIDTH * 0.42)));
@@ -2765,36 +2785,26 @@ export class Game {
       ? `rgba(255,70,34,${0.018 + territory * 0.022})`
       : `rgba(50,190,210,${0.018 + -territory * 0.018})`;
     ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = this.vignetteGradient;
+    ctx.fillStyle = this.vignetteGradient!;
     ctx.fillRect(0, 0, w, h);
 
     // Damage flash — red vignette that fades quickly after the player is hit.
-    if (this.damageFlashTimer > 0) {
+    if (this.damageFlashTimer > 0 && this.flashGradient) {
       const flashAlpha = Math.min(1, this.damageFlashTimer / 0.35) * 0.38;
-      const cx = w * 0.5;
-      const cy = h * 0.5;
-      const outerR = Math.hypot(cx, cy);
-      const flashGrad = ctx.createRadialGradient(cx, cy, outerR * 0.35, cx, cy, outerR * 1.05);
-      flashGrad.addColorStop(0, `rgba(255,0,0,0)`);
-      flashGrad.addColorStop(1, `rgba(255,0,0,${flashAlpha.toFixed(3)})`);
-      ctx.fillStyle = flashGrad;
+      ctx.globalAlpha = flashAlpha;
+      ctx.fillStyle = this.flashGradient;
       ctx.fillRect(0, 0, w, h);
+      ctx.globalAlpha = 1;
     }
 
     // Color fringe — subtle lens-distortion color split at the screen edges.
     // Two linear gradient strips (left edge → red, right edge → blue) at very
     // low opacity give a CRT-style chromatic-aberration impression.
-    if (this.visualPreset.colorFringe) {
+    if (this.visualPreset.colorFringe && this.fringeGradientL && this.fringeGradientR) {
       const fringeW = Math.round(w * 0.12);
-      const lGrad = ctx.createLinearGradient(0, 0, fringeW, 0);
-      lGrad.addColorStop(0, 'rgba(255,30,0,0.055)');
-      lGrad.addColorStop(1, 'rgba(255,30,0,0)');
-      ctx.fillStyle = lGrad;
+      ctx.fillStyle = this.fringeGradientL;
       ctx.fillRect(0, 0, fringeW, h);
-      const rGrad = ctx.createLinearGradient(w, 0, w - fringeW, 0);
-      rGrad.addColorStop(0, 'rgba(0,60,255,0.045)');
-      rGrad.addColorStop(1, 'rgba(0,60,255,0)');
-      ctx.fillStyle = rGrad;
+      ctx.fillStyle = this.fringeGradientR;
       ctx.fillRect(w - fringeW, 0, fringeW, h);
     }
 
