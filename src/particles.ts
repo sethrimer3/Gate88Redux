@@ -343,17 +343,26 @@ export class ParticleSystem {
     // Two passes: first normal-blend particles, then additive-blend particles.
     // This avoids repeated composite-mode switches on every particle.
 
+    const sw = camera.screenW;
+    const sh = camera.screenH;
+    /** Small margin so particles right at the edge don't pop. */
+    const margin = 10;
+
     // Pass 1 — normal blend
     for (let i = 0; i < POOL_SIZE; i++) {
       const p = this.pool[i];
       if (!p.active || p.alpha <= 0 || p.additive) continue;
 
-      const screen = camera.worldToScreen(new Vec2(p.x, p.y));
+      const sx = camera.screenX(p.x);
+      if (sx < -margin || sx > sw + margin) continue;
+      const sy = camera.screenY(p.y);
+      if (sy < -margin || sy > sh + margin) continue;
+
       const r = p.size * camera.zoom;
 
       ctx.fillStyle = colorToCSS(p.color, p.alpha);
       ctx.beginPath();
-      ctx.arc(screen.x, screen.y, Math.max(0.4, r), 0, Math.PI * 2);
+      ctx.arc(sx, sy, Math.max(0.4, r), 0, Math.PI * 2);
       ctx.fill();
     }
 
@@ -363,12 +372,16 @@ export class ParticleSystem {
       const p = this.pool[i];
       if (!p.active || p.alpha <= 0 || !p.additive) continue;
 
-      const screen = camera.worldToScreen(new Vec2(p.x, p.y));
+      const sx = camera.screenX(p.x);
+      if (sx < -margin || sx > sw + margin) continue;
+      const sy = camera.screenY(p.y);
+      if (sy < -margin || sy > sh + margin) continue;
+
       const r = p.size * camera.zoom;
 
       ctx.fillStyle = colorToCSS(p.color, p.alpha);
       ctx.beginPath();
-      ctx.arc(screen.x, screen.y, Math.max(0.4, r), 0, Math.PI * 2);
+      ctx.arc(sx, sy, Math.max(0.4, r), 0, Math.PI * 2);
       ctx.fill();
     }
     ctx.globalCompositeOperation = 'source-over';
