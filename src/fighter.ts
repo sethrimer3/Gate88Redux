@@ -18,9 +18,10 @@ const GROUP_COLORS: Record<ShipGroup, Color> = {
 
 const ENGAGE_RANGE = 300;
 const DOCK_DISTANCE = 30;
-const SHIELD_MAX = 18;
 const SHIELD_REGEN_RATE = 4;
 const SHIELD_REGEN_DELAY = 2.0;
+const PASSIVE_HEALTH_REGEN_DELAY = 5;
+const PASSIVE_HEALTH_REGEN_RATE = 1;
 const TRAIL_LIFETIME = 0.42;
 const TRAIL_MIN_DISTANCE = 3;
 
@@ -58,9 +59,10 @@ export class FighterShip extends Entity {
   private trail: TrailPoint[] = [];
   shieldUnlocked = false;
   shield: number = 0;
-  maxShield: number = SHIELD_MAX;
+  maxShield: number = 0;
   shieldRegenRate: number = SHIELD_REGEN_RATE;
   private shieldRegenDelay = 0;
+  protected healthRegenDelay = 0;
 
   constructor(
     position: Vec2,
@@ -80,6 +82,7 @@ export class FighterShip extends Entity {
     this.turnRate = SHIP_STATS.fighter.turnRate;
     this.thrustPower = SHIP_STATS.fighter.speed;
     this.maxSpeed = SHIP_STATS.fighter.speed;
+    this.maxShield = this.maxHealth * 0.5;
     this.swarmSeed = Math.abs(Math.imul(this.id, 2654435761));
     this.orbitPhase = (this.swarmSeed % 6283) / 1000;
     this.orbitRadius = 34 + ((this.swarmSeed >>> 8) % 52);
@@ -97,6 +100,7 @@ export class FighterShip extends Entity {
     this.applyPhysics(dt);
     this.updateTrail(dt);
     this.updateShield(dt);
+    this.updatePassiveHealthRegen(dt);
 
     if (this.fireTimer > 0) this.fireTimer -= dt;
   }
@@ -240,8 +244,18 @@ export class FighterShip extends Entity {
   }
 
   enableShield(): void {
+    const wasUnlocked = this.shieldUnlocked;
     this.shieldUnlocked = true;
-    this.shield = Math.max(this.shield, this.maxShield);
+    this.maxShield = this.maxHealth * 0.5;
+    if (!wasUnlocked) {
+      this.shield = this.maxShield;
+      this.shieldRegenDelay = 0;
+    }
+  }
+
+  disableShield(): void {
+    this.shieldUnlocked = false;
+    this.shield = 0;
     this.shieldRegenDelay = 0;
   }
 
@@ -250,6 +264,7 @@ export class FighterShip extends Entity {
       super.takeDamage(amount, source);
       return;
     }
+    this.markTookDamage();
     if (this.shieldUnlocked && this.shield > 0) {
       const blocked = Math.min(this.shield, amount);
       this.shield -= blocked;
@@ -259,6 +274,10 @@ export class FighterShip extends Entity {
     if (amount > 0) super.takeDamage(amount, source);
   }
 
+  protected markTookDamage(): void {
+    this.healthRegenDelay = PASSIVE_HEALTH_REGEN_DELAY;
+  }
+
   private updateShield(dt: number): void {
     if (!this.shieldUnlocked) return;
     if (this.shieldRegenDelay > 0) {
@@ -266,6 +285,16 @@ export class FighterShip extends Entity {
       return;
     }
     this.shield = Math.min(this.maxShield, this.shield + this.shieldRegenRate * dt);
+  }
+
+  protected updatePassiveHealthRegen(dt: number): void {
+    if (this.healthRegenDelay > 0) {
+      this.healthRegenDelay -= dt;
+      return;
+    }
+    if (this.health > 0 && this.health < this.maxHealth) {
+      this.health = Math.min(this.maxHealth, this.health + PASSIVE_HEALTH_REGEN_RATE * dt);
+    }
   }
 
   private updateTrail(dt: number): void {
@@ -280,11 +309,13 @@ export class FighterShip extends Entity {
 
   protected drawMotionTrail(ctx: CanvasRenderingContext2D, camera: Camera, color: Color): void {
     if (this.trail.length < 2) return;
+    const speedFraction = Math.max(0, Math.min(1, this.velocity.length() / Math.max(1, this.maxSpeed)));
+    const sizeScale = 0.2 + speedFraction * 0.8;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 5 * sizeScale;
     for (let i = 1; i < this.trail.length; i++) {
       const a = this.trail[i - 1];
       const b = this.trail[i];
@@ -412,6 +443,7 @@ export class SynonymousFighterShip extends FighterShip {
     this.droneHp = Array(this.droneCount).fill(HP_VALUES.synonymousFighterDrone);
     this.maxHealth = this.droneCount * HP_VALUES.synonymousFighterDrone;
     this.health = this.maxHealth;
+    this.maxShield = this.maxHealth * 0.5;
     this.weaponDamage = 1;
     this.fireRate = 34;
     this.weaponRange = 230;
@@ -464,6 +496,7 @@ export class SynonymousFighterShip extends FighterShip {
       return;
     }
     let remaining = amount;
+    this.markTookDamage();
     let start = 0;
     if (source) {
       const angle = Math.atan2(source.position.y - this.position.y, source.position.x - this.position.x);
@@ -491,6 +524,22 @@ export class SynonymousFighterShip extends FighterShip {
       if (this.droneHp[probe] > 0) return probe;
     }
     return 0;
+  }
+
+  protected override updatePassiveHealthRegen(dt: number): void {
+    if (this.healthRegenDelay > 0) {
+      this.healthRegenDelay -= dt;
+      return;
+    }
+    if (this.health <= 0 || this.health >= this.maxHealth) return;
+    let healing = PASSIVE_HEALTH_REGEN_RATE * dt;
+    for (let i = 0; i < this.droneHp.length && healing > 0; i++) {
+      if (this.droneHp[i] <= 0 || this.droneHp[i] >= HP_VALUES.synonymousFighterDrone) continue;
+      const applied = Math.min(HP_VALUES.synonymousFighterDrone - this.droneHp[i], healing);
+      this.droneHp[i] += applied;
+      healing -= applied;
+    }
+    this.health = this.droneHp.reduce((sum, hp) => sum + Math.max(0, hp), 0);
   }
 
   override draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
@@ -571,6 +620,7 @@ export class BomberShip extends FighterShip {
     this.type = EntityType.Bomber;
     this.health = SHIP_STATS.bomber.health;
     this.maxHealth = SHIP_STATS.bomber.health;
+    this.maxShield = this.maxHealth * 0.5;
     this.radius = ENTITY_RADIUS.bomber * (team === Team.Player ? PLAYER_SHIP_SCALE : 1);
     this.turnRate = SHIP_STATS.bomber.turnRate;
     this.thrustPower = SHIP_STATS.bomber.speed;
@@ -718,6 +768,7 @@ export class SynonymousNovaBomberShip extends BomberShip {
     // Conservative sub-drone adapter: incoming damage is assigned to one
     // living drone at a time, biased by source angle when a source exists.
     let remaining = amount;
+    this.markTookDamage();
     let start = 0;
     if (source) {
       const angle = Math.atan2(source.position.y - this.position.y, source.position.x - this.position.x);
@@ -747,6 +798,22 @@ export class SynonymousNovaBomberShip extends BomberShip {
     const radius = (10 + (index % 5) * 3.1 + Math.sin(t * 1.7 + seed) * 4.5) * (0.18 + 0.82 * collapse);
     const angle = seed + Math.sin(t * 1.2 + seed * 1.7) * 0.9 + Math.cos(t * 0.73 + index) * 0.55;
     return new Vec2(Math.cos(angle) * radius, Math.sin(angle) * radius * (0.72 + 0.2 * Math.sin(seed)));
+  }
+
+  protected override updatePassiveHealthRegen(dt: number): void {
+    if (this.healthRegenDelay > 0) {
+      this.healthRegenDelay -= dt;
+      return;
+    }
+    if (this.health <= 0 || this.health >= this.maxHealth) return;
+    let healing = PASSIVE_HEALTH_REGEN_RATE * dt;
+    for (let i = 0; i < this.droneHp.length && healing > 0; i++) {
+      if (this.droneHp[i] <= 0 || this.droneHp[i] >= NOVA_BOMBER_DRONE_HP) continue;
+      const applied = Math.min(NOVA_BOMBER_DRONE_HP - this.droneHp[i], healing);
+      this.droneHp[i] += applied;
+      healing -= applied;
+    }
+    this.health = this.droneHp.reduce((sum, hp) => sum + Math.max(0, hp), 0);
   }
 
   override draw(ctx: CanvasRenderingContext2D, camera: Camera): void {

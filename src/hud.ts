@@ -195,11 +195,15 @@ export class HUD {
     maxBattery: number,
     health: number,
     maxHealth: number,
+    shield: number,
+    maxShield: number,
+    healthRegenActive: boolean,
     screenW: number,
     screenH: number,
   ): void {
     const frac = Math.max(0, Math.min(1, battery / maxBattery));
     const hpFrac = Math.max(0, Math.min(1, health / maxHealth));
+    const shieldFrac = maxShield > 0 ? Math.max(0, Math.min(1, shield / maxShield)) : 0;
     const barW = 220;
     const barH = 14;
     const x = 10;
@@ -234,9 +238,41 @@ export class HUD {
     ctx.fillRect(x, hpY - barH, barW, barH);
     ctx.fillStyle = colorToCSS(Colors.healthbar, 0.86);
     ctx.fillRect(x, hpY - barH, barW * hpFrac, barH);
+    if (healthRegenActive && hpFrac > 0) {
+      const shimmerW = 42;
+      const shimmerX = x + ((this.animTime * 78) % (barW + shimmerW)) - shimmerW;
+      const grad = ctx.createLinearGradient(shimmerX, 0, shimmerX + shimmerW, 0);
+      grad.addColorStop(0, colorToCSS(Colors.particles_healing, 0));
+      grad.addColorStop(0.5, colorToCSS(Colors.particles_healing, 0.72));
+      grad.addColorStop(1, colorToCSS(Colors.particles_healing, 0));
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, hpY - barH, barW * hpFrac, barH);
+      ctx.clip();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = grad;
+      ctx.fillRect(shimmerX, hpY - barH - 4, shimmerW, barH + 8);
+      const pulse = 0.5 + 0.5 * Math.sin(this.animTime * 8);
+      ctx.strokeStyle = colorToCSS(Colors.particles_healing, 0.24 + pulse * 0.24);
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x - 1, hpY - barH - 1, barW + 2, barH + 2);
+      ctx.restore();
+    }
     ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.35);
     ctx.lineWidth = 1;
     ctx.strokeRect(x, hpY - barH, barW, barH);
+
+    if (maxShield > 0) {
+      const shieldY = hpY - barH - 22;
+      ctx.fillStyle = colorToCSS(Colors.radar_allied_status, 0.86);
+      ctx.fillText('SHIELD', x, shieldY - barH - 6);
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.2);
+      ctx.fillRect(x, shieldY - barH, barW, barH);
+      ctx.fillStyle = colorToCSS(Colors.radar_allied_status, 0.74);
+      ctx.fillRect(x, shieldY - barH, barW * shieldFrac, barH);
+      ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.35);
+      ctx.strokeRect(x, shieldY - barH, barW, barH);
+    }
 
     // Background track
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.2);

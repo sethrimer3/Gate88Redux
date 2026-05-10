@@ -25,8 +25,8 @@ export function drawWaypointMarkers(
     const marker = waypointMarkers.get(group);
     if (!marker) continue;
     const screen = camera.worldToScreen(marker.pos);
-    const color = group === 'all' ? Colors.mainguy : GROUP_COLORS[group];
-    const label = group === 'all' ? 'ALL' : `${group + 1}`;
+    const color = group === 'all' ? Colors.alert2 : GROUP_COLORS[group];
+    const label = group === 'all' ? 'A' : `${group + 1}`;
     const t = state.gameTime - marker.issuedAt;
     const phase = state.gameTime * 3.2 + (group === 'all' ? 1.8 : group);
     const pulse = 0.5 + 0.5 * Math.sin(phase);

@@ -13,11 +13,11 @@ import { HUD } from './hud.js';
 import { MainMenu, MenuAction } from './menu.js';
 import { Colors, colorToCSS } from './colors.js';
 import { Team, EntityType, ShipGroup, Entity } from './entities.js';
-import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS, ACTIVE_RESEARCH_ITEMS, SHIP_STATS } from './constants.js';
+import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS, ACTIVE_RESEARCH_ITEMS, SHIP_STATS, COMMANDPOST_BUILD_RADIUS, POWERGENERATOR_COVERAGE_RADIUS } from './constants.js';
 import { GATLING_OVERDRIVE_DURATION_SECS, GATLING_OVERHEAT_DURATION_SECS, GATLING_OVERDRIVE_FIRE_RATE_DIVISOR } from './constants.js';
 import { LASER_MAX_CHARGE_SECS, LASER_CHARGE_COOLDOWN_SECS, LASER_BURST_BASE_MULTIPLIER, LASER_BURST_ENERGY_SCALING } from './constants.js';
 import { ROCKET_SWARM_COUNT, ROCKET_SWARM_SPREAD_DEGREES, ROCKET_SWARM_ENERGY_COST, ROCKET_SWARM_COOLDOWN_SECS } from './constants.js';
-import { CANNON_HOMING_ENERGY_COST, CANNON_HOMING_COOLDOWN_SECS } from './constants.js';
+import { CANNON_HOMING_ENERGY_COST, CANNON_HOMING_COOLDOWN_MULTIPLIER } from './constants.js';
 import { BuildingBase, CommandPost } from './building.js';
 import { Shipyard } from './building.js';
 import { TurretBase } from './turret.js';
@@ -76,6 +76,7 @@ export class Game {
   private debugOverlay = false;
   private lastFrameMs = 0;
   private waypointMarkers = new Map<ShipCommandGroup, WaypointMarker>();
+  private lastGroupTap: { key: string; count: number; at: number } | null = null;
   private activeGuidedMissile: GuidedMissile | null = null;
   private spaceFluid: SpaceFluid;
   private glowLayer: GlowLayer;
@@ -816,7 +817,7 @@ export class Game {
    */
   private handleCannonHomingSpecial(aimWorld: Vec2): void {
     const player = this.state.player;
-    if (!Input.mouse2Pressed) return;
+    if (!Input.mouse2Down) return;
     if (player.weaponSpecialCooldown > 0) return;
     if (player.battery < CANNON_HOMING_ENERGY_COST) return;
 
@@ -830,7 +831,7 @@ export class Game {
     }
 
     player.battery -= CANNON_HOMING_ENERGY_COST;
-    player.weaponSpecialCooldown = CANNON_HOMING_COOLDOWN_SECS;
+    player.weaponSpecialCooldown = WEAPON_STATS.fire.fireRate * DT * player.fireCooldownMultiplier * CANNON_HOMING_COOLDOWN_MULTIPLIER;
     const launchAngle = target ? player.position.angleTo(target.position) : player.position.angleTo(aimWorld);
     this.state.addEntity(new HomingBullet(Team.Player, player.position.clone(), launchAngle, player, target));
     Audio.playSound('fire');
@@ -868,6 +869,11 @@ export class Game {
         if (waypoint && !b.holdDocked) {
           fighter.order = 'waypoint';
           fighter.targetPos = waypoint.clone();
+          fighter.launch();
+          b.dockedShips = Math.max(0, b.dockedShips - 1);
+        } else if (!b.holdDocked) {
+          fighter.order = 'waypoint';
+          fighter.targetPos = b.position.clone();
           fighter.launch();
           b.dockedShips = Math.max(0, b.dockedShips - 1);
         }
@@ -1166,14 +1172,16 @@ export class Game {
     return group === 'all' ? 'ALL' : `Group ${group + 1}`;
   }
 
-  private groupFromHeldNumber(): ShipGroup | null {
+  private groupFromHeldNumber(): ShipCommandGroup | null {
     if (Input.isDown('1')) return ShipGroup.Red;
     if (Input.isDown('2')) return ShipGroup.Green;
     if (Input.isDown('3')) return ShipGroup.Blue;
+    if (Input.isDown('4')) return 'all';
     return null;
   }
 
   private updateNumberGroupHotkeys(): void {
+    this.updateNumberGroupTapOrders();
     const group = this.groupFromHeldNumber();
     if (group === null) return;
 
@@ -1188,7 +1196,7 @@ export class Game {
 
     const aimWorld = this.camera.screenToWorld(Input.mousePos);
     const yard = this.findPlayerShipyardAt(aimWorld);
-    if (yard) {
+    if (yard && group !== 'all') {
       yard.assignedGroup = group;
       for (const f of this.state.fighters) {
         if (f.alive && f.team === Team.Player && f.homeYard === yard) {
@@ -1199,7 +1207,7 @@ export class Game {
       return;
     }
 
-    const fighters = this.state.getFightersByGroup(Team.Player, group);
+    const fighters = this.getPlayerFightersForCommand(group);
     this.recordWaypointMarker(group, aimWorld);
     for (const yard of this.playerShipyardsForCommand(group)) {
       yard.holdDocked = false;
@@ -1209,7 +1217,34 @@ export class Game {
       f.targetPos = aimWorld.clone();
       if (f.docked) f.launch();
     }
-    this.hud.showMessage(`Group ${group + 1}: Waypoint`, Colors.general_building, 2);
+    this.hud.showMessage(`${this.groupLabel(group)}: Waypoint`, Colors.general_building, 2);
+  }
+
+  private updateNumberGroupTapOrders(): void {
+    const tapped = this.pressedNumberCommandGroup();
+    if (!tapped) return;
+
+    const now = performance.now();
+    const previous = this.lastGroupTap;
+    const count = previous && previous.key === tapped.key && now - previous.at <= 300
+      ? previous.count + 1
+      : 1;
+    this.lastGroupTap = { key: tapped.key, count, at: now };
+
+    if (count === 2) {
+      this.issueShipOrder(tapped.group, 'follow');
+    } else if (count >= 3) {
+      this.issueShipOrder(tapped.group, 'protect');
+      this.lastGroupTap = null;
+    }
+  }
+
+  private pressedNumberCommandGroup(): { key: string; group: ShipCommandGroup } | null {
+    if (Input.wasPressed('1')) return { key: '1', group: ShipGroup.Red };
+    if (Input.wasPressed('2')) return { key: '2', group: ShipGroup.Green };
+    if (Input.wasPressed('3')) return { key: '3', group: ShipGroup.Blue };
+    if (Input.wasPressed('4')) return { key: '4', group: 'all' };
+    return null;
   }
 
   private recordWaypointMarker(group: ShipCommandGroup, pos: Vec2): void {
@@ -2512,6 +2547,9 @@ export class Game {
         this.state.player.maxBattery,
         this.state.player.health,
         this.state.player.maxHealth,
+        this.state.player.shield,
+        this.state.player.maxShield,
+        this.state.player.passiveHealthRegenActive,
         w,
         h,
       );
@@ -2590,6 +2628,23 @@ export class Game {
     if (!hovered) return;
 
     const screen = this.camera.worldToScreen(hovered.position);
+    const range = this.buildingEffectRange(hovered);
+    const tint = hovered.team === Team.Player ? Colors.radar_friendly_status : Colors.enemyfire;
+    if (range > 0) {
+      const radius = range * this.camera.zoom;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = colorToCSS(tint, 0.035);
+      ctx.strokeStyle = colorToCSS(tint, 0.36);
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([8, 6]);
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
     const text = `${Math.ceil(hovered.health)}/${Math.ceil(hovered.maxHealth)}`;
     ctx.save();
     ctx.font = 'bold 14px "Poiret One", sans-serif';
@@ -2602,7 +2657,7 @@ export class Game {
     const x = screen.x;
     const y = screen.y - hovered.radius * this.camera.zoom - 18;
     ctx.fillStyle = colorToCSS(Colors.friendly_background, 0.72);
-    ctx.strokeStyle = colorToCSS(hovered.team === Team.Player ? Colors.radar_friendly_status : Colors.enemyfire, 0.8);
+    ctx.strokeStyle = colorToCSS(tint, 0.8);
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.roundRect(x - boxW / 2, y - boxH / 2, boxW, boxH, 4);
@@ -2611,6 +2666,13 @@ export class Game {
     ctx.fillStyle = colorToCSS(hovered.team === Team.Enemy ? Colors.enemyfire : Colors.general_building, 0.95);
     ctx.fillText(text, x, y + 1);
     ctx.restore();
+  }
+
+  private buildingEffectRange(building: BuildingBase): number {
+    if (building instanceof TurretBase) return building.range;
+    if (building.type === EntityType.CommandPost) return COMMANDPOST_BUILD_RADIUS;
+    if (building.type === EntityType.PowerGenerator) return POWERGENERATOR_COVERAGE_RADIUS;
+    return 0;
   }
 
   private speedGlowFactor(speed: number, maxSpeed: number): number {
@@ -2684,8 +2746,7 @@ export class Game {
         b.type === EntityType.TimeBomb ||
         b.type === EntityType.ExciterTurret ||
         b.type === EntityType.MassDriverTurret ||
-        b.type === EntityType.RegenTurret ||
-        b.type === EntityType.RepairTurret
+        b.type === EntityType.RegenTurret
       ) {
         glow.circleWorld(this.camera, b.position, b.radius * 1.25, color, 0.045 * pulse, false, 2);
       }

@@ -16,9 +16,10 @@ const BATTERY_FIRE_COST = 5;
 export const GATLING_BATTERY_FIRE_COST = BATTERY_FIRE_COST / 3;
 export const GUIDED_MISSILE_INITIAL_BATTERY_COST = 14;
 export const GUIDED_MISSILE_CONTROL_BATTERY_DRAIN = 8;
-const SHIELD_MAX = 40;
 const SHIELD_REGEN_RATE = 7;
 const SHIELD_REGEN_DELAY = 2.5;
+const PASSIVE_HEALTH_REGEN_DELAY = 5;
+const PASSIVE_HEALTH_REGEN_RATE = 1;
 const SHIP_WEAPON_IDS = ['cannon', 'gatling', 'laser', 'guidedmissile', 'synonymousLaser'] as const;
 export type ShipWeaponId = typeof SHIP_WEAPON_IDS[number];
 export const SHIP_WEAPON_OPTIONS: ReadonlyArray<{
@@ -70,9 +71,10 @@ export class PlayerShip extends Entity {
   fireCooldownMultiplier: number = 1;
   shieldUnlocked = false;
   shield: number = 0;
-  maxShield: number = SHIELD_MAX;
+  maxShield: number = 0;
   shieldRegenRate: number = SHIELD_REGEN_RATE;
   private shieldRegenDelay = 0;
+  private healthRegenDelay = 0;
   faction: FactionType = 'terran';
   synonymousPierceMultiplier = 1;
   synonymousFireSpeedLevel = 0;
@@ -151,6 +153,7 @@ export class PlayerShip extends Entity {
     this.turnRate = SHIP_STATS.mainguy.turnRate;
     this.thrustPower = SHIP_STATS.mainguy.speed;
     this.maxSpeed = SHIP_STATS.mainguy.speed;
+    this.maxShield = this.maxHealth * 0.5;
     this.friction = 1.0;
     this.aimWorld = new Vec2(position.x + 100, position.y);
   }
@@ -180,6 +183,7 @@ export class PlayerShip extends Entity {
       this.health = Math.min(this.maxHealth, this.health + this.synonymousHealthRegenRate * dt);
     }
     this.updateShield(dt);
+    this.updatePassiveHealthRegen(dt);
 
     // Accumulate draw time for visual effects
     this.drawTime += dt;
@@ -206,6 +210,7 @@ export class PlayerShip extends Entity {
     this.battery = this.maxBattery;
     this.shield = this.shieldUnlocked ? this.maxShield : 0;
     this.shieldRegenDelay = 0;
+    this.healthRegenDelay = 0;
     this.primaryFireTimer = 0;
     this.specialFireTimer = 0;
     this.aimWorld = new Vec2(position.x + 100, position.y);
@@ -378,6 +383,8 @@ export class PlayerShip extends Entity {
       case 'shipHp':
         this.maxHealth = Math.round(this.maxHealth * 1.35);
         this.health = this.maxHealth;
+        this.maxShield = this.maxHealth * 0.5;
+        if (this.shieldUnlocked) this.shield = Math.min(this.maxShield, this.shield);
         break;
       case 'shipSpeedEnergy':
         this.maxSpeed *= 1.14;
@@ -389,6 +396,7 @@ export class PlayerShip extends Entity {
         break;
       case 'shipShield':
         this.shieldUnlocked = true;
+        this.maxShield = this.maxHealth * 0.5;
         this.shield = this.maxShield;
         this.shieldRegenDelay = 0;
         break;
@@ -451,6 +459,7 @@ export class PlayerShip extends Entity {
       amount -= blocked;
       this.shieldRegenDelay = SHIELD_REGEN_DELAY;
     }
+    this.healthRegenDelay = PASSIVE_HEALTH_REGEN_DELAY;
     if (amount > 0) super.takeDamage(amount, source);
   }
 
@@ -461,6 +470,21 @@ export class PlayerShip extends Entity {
       return;
     }
     this.shield = Math.min(this.maxShield, this.shield + this.shieldRegenRate * dt);
+  }
+
+  private updatePassiveHealthRegen(dt: number): void {
+    if (!this.alive) return;
+    if (this.healthRegenDelay > 0) {
+      this.healthRegenDelay -= dt;
+      return;
+    }
+    if (this.health > 0 && this.health < this.maxHealth) {
+      this.health = Math.min(this.maxHealth, this.health + PASSIVE_HEALTH_REGEN_RATE * dt);
+    }
+  }
+
+  get passiveHealthRegenActive(): boolean {
+    return this.alive && this.healthRegenDelay <= 0 && this.health > 0 && this.health < this.maxHealth;
   }
 
   // --- Drawing ---

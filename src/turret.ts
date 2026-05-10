@@ -284,13 +284,12 @@ export class RegenTurret extends TurretBase {
     );
   }
 
-  /** Override: targets the nearest damaged friendly building. */
+  /** Override: targets the nearest damaged friendly unit or building. */
   acquireTarget(entities: Entity[]): void {
     let best: Entity | null = null;
     let bestDist = this.range;
     for (const e of entities) {
       if (!e.alive || e.team !== this.team) continue;
-      if (!(e instanceof BuildingBase)) continue;
       if (e.health >= e.maxHealth) continue;
       if (e === (this as Entity)) continue;
       const d = this.position.distanceTo(e.position);
@@ -319,51 +318,6 @@ export class RegenTurret extends TurretBase {
     ctx.lineTo(screen.x + s, screen.y);
     ctx.moveTo(screen.x, screen.y - s);
     ctx.lineTo(screen.x, screen.y + s);
-    ctx.stroke();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// RepairTurret - restores destroyed friendly buildings at partial strength
-// ---------------------------------------------------------------------------
-
-export class RepairTurret extends TurretBase {
-  constructor(position: Vec2, team: Team) {
-    super(
-      EntityType.RepairTurret,
-      team,
-      position,
-      HP_VALUES.turret,
-      WEAPON_STATS.regenbullet.fireRate * 2,
-      260,
-    );
-  }
-
-  acquireTarget(_entities: Entity[]): void {
-    this.targetEntity = null;
-  }
-
-  canFire(): boolean {
-    return this.fireTimer <= 0;
-  }
-
-  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
-    if (!this.alive) return;
-    const screen = camera.worldToScreen(this.position);
-    const r = this.radius * camera.zoom;
-    const detail = colorToCSS(Colors.researchlab_detail);
-    this.drawTurretBase(ctx, screen, r, detail, camera);
-    this.drawBeam(ctx, camera, screen);
-
-    ctx.strokeStyle = colorToCSS(Colors.particles_healing);
-    ctx.lineWidth = 1.5;
-    const s = r * 0.42;
-    ctx.beginPath();
-    ctx.rect(screen.x - s * 0.5, screen.y - s * 0.5, s, s);
-    ctx.moveTo(screen.x, screen.y - s * 0.85);
-    ctx.lineTo(screen.x, screen.y + s * 0.85);
-    ctx.moveTo(screen.x - s * 0.85, screen.y);
-    ctx.lineTo(screen.x + s * 0.85, screen.y);
     ctx.stroke();
   }
 }

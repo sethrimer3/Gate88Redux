@@ -78,8 +78,8 @@ const BALANCED: Doctrine = {
   ringRecipes: [
     {
       radius: 4, role: 'innerDefense',
-      buildings: ['powergenerator', 'missileturret', 'repairturret'],
-      counts: { powergenerator: 2, missileturret: 2, repairturret: 1 },
+      buildings: ['powergenerator', 'missileturret', 'wall'],
+      counts: { powergenerator: 2, missileturret: 2, wall: 1 },
     },
     {
       radius: 8, role: 'production',
@@ -112,13 +112,13 @@ const TURTLE: Doctrine = {
   ringRecipes: [
     {
       radius: 3, role: 'innerDefense',
-      buildings: ['repairturret', 'missileturret', 'powergenerator', 'regenturret'],
-      counts: { repairturret: 2, missileturret: 3, powergenerator: 2, regenturret: 1 },
+      buildings: ['missileturret', 'powergenerator', 'regenturret', 'wall'],
+      counts: { missileturret: 3, powergenerator: 2, regenturret: 1, wall: 2 },
     },
     {
       radius: 7, role: 'innerDefense',
-      buildings: ['missileturret', 'powergenerator', 'exciterturret', 'repairturret', 'factory'],
-      counts: { missileturret: 3, powergenerator: 2, exciterturret: 2, repairturret: 2, factory: 1 },
+      buildings: ['missileturret', 'powergenerator', 'exciterturret', 'wall', 'factory'],
+      counts: { missileturret: 3, powergenerator: 2, exciterturret: 2, wall: 2, factory: 1 },
     },
     {
       radius: 11, role: 'production',
@@ -180,8 +180,8 @@ const ARTILLERY: Doctrine = {
   ringRecipes: [
     {
       radius: 3, role: 'innerDefense',
-      buildings: ['massdriverturret', 'powergenerator', 'repairturret'],
-      counts: { massdriverturret: 3, powergenerator: 2, repairturret: 1 },
+      buildings: ['massdriverturret', 'powergenerator', 'wall'],
+      counts: { massdriverturret: 3, powergenerator: 2, wall: 1 },
     },
     {
       radius: 7, role: 'innerDefense',

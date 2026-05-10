@@ -62,7 +62,6 @@ export enum EntityType {
   ExciterTurret,
   MassDriverTurret,
   RegenTurret,
-  RepairTurret,
   TimeBomb,
   // Projectiles
   Bullet,

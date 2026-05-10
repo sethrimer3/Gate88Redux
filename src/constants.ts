@@ -25,14 +25,13 @@ export const ENTITY_RADIUS = {
 export const BUILDING_COST = {
   factory: 50,
   researchlab: 150,
-  powergenerator: 120,
+  powergenerator: 40,
   wall: 20,
   missileturret: 80,
   synonymousminelayer: 90,
   exciterturret: 100,
   massdriverturret: 90,
   regenturret: 110,
-  repairturret: 130,
   timebomb: 60,
   signalstation: 70,
   fighteryard: 200,
@@ -50,7 +49,6 @@ export const BUILD_TIME = {
   exciterturret: 210,
   massdriverturret: 200,
   regenturret: 220,
-  repairturret: 240,
   timebomb: 120,
   signalstation: 150,
   fighteryard: 420,
@@ -330,8 +328,8 @@ export const ROCKET_SWARM_COOLDOWN_SECS = 4.0;
  */
 export const CANNON_HOMING_ENERGY_COST = 15;
 
-/** Cooldown (seconds) between cannon homing shots. */
-export const CANNON_HOMING_COOLDOWN_SECS = 1.5;
+/** Cooldown multiplier for cannon homing shots; matches normal cannon cadence. */
+export const CANNON_HOMING_COOLDOWN_MULTIPLIER = 1;
 
 /** Damage multiplier applied to BomberMissile damage for each swarm missile. */
 export const SWARM_MISSILE_DAMAGE_MULTIPLIER = 0.55; // ~19 hp per missile at default bomber damage

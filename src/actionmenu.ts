@@ -299,7 +299,7 @@ function buildCommandRoot(_state: GameState): RadialItem[] {
     { label: '1',   children: buildGroupOrders(ShipGroup.Red)   },
     { label: '2',   children: buildGroupOrders(ShipGroup.Green) },
     { label: '3',   children: buildGroupOrders(ShipGroup.Blue)  },
-    { label: 'ALL', children: buildAllOrders() },
+    { label: '4',   children: buildAllOrders() },
   ];
 }
 
@@ -1137,7 +1137,6 @@ class QuickBuildMenu {
         this.lastDragCell = null;
         return { action: 'none' };
       }
-      if (Input.mousePressed) Input.consumeMouseButton(0);
       const worldPos = camera.screenToWorld(Input.mousePos);
       const cell = worldToCell(worldPos);
       const cells = this.lastDragCell ? gridLineCells(this.lastDragCell, cell) : [cell];
@@ -1220,6 +1219,7 @@ class QuickBuildMenu {
       items.push({ type: 'conduit', label: 'Conduit', cost: CONDUIT_COST });
     }
     addBuilding('powergenerator');
+    addBuilding('wall');
     addBuilding('factory');
     addBuilding('researchlab');
 

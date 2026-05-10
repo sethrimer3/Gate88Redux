@@ -4,7 +4,7 @@ import { Vec2, randomRange } from './math.js';
 import { Team, EntityType, ShipGroup } from './entities.js';
 import { GameState } from './gamestate.js';
 import { BuildingBase, CommandPost, Shipyard } from './building.js';
-import { RepairTurret, TurretBase } from './turret.js';
+import { TurretBase } from './turret.js';
 import { FighterShip, SynonymousFighterShip, SynonymousNovaBomberShip } from './fighter.js';
 import { Bullet, Laser, MassDriverBullet, Missile, SynonymousDroneLaser, SynonymousNovaBomb } from './projectile.js';
 import { HUD } from './hud.js';
@@ -199,34 +199,15 @@ export class PracticeMode {
       if (!b.canFire()) continue;
 
       const playerDist = state.player.position.distanceTo(b.position);
-      if (b.type === EntityType.RepairTurret && b instanceof RepairTurret) {
-        const repairedPos = state.repairDestroyedBuildingInRange(b, b.range);
-        if (repairedPos) {
-          b.consumeShot();
-          b.showBeam(repairedPos);
-          Audio.playSoundAt('regenbullet', playerDist);
-        }
-        continue;
-      }
 
       const target = b.targetEntity;
       if (!target) continue;
       b.consumeShot();
 
       if (b.type === EntityType.RegenTurret) {
-        let beamTarget = target.position;
-        for (const friendly of state.buildings) {
-          if (
-            friendly instanceof BuildingBase &&
-            friendly.alive &&
-            friendly.team === b.team &&
-            friendly.health < friendly.maxHealth &&
-            friendly.position.distanceTo(b.position) <= b.range
-          ) {
-            friendly.takeDamage(-10, b);
-            beamTarget = friendly.position;
-          }
-        }
+        target.takeDamage(-10, b);
+        state.particles.emitHealing(target.position);
+        const beamTarget = target.position;
         b.showBeam(beamTarget);
         Audio.playSoundAt('regenbullet', playerDist);
       } else if (b.type === EntityType.MissileTurret) {

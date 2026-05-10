@@ -32,7 +32,6 @@ import {
   ExciterTurret,
   MassDriverTurret,
   RegenTurret,
-  RepairTurret,
   SynonymousMineLayer,
 } from './turret.js';
 import { BUILDING_COST, BUILD_TIME } from './constants.js';
@@ -216,16 +215,6 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     researchKey: 'regenturret',
     factory: (pos, team) => new RegenTurret(pos, team),
   },
-  repairturret: {
-    key: 'repairturret',
-    label: 'Repair Turret',
-    cost: BUILDING_COST.repairturret,
-    footprintCells: 3,
-    buildTime: BUILD_TIME.repairturret,
-    tier: 'turret',
-    radialLabel: 'Repair\nTurret',
-    factory: (pos, team) => new RepairTurret(pos, team),
-  },
 };
 
 export function buildCostForBuildingType(type: EntityType): number {
@@ -254,8 +243,6 @@ export function buildCostForBuildingType(type: EntityType): number {
       return BUILDING_COST.massdriverturret;
     case EntityType.RegenTurret:
       return BUILDING_COST.regenturret;
-    case EntityType.RepairTurret:
-      return BUILDING_COST.repairturret;
     default:
       return 0;
   }
@@ -287,8 +274,6 @@ export function buildDefForEntityType(type: EntityType): BuildDef | undefined {
       return BUILD_DEFS.massdriverturret;
     case EntityType.RegenTurret:
       return BUILD_DEFS.regenturret;
-    case EntityType.RepairTurret:
-      return BUILD_DEFS.repairturret;
     default:
       return undefined;
   }

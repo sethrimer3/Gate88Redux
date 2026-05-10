@@ -17,7 +17,7 @@ import { WorldGrid, GRID_CELL_SIZE, cellKey, footprintOrigin, footprintCenter } 
 import { PowerGraph } from './power.js';
 import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN, CONDUIT_COST } from './constants.js';
 import { WORLD_WIDTH, WORLD_HEIGHT, ENTITY_RADIUS } from './constants.js';
-import { buildCostForBuildingType, buildDefForEntityType, createBuildingFromDef , type BuildDef } from './builddefs.js';
+import { buildCostForBuildingType, type BuildDef } from './builddefs.js';
 import { Colors, colorToCSS } from './colors.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
 import { type FactionType, type ConfluenceTerritoryCircle, CONFLUENCE_BASE_RADIUS, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_PARENT_EXPAND_DURATION, CONFLUENCE_NEW_CIRCLE_GROW_DURATION, CONFLUENCE_INCLUDE_MARGIN, isConfluenceFaction, isSynonymousFaction } from './confluence.js';
@@ -176,33 +176,6 @@ export class GameState {
 
   removeEntity(entity: Entity): void {
     entity.alive = false;
-  }
-
-  repairDestroyedBuildingInRange(source: BuildingBase, range: number): Vec2 | null {
-    let bestIndex = -1;
-    let bestDist = range;
-    for (let i = 0; i < this.destroyedBuildings.length; i++) {
-      const wreck = this.destroyedBuildings[i];
-      if (wreck.erased || wreck.team !== source.team) continue;
-      const d = source.position.distanceTo(wreck.position);
-      if (d < bestDist) {
-        bestDist = d;
-        bestIndex = i;
-      }
-    }
-    if (bestIndex < 0) return null;
-    const wreck = this.destroyedBuildings[bestIndex];
-    const def = buildDefForEntityType(wreck.type);
-    if (!def) return null;
-    const repairCost = def.cost * 0.5;
-    if (wreck.team === Team.Player && this.resources < repairCost) return null;
-    if (wreck.team === Team.Player) this.resources -= repairCost;
-    const building = createBuildingFromDef(def, wreck.position, wreck.team);
-    building.buildProgress = 1;
-    building.health = building.maxHealth * 0.5;
-    this.destroyedBuildings.splice(bestIndex, 1);
-    this.addEntity(building);
-    return building.position.clone();
   }
 
   /** Return all living entities across every list plus the player. */
@@ -460,7 +433,6 @@ export class GameState {
           target.type === EntityType.ExciterTurret ||
           target.type === EntityType.MassDriverTurret ||
           target.type === EntityType.RegenTurret ||
-          target.type === EntityType.RepairTurret ||
           target.type === EntityType.PlayerShip
         ) {
           Audio.playSoundAt('explode1', playerDist);
@@ -739,15 +711,21 @@ export class GameState {
   }
 
   private updatePlayerShieldAura(): void {
-    // Apply shield aura from each player ship to nearby friendly fighters.
-    for (const ship of this.playerShips.values()) {
-      if (!ship.shieldUnlocked || !ship.alive || ship.shield <= 0) continue;
-      const radius = 260;
-      for (const f of this.fighters) {
-        if (!f.alive || f.docked || f.team !== ship.team) continue;
+    const radius = 90;
+    for (const f of this.fighters) {
+      if (!f.alive || f.docked) continue;
+      let protectedByAura = false;
+      for (const ship of this.playerShips.values()) {
+        if (!ship.shieldUnlocked || !ship.alive || ship.shield <= 0 || ship.team !== f.team) continue;
         if (f.position.distanceTo(ship.position) <= radius) {
-          f.enableShield();
+          protectedByAura = true;
+          break;
         }
+      }
+      if (protectedByAura) {
+        f.enableShield();
+      } else if (f.shieldUnlocked) {
+        f.disableShield();
       }
     }
   }
@@ -909,7 +887,6 @@ export class GameState {
       target.type === EntityType.ExciterTurret ||
       target.type === EntityType.MassDriverTurret ||
       target.type === EntityType.RegenTurret ||
-      target.type === EntityType.RepairTurret ||
       target.type === EntityType.PlayerShip
     ) {
       Audio.playSoundAt('explode1', playerDist);
@@ -1171,7 +1148,7 @@ export class GameState {
         }
       } else if (completed === 'shipShield') {
         for (const f of this.fighters) {
-          if (f.alive && f.team === Team.Player && !f.docked && f.position.distanceTo(this.player.position) <= 260) {
+          if (f.alive && f.team === Team.Player && !f.docked && f.position.distanceTo(this.player.position) <= 90) {
             f.enableShield();
           }
         }
