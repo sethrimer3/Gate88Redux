@@ -15,7 +15,7 @@ import { Camera } from './camera.js';
 import { Audio } from './audio.js';
 import { WorldGrid, GRID_CELL_SIZE, cellKey, footprintOrigin, footprintCenter } from './grid.js';
 import { PowerGraph } from './power.js';
-import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN, CONDUIT_COST } from './constants.js';
+import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN, CONDUIT_COST, RESEARCH_TIME, TICK_RATE } from './constants.js';
 import { WORLD_WIDTH, WORLD_HEIGHT, ENTITY_RADIUS } from './constants.js';
 import { buildCostForBuildingType, type BuildDef } from './builddefs.js';
 import { Colors, colorToCSS } from './colors.js';
@@ -97,6 +97,8 @@ export class GameState {
 
   resources: number = 500;
   researchProgress: ResearchProgress = { item: null, progress: 0, timeNeeded: 0 };
+  researchQueue: string[] = [];
+  completedResearchNotifications: string[] = [];
   researchedItems: Set<string> = new Set();
 
   /**
@@ -1189,8 +1191,20 @@ export class GameState {
           if (b.alive && b.team === Team.Player && b instanceof Wall) b.enablePoweredWall();
         }
       }
+      this.completedResearchNotifications.push(completed);
       this.researchProgress = { item: null, progress: 0, timeNeeded: 0 };
+      this.startNextQueuedResearch();
       Audio.playSound('researchcomplete');
+    }
+  }
+
+  private startNextQueuedResearch(): void {
+    while (!this.researchProgress.item && this.researchQueue.length > 0) {
+      const next = this.researchQueue.shift()!;
+      if (this.researchedItems.has(next)) continue;
+      const ticks = RESEARCH_TIME[next as keyof typeof RESEARCH_TIME];
+      if (ticks === undefined) continue;
+      this.researchProgress = { item: next, progress: 0, timeNeeded: ticks / TICK_RATE };
     }
   }
 

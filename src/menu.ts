@@ -594,7 +594,7 @@ export class MainMenu {
 
     ctx.font = 'bold 38px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.title);
-    ctx.fillText('PAUSED', cx, headerY);
+    drawDecodedText(ctx, 'PAUSED', cx, headerY, 38, this.openedAt, 'center');
     const tw = ctx.measureText('PAUSED').width;
     ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.5);
     ctx.lineWidth = 1;

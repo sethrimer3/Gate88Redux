@@ -8,7 +8,7 @@ import { GameState } from './gamestate.js';
 import { Starfield } from './starfield.js';
 import { Nebula } from './nebula.js';
 import { drawEdgeIndicators, drawRadarOverlay } from './radar.js';
-import { ActionMenu, MenuResult } from './actionmenu.js';
+import { ActionMenu, MenuResult, researchDisplayName } from './actionmenu.js';
 import { HUD } from './hud.js';
 import { MainMenu, MenuAction } from './menu.js';
 import { Colors, TextColors, colorToCSS } from './colors.js';
@@ -423,6 +423,10 @@ export class Game {
 
     // Update core game state (entities, collision, power, resources, research, particles)
     this.state.update(DT);
+    while (this.state.completedResearchNotifications.length > 0) {
+      const item = this.state.completedResearchNotifications.shift()!;
+      this.hud.showMessage(`Research complete: ${researchDisplayName(item)}`, Colors.researchlab_detail, 4);
+    }
 
     // Detect player damage events to trigger the screen damage flash.
     if (this.state.player.alive) {
@@ -1239,6 +1243,9 @@ export class Game {
       case 'research':
         this.startResearch(result.item);
         break;
+      case 'cancelResearch':
+        this.cancelQueuedResearch(result.queueIndex);
+        break;
       default:
         break;
     }
@@ -1345,11 +1352,6 @@ export class Game {
       return;
     }
 
-    if (this.state.researchProgress.item) {
-      this.hud.showMessage('Research already in progress!', Colors.alert2, 3);
-      return;
-    }
-
     const costKey = item as keyof typeof RESEARCH_COST;
     const timeKey = item as keyof typeof RESEARCH_TIME;
     const cost = RESEARCH_COST[costKey];
@@ -1357,6 +1359,10 @@ export class Game {
 
     if (cost === undefined || time === undefined) return;
     if (!(ACTIVE_RESEARCH_ITEMS as readonly string[]).includes(item)) return;
+    if (this.state.researchedItems.has(item) || this.state.researchProgress.item === item || this.state.researchQueue.includes(item)) {
+      this.hud.showMessage(`${researchDisplayName(item)} is already queued or complete`, Colors.alert2, 3);
+      return;
+    }
 
     if (isSynonymousFaction(this.state.factionByTeam, Team.Player)) {
       if (!this.state.synonymous.canSpend(Team.Player, cost)) {
@@ -1371,12 +1377,31 @@ export class Game {
       }
       this.state.resources -= cost;
     }
+    if (this.state.researchProgress.item) {
+      this.state.researchQueue.push(item);
+      this.hud.showMessage(`Queued research: ${researchDisplayName(item)}`, Colors.researchlab_detail, 3);
+      return;
+    }
     this.state.researchProgress = {
       item,
       progress: 0,
       timeNeeded: time / TICK_RATE,
     };
-    this.hud.showMessage(`Researching: ${item}`, Colors.researchlab_detail, 3);
+    this.hud.showMessage(`Researching: ${researchDisplayName(item)}`, Colors.researchlab_detail, 3);
+  }
+
+  private cancelQueuedResearch(queueIndex: number): void {
+    const [item] = this.state.researchQueue.splice(queueIndex, 1);
+    if (!item) return;
+    const cost = RESEARCH_COST[item as keyof typeof RESEARCH_COST];
+    if (cost !== undefined) {
+      if (isSynonymousFaction(this.state.factionByTeam, Team.Player)) {
+        this.state.synonymous.spawnAtBase(Team.Player, cost, this.state.gameTime);
+      } else {
+        this.state.resources += cost;
+      }
+    }
+    this.hud.showMessage(`Canceled research: ${researchDisplayName(item)}`, Colors.alert2, 3);
   }
 
   private getPlayerFightersForCommand(group: ShipCommandGroup): FighterShip[] {

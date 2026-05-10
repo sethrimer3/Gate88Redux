@@ -315,18 +315,29 @@ export class HUD {
   drawResearchStatus(
     ctx: CanvasRenderingContext2D,
     current: { item: string | null; progress: number; timeNeeded: number },
-    completedCount: number,
+    _completedCount: number,
     screenH: number,
   ): void {
-    const x = 10;
-    const y = screenH - 204;
-    ctx.font = `${HUD_FONT_SIZE}px "Poiret One", sans-serif`;
+    if (!current.item) return;
+    const barW = 150;
+    const barH = 14;
+    const x = 242;
+    const y = screenH - 24;
+    const frac = Math.max(0, Math.min(1, current.progress / Math.max(0.001, current.timeNeeded)));
+    ctx.font = `${Math.floor(HUD_FONT_SIZE * 0.5)}px "Poiret One", sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = colorToCSS(Colors.researchlab_detail, 0.75);
-    if (current.item) {
-      const secsLeft = Math.max(0, Math.ceil(current.timeNeeded - current.progress));
-      ctx.fillText(`${secsLeft} sec`, x, y - 34);
-    }
+    ctx.fillText('RESEARCH', x, y - barH - 8);
+    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.2);
+    ctx.fillRect(x, y - barH, barW, barH);
+    const grad = ctx.createLinearGradient(x, 0, x + barW, 0);
+    grad.addColorStop(0, colorToCSS(Colors.researchlab_detail, 0.58));
+    grad.addColorStop(1, colorToCSS(Colors.radar_friendly_status, 0.88));
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, y - barH, barW * frac, barH);
+    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.35);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x, y - barH, barW, barH);
   }
 }

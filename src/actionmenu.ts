@@ -54,7 +54,8 @@ export type MenuResult =
   | { action: 'none' }
   | { action: 'build'; buildingType: string; cell?: { cx: number; cy: number } }
   | { action: 'order'; group: ShipGroup | 'all'; order: string }
-  | { action: 'research'; item: string };
+  | { action: 'research'; item: string }
+  | { action: 'cancelResearch'; item: string; queueIndex: number };
 
 // Re-export kept for convenience so callers don't need to know the origin
 // of TacticalOrder; remove this if the dependency becomes confusing.
@@ -109,6 +110,10 @@ const RESEARCH_LABELS: Record<string, string> = {
   bomberyard: 'Bomber\nYard',
   advancedFighters: 'Advanced\nFighters',
 };
+
+export function researchDisplayName(key: string): string {
+  return (RESEARCH_LABELS[key] ?? key).replace(/\n/g, ' ');
+}
 
 // ---------------------------------------------------------------------------
 // Angle helpers
@@ -240,6 +245,8 @@ function buildBuildRoot(state: GameState): RadialItem[] {
 function buildResearchRoot(state: GameState): RadialItem[] {
   const makeResearchItem = (key: string): RadialItem | null => {
     if (state.researchedItems.has(key)) return null;
+    if (state.researchProgress.item === key) return null;
+    if (state.researchQueue.includes(key)) return null;
     if (!(ACTIVE_RESEARCH_ITEMS as readonly string[]).includes(key)) return null;
     const researchKey = key as keyof typeof RESEARCH_COST;
     return {
@@ -668,11 +675,13 @@ class LeftHoldMenu {
   private hoveredIdx = -1;
   private openedAt = 0;
   private readonly rowRects: Array<{ index: number; x: number; y: number; w: number; h: number }> = [];
+  private readonly queueRects: Array<{ index: number; item: string; x: number; y: number; w: number; h: number }> = [];
 
   constructor(
     private readonly holdKey: string,
     private readonly rootFactory: (state: GameState) => RadialItem[],
     private readonly title: string,
+    private readonly showResearchQueue: boolean = false,
   ) {}
 
   private currentItems(state: GameState): RadialItem[] {
@@ -733,6 +742,18 @@ class LeftHoldMenu {
     }
 
     if (Input.mousePressed) {
+      if (this.showResearchQueue) {
+        for (const rect of this.queueRects) {
+          if (
+            Input.mousePos.x >= rect.x && Input.mousePos.x <= rect.x + rect.w &&
+            Input.mousePos.y >= rect.y && Input.mousePos.y <= rect.y + rect.h
+          ) {
+            Input.consumeMouseButton(0);
+            Audio.playSound('menuselection');
+            return { action: 'cancelResearch', item: rect.item, queueIndex: rect.index };
+          }
+        }
+      }
       const index = this.hoveredIdx >= 0 ? this.hoveredIdx : this.selectedIdx;
       const item = items[index];
       if (item && !item.disabled) {
@@ -768,6 +789,7 @@ class LeftHoldMenu {
     const items = this.currentItems(state);
     this.normalizeSelectedIndex(items);
     this.rowRects.length = 0;
+    this.queueRects.length = 0;
 
     const x = 12;
     const y = 96;
@@ -841,6 +863,50 @@ class LeftHoldMenu {
       }
     }
     ctx.restore();
+    if (this.showResearchQueue) this.drawResearchQueue(ctx, state, x, y + panelH + 8, w);
+  }
+
+  private drawResearchQueue(ctx: CanvasRenderingContext2D, state: GameState, x: number, y: number, w: number): void {
+    const rowH = 28;
+    const gap = 5;
+    const shown = state.researchQueue;
+    const panelH = 38 + Math.max(1, shown.length) * (rowH + gap) + 9;
+    ctx.save();
+    fillMenuPanel(ctx, x, y, w, panelH);
+    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.45);
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, panelH - 1);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = colorToCSS(Colors.alert2, 0.86);
+    drawDecodedText(ctx, 'Research Queue', x + 12, y + 14, 13, this.openedAt);
+
+    if (shown.length === 0) {
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
+      drawDecodedText(ctx, 'No queued research', x + 12, y + 38, 10, this.openedAt);
+      ctx.restore();
+      return;
+    }
+
+    for (let i = 0; i < shown.length; i++) {
+      const item = shown[i];
+      const rowY = y + 36 + i * (rowH + gap);
+      const hovered = Input.mousePos.x >= x + 10 && Input.mousePos.x <= x + w - 10 &&
+        Input.mousePos.y >= rowY && Input.mousePos.y <= rowY + rowH;
+      this.queueRects.push({ index: i, item, x: x + 10, y: rowY, w: w - 20, h: rowH });
+      ctx.fillStyle = hovered ? colorToCSS(Colors.alert1, 0.24) : colorToCSS(Colors.friendly_background, 0.38);
+      ctx.fillRect(x + 10, rowY, w - 20, rowH);
+      ctx.strokeStyle = hovered ? colorToCSS(Colors.alert1, 0.75) : colorToCSS(Colors.radar_gridlines, 0.36);
+      ctx.strokeRect(x + 10.5, rowY + 0.5, w - 21, rowH - 1);
+      ctx.fillStyle = colorToCSS(Colors.general_building, 0.88);
+      drawDecodedText(ctx, `${i + 1}. ${researchDisplayName(item)}`, x + 18, rowY + rowH * 0.5, 10, this.openedAt);
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.62);
+      ctx.fillText('cancel', x + w - 18, rowY + rowH * 0.5);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+    }
+    ctx.restore();
   }
 
   private normalizeSelectedIndex(items: RadialItem[]): void {
@@ -873,12 +939,14 @@ class LeftHoldMenu {
 
 class ShipMenu {
   open = false;
+  private openedAt = 0;
   private readonly weaponRects: Array<{ id: ShipWeaponId; x: number; y: number; w: number; h: number }> = [];
 
   update(state: GameState): boolean {
     const keyDown = Input.isDown('z');
     if (keyDown && !this.open) {
       this.open = true;
+      this.openedAt = performance.now() * 0.001;
       state.player.selectFirstUnlockedWeapon((id) => this.weaponUnlocked(state, id));
       Audio.playSound('menucursor');
     } else if (!keyDown && this.open) {
@@ -941,7 +1009,7 @@ class ShipMenu {
     ctx.textBaseline = 'top';
     ctx.font = '20px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.95);
-    ctx.fillText('[Z] Ship', x + 12, y + 12);
+    drawDecodedText(ctx, '[Z] Ship', x + 12, y + 12, 20, this.openedAt);
 
     const ship = state.player;
     const statsY = y + 52;
@@ -962,13 +1030,13 @@ class ShipMenu {
     ctx.font = '16px "Poiret One", sans-serif';
     for (let i = 0; i < stats.length; i++) {
       ctx.fillStyle = colorToCSS(Colors.general_building, 0.86);
-      ctx.fillText(stats[i], x + 12, statsY + i * 21);
+      drawDecodedText(ctx, stats[i], x + 12, statsY + i * 21, 16, this.openedAt);
     }
 
     const upgradeY = statsY + stats.length * 21 + 20;
     ctx.font = '18px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
-    ctx.fillText('Upgrades', x + 12, upgradeY);
+    drawDecodedText(ctx, 'Upgrades', x + 12, upgradeY, 18, this.openedAt);
     const upgrades = [
       ...(isPlayerSynonymous(state)
         ? [
@@ -988,19 +1056,19 @@ class ShipMenu {
     ctx.font = '16px "Poiret One", sans-serif';
     if (unlockedUpgrades.length === 0) {
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.7);
-      ctx.fillText('No upgrades unlocked', x + 12, upgradeY + 26);
+      drawDecodedText(ctx, 'No upgrades unlocked', x + 12, upgradeY + 26, 16, this.openedAt);
     } else {
       for (let i = 0; i < unlockedUpgrades.length; i++) {
         const [label] = unlockedUpgrades[i];
         ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.9);
-        ctx.fillText(`- ${label}`, x + 12, upgradeY + 26 + i * 20);
+        drawDecodedText(ctx, `- ${label}`, x + 12, upgradeY + 26 + i * 20, 16, this.openedAt);
       }
     }
 
     const weaponsY = upgradeY + 42 + Math.max(1, unlockedUpgrades.length) * 20;
     ctx.font = '18px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
-    ctx.fillText('Weapons', x + 12, weaponsY);
+    drawDecodedText(ctx, 'Weapons', x + 12, weaponsY, 18, this.openedAt);
     const rowH = Math.max(34, Math.min(62, (y + panelH - weaponsY - 54) / SHIP_WEAPON_OPTIONS.length - 6));
     for (let i = 0; i < SHIP_WEAPON_OPTIONS.length; i++) {
       const weapon = SHIP_WEAPON_OPTIONS[i];
@@ -1020,18 +1088,18 @@ class ShipMenu {
       ctx.strokeRect(x + 10.5, wy + 0.5, panelW - 21, rowH - 1);
       ctx.font = '16px "Poiret One", sans-serif';
       ctx.fillStyle = unlocked ? colorToCSS(Colors.general_building, 0.95) : colorToCSS(Colors.radar_gridlines, 0.48);
-      ctx.fillText(weapon.label, x + 20, wy + 7);
+      drawDecodedText(ctx, weapon.label, x + 20, wy + 7, 16, this.openedAt);
       if (rowH >= 46) {
         ctx.font = '14px "Poiret One", sans-serif';
         ctx.fillStyle = unlocked ? colorToCSS(Colors.radar_gridlines, 0.78) : colorToCSS(Colors.radar_gridlines, 0.44);
-        ctx.fillText(unlocked ? weapon.description : 'Research required', x + 20, wy + 29);
+        drawDecodedText(ctx, unlocked ? weapon.description : 'Research required', x + 20, wy + 29, 14, this.openedAt);
       }
     }
 
     ctx.font = '14px "Poiret One", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.7);
-    ctx.fillText('click or mouse wheel changes weapon', x + panelW * 0.5, y + panelH - 18);
+    drawDecodedText(ctx, 'click or mouse wheel changes weapon', x + panelW * 0.5, y + panelH - 18, 14, this.openedAt, 'center');
     ctx.restore();
   }
 
@@ -1051,6 +1119,7 @@ type QuickPaletteItem =
 
 class QuickBuildMenu {
   open = false;
+  private openedAt = 0;
 
   private touchedThisDrag = new Set<string>();
   private buildingDragCells = new Set<string>();
@@ -1072,6 +1141,7 @@ class QuickBuildMenu {
     const keyDown = Input.isDown('q');
     if (keyDown && !this.open) {
       this.open = true;
+      this.openedAt = performance.now() * 0.001;
       this.selectedIndex = 0;
       this.touchedThisDrag.clear();
       this.buildingDragCells.clear();
@@ -1288,7 +1358,8 @@ class QuickBuildMenu {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.85);
-    ctx.fillText(
+    drawDecodedText(
+      ctx,
       selected?.type === 'shape'
         ? '[Q] Synonymous Shape - hold LMB to draw swarm trails - RMB recalls nearby drones'
         : selected?.type === 'building'
@@ -1296,15 +1367,22 @@ class QuickBuildMenu {
         : `[Q] Quick Build - Conduit 2x2 brush $${CONDUIT_COST}/cell - LMB paint - RMB erase - wheel/click selects`,
       screenW * 0.5,
       24,
+      12,
+      this.openedAt,
+      'center',
     );
     ctx.font = '10px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
-    ctx.fillText(
+    drawDecodedText(
+      ctx,
       isSynonymousFaction(state.factionByTeam, Team.Player)
         ? `nanobots: ${state.synonymous.getUnallocatedCount(Team.Player)} ${SYNONYMOUS_CURRENCY_SYMBOL} / ${state.synonymous.totalDroneCount(Team.Player)} total - cell ${cell.cx},${cell.cy}`
         : `conduits: ${state.grid.conduitCount()} - queued: ${state.grid.pendingConduitCount()} - cell ${cell.cx},${cell.cy} - resources: $${Math.floor(state.resources)}`,
       screenW * 0.5,
       40,
+      10,
+      this.openedAt,
+      'center',
     );
   }
 
@@ -1408,7 +1486,7 @@ class QuickBuildMenu {
       const item = palette[i];
       if (item.type === 'header') {
         ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
-        ctx.fillText(item.label, x + 8, y + h * 0.55);
+        drawDecodedText(ctx, item.label, x + 8, y + h * 0.55, 10, this.openedAt);
         continue;
       }
       const selected = i === this.selectedIndex;
@@ -1430,11 +1508,12 @@ class QuickBuildMenu {
       ctx.fillStyle = item.type === 'shape' || canAffordAmount(cost, state)
         ? colorToCSS(Colors.general_building, selected ? 1.0 : 0.82)
         : colorToCSS(Colors.alert1, 0.7);
-      ctx.fillText(label, x + 8, y + h * 0.5);
+      drawDecodedText(ctx, label, x + 8, y + h * 0.5, 10, this.openedAt);
       ctx.textAlign = 'right';
       const price = item.type === 'shape' ? 'free' : formatCost(cost, state);
       ctx.font = usesSynonymousSymbol(price) ? `10px ${MENU_CANVAS_FONT}` : '10px "Poiret One", sans-serif';
-      ctx.fillText(price, x + w - 8, y + h * 0.5);
+      if (usesSynonymousSymbol(price)) ctx.fillText(price, x + w - 8, y + h * 0.5);
+      else drawDecodedText(ctx, price, x + w - 8, y + h * 0.5, 10, this.openedAt, 'right');
       ctx.font = '10px "Poiret One", sans-serif';
       ctx.textAlign = 'left';
     }
@@ -1448,7 +1527,7 @@ class QuickBuildMenu {
 
 export class ActionMenu {
   private shipMenu     = new ShipMenu();
-  private researchMenu = new LeftHoldMenu('x', buildResearchRoot, '[X] Research');
+  private researchMenu = new LeftHoldMenu('x', buildResearchRoot, '[X] Research', true);
   private paintMenu    = new QuickBuildMenu();
 
   /** True when any of the four hold menus / paint mode is currently open. */
