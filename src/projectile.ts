@@ -739,6 +739,14 @@ export class ExciterBeam extends ProjectileBase {
 // ---------------------------------------------------------------------------
 
 export class MassDriverBullet extends ProjectileBase {
+  private burstElapsed = 0;
+  private burstPulseIndex = 0;
+  private bursting = false;
+  private readonly travelRadius = 14;
+  private readonly burstDuration = 4.35;
+  private readonly expansionDuration = 0.28;
+  readonly blastRadius = 0;
+
   constructor(
     team: Team,
     position: Vec2,
@@ -755,23 +763,90 @@ export class MassDriverBullet extends ProjectileBase {
       lifetime: WEAPON_STATS.massdriverbullet.range / WEAPON_STATS.massdriverbullet.speed,
       source,
     });
+    this.radius = this.travelRadius;
+  }
+
+  triggerBurst(): void {
+    if (this.bursting) return;
+    this.bursting = true;
+    this.burstElapsed = 0;
+    this.burstPulseIndex = 0;
+    this.velocity = new Vec2(0, 0);
+    this.lifetime = this.burstDuration;
+  }
+
+  override update(dt: number): void {
+    if (!this.alive) return;
+    if (!this.bursting) {
+      this.position = this.position.add(this.velocity.scale(dt));
+      this.updateTrail(dt);
+      this.lifetime -= dt;
+      if (this.lifetime <= 0) this.triggerBurst();
+      return;
+    }
+
+    this.burstElapsed += dt;
+    this.lifetime -= dt;
+    this.radius = this.currentBlastRadius();
+    if (this.lifetime <= 0) this.destroy();
+  }
+
+  consumeDamagePulse(): number | null {
+    if (!this.bursting) return null;
+    const pulseAt = this.burstPulseIndex;
+    if (this.burstPulseIndex < 5 && this.burstElapsed >= pulseAt) {
+      this.burstPulseIndex++;
+      return this.currentBlastRadius();
+    }
+    return null;
+  }
+
+  get isBursting(): boolean {
+    return this.bursting;
+  }
+
+  private currentBlastRadius(): number {
+    const grow = Math.min(1, this.burstElapsed / this.expansionDuration);
+    const eased = 1 - Math.pow(1 - grow, 3);
+    return this.travelRadius * (1 + eased * 6);
   }
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     if (!this.alive) return;
     const screen = camera.worldToScreen(this.position);
-    const r = 3 * camera.zoom;
-    this.drawTrail(ctx, camera, colorToCSS(Colors.massdriverturret_detail, 0.85));
-    ctx.fillStyle = colorToCSS(Colors.massdriverturret_detail);
-    ctx.beginPath();
-    ctx.arc(screen.x, screen.y, r, 0, Math.PI * 2);
-    ctx.fill();
+    const travelProgress = this.maxLifetime > 0 ? Math.min(1, Math.max(0, 1 - this.lifetime / this.maxLifetime)) : 1;
+    const shrink = this.bursting ? Math.max(0, 1 - this.burstElapsed / this.burstDuration) : Math.max(0, 1 - travelProgress);
+    const r = (this.bursting ? this.currentBlastRadius() : this.travelRadius) * camera.zoom;
+    if (!this.bursting) this.drawTrail(ctx, camera, colorToCSS(Colors.alert2, 0.65), 0.18, 5);
 
-    // Bright core
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const crackle = 0.65 + 0.35 * Math.sin((this.burstElapsed + this.lifetime) * 34 + this.id);
+    ctx.fillStyle = colorToCSS(Colors.explosion, (this.bursting ? 0.11 : 0.24) * (0.35 + shrink * 0.65));
     ctx.beginPath();
-    ctx.arc(screen.x, screen.y, r * 0.4, 0, Math.PI * 2);
+    ctx.arc(screen.x, screen.y, r * (this.bursting ? 0.88 : 1.9 * shrink), 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = colorToCSS(Colors.alert2, (this.bursting ? 0.35 : 0.55) * crackle);
+    ctx.lineWidth = Math.max(1, camera.zoom * (this.bursting ? 3 : 5));
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, r * (this.bursting ? 1 : 0.9), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = colorToCSS(Colors.particles_switch, 0.24 * crackle);
+    ctx.lineWidth = Math.max(1, camera.zoom * 1.5);
+    for (let i = 0; i < 5; i++) {
+      const a = this.burstElapsed * (5.5 + i) + i * 1.7 + this.id;
+      const inner = r * (0.22 + (i % 2) * 0.2);
+      const outer = r * (0.74 + (i % 3) * 0.09);
+      ctx.beginPath();
+      ctx.moveTo(screen.x + Math.cos(a) * inner, screen.y + Math.sin(a) * inner);
+      ctx.lineTo(screen.x + Math.cos(a + 0.55) * outer, screen.y + Math.sin(a + 0.55) * outer);
+      ctx.stroke();
+    }
+    ctx.fillStyle = colorToCSS(Colors.alert2, this.bursting ? 0.28 : 0.85);
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, Math.max(2, r * (this.bursting ? 0.08 : 0.32)), 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 }
 

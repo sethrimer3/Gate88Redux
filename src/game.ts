@@ -13,7 +13,7 @@ import { HUD } from './hud.js';
 import { MainMenu, MenuAction } from './menu.js';
 import { Colors, colorToCSS } from './colors.js';
 import { Team, EntityType, ShipGroup, Entity } from './entities.js';
-import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS, ACTIVE_RESEARCH_ITEMS } from './constants.js';
+import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS, ACTIVE_RESEARCH_ITEMS, SHIP_STATS } from './constants.js';
 import { GATLING_OVERDRIVE_DURATION_SECS, GATLING_OVERHEAT_DURATION_SECS, GATLING_OVERDRIVE_FIRE_RATE_DIVISOR } from './constants.js';
 import { LASER_MAX_CHARGE_SECS, LASER_CHARGE_COOLDOWN_SECS, LASER_BURST_BASE_MULTIPLIER, LASER_BURST_ENERGY_SCALING } from './constants.js';
 import { ROCKET_SWARM_COUNT, ROCKET_SWARM_SPREAD_DEGREES, ROCKET_SWARM_ENERGY_COST, ROCKET_SWARM_COOLDOWN_SECS } from './constants.js';
@@ -434,11 +434,15 @@ export class Game {
       const td = this.state.player.thrustDir;
       const thrustAngle = Math.atan2(td.y, td.x);
       const exhaustCount = this.state.player.isBoosting ? 3 : 1;
+      const speed = Math.hypot(this.state.player.velocity.x, this.state.player.velocity.y);
+      const maxSpeed = this.state.player.maxSpeed * (this.state.player.isBoosting ? 1.8 : 1);
+      const speedFraction = maxSpeed > 0 ? Math.min(1, speed / maxSpeed) : 0;
       for (let i = 0; i < exhaustCount; i++) {
         this.state.particles.emitExhaust(
           this.state.player.position,
           thrustAngle,
           Team.Player,
+          { speedFraction, varyLightness: true },
         );
       }
     }
@@ -452,6 +456,10 @@ export class Game {
           this.state.player.angle,
           -1,
           Team.Player,
+          {
+            speedFraction: this.playerSpeedFraction(),
+            varyLightness: true,
+          },
         );
       }
       if (this.state.player.isStrafingRight) {
@@ -460,8 +468,26 @@ export class Game {
           this.state.player.angle,
           1,
           Team.Player,
+          {
+            speedFraction: this.playerSpeedFraction(),
+            varyLightness: true,
+          },
         );
       }
+    }
+
+    for (const f of this.state.fighters) {
+      if (!f.alive || f.docked) continue;
+      const speed = Math.hypot(f.velocity.x, f.velocity.y);
+      const maxSpeed = this.fighterMaxSpeed(f);
+      const speedFraction = maxSpeed > 0 ? Math.min(1, speed / maxSpeed) : 0;
+      if (speedFraction <= 0.05) continue;
+      this.state.particles.emitExhaust(
+        f.position,
+        f.angle,
+        f.team,
+        { speedFraction, scaleSizeWithSpeed: true },
+      );
     }
 
     // Skip song with N key
@@ -2576,7 +2602,7 @@ export class Game {
     ctx.roundRect(x - boxW / 2, y - boxH / 2, boxW, boxH, 4);
     ctx.fill();
     ctx.stroke();
-    ctx.fillStyle = colorToCSS(Colors.general_building, 0.95);
+    ctx.fillStyle = colorToCSS(hovered.team === Team.Enemy ? Colors.enemyfire : Colors.general_building, 0.95);
     ctx.fillText(text, x, y + 1);
     ctx.restore();
   }
@@ -2584,6 +2610,18 @@ export class Game {
   private speedGlowFactor(speed: number, maxSpeed: number): number {
     const normalized = maxSpeed > 0 ? Math.min(1, Math.max(0, speed / maxSpeed)) : 0;
     return 0.1 + normalized * 0.9;
+  }
+
+  private playerSpeedFraction(): number {
+    const speed = Math.hypot(this.state.player.velocity.x, this.state.player.velocity.y);
+    const maxSpeed = this.state.player.maxSpeed * (this.state.player.isBoosting ? 1.8 : 1);
+    return maxSpeed > 0 ? Math.min(1, Math.max(0, speed / maxSpeed)) : 0;
+  }
+
+  private fighterMaxSpeed(fighter: FighterShip): number {
+    return fighter instanceof BomberShip || fighter instanceof SynonymousNovaBomberShip
+      ? SHIP_STATS.bomber.speed
+      : SHIP_STATS.fighter.speed;
   }
 
   private drawGlowLayer(): void {
@@ -2661,16 +2699,11 @@ export class Game {
       }
       // Engine exhaust glow: speed controls both size and opacity.
       if (this.visualPreset.engineGlow) {
-        const td = ship.thrustDir;
-        const speedFactor = this.speedGlowFactor(Math.hypot(ship.velocity.x, ship.velocity.y), ship.maxSpeed * 1.6);
-        const exhaustOffset = new Vec2(
-          ship.position.x - td.x * r * 1.2,
-          ship.position.y - td.y * r * 1.2,
-        );
+        const speedFactor = this.speedGlowFactor(Math.hypot(ship.velocity.x, ship.velocity.y), ship.maxSpeed * 1.8);
         const exhaustColor = ship.team === Team.Player ? Colors.particles_friendly_exhaust : Colors.particles_enemy_exhaust;
         const exhaustAlpha = (ship.isBoosting ? 0.22 : 0.14) * speedFactor;
-        glow.circleWorld(this.camera, exhaustOffset, r * 2.4 * speedFactor, exhaustColor, exhaustAlpha);
-        glow.circleWorld(this.camera, exhaustOffset, r * 1.1, Colors.particles_switch, exhaustAlpha * 0.4);
+        glow.circleWorld(this.camera, ship.position, r * 2.4 * speedFactor, exhaustColor, exhaustAlpha);
+        glow.circleWorld(this.camera, ship.position, r * 1.1, Colors.particles_switch, exhaustAlpha * 0.4);
       }
     }
 
@@ -2680,35 +2713,35 @@ export class Game {
         if (!f.alive || f.docked || !this.camera.isOnScreen(f.position, 60)) continue;
         const r = f.radius;
         const exhaustColor = f.team === Team.Player ? Colors.particles_friendly_exhaust : Colors.particles_enemy_exhaust;
-        // Position glow slightly behind the fighter's facing direction.
-        const exhaustPos = new Vec2(
-          f.position.x - Math.cos(f.angle) * r * 1.1,
-          f.position.y - Math.sin(f.angle) * r * 1.1,
-        );
         const speed = Math.hypot(f.velocity.x, f.velocity.y);
-        const speedFactor = this.speedGlowFactor(speed, 250);
-        glow.circleWorld(this.camera, exhaustPos, r * 2.8 * speedFactor, exhaustColor, 0.14 * speedFactor);
+        const speedFactor = this.speedGlowFactor(speed, this.fighterMaxSpeed(f));
+        glow.circleWorld(this.camera, f.position, r * 2.8 * speedFactor, exhaustColor, 0.14 * speedFactor);
       }
     }
 
-    // Bullet glow — lightweight shader-like streak + core bloom on live rounds.
+    // Bullet glow — ramps up with projectile age and keeps screen conversion work low.
     if (this.visualPreset.bulletGlow) {
       for (const p of this.state.projectiles) {
         if (!p.alive || !this.camera.isOnScreen(p.position, 26)) continue;
         if (p instanceof Laser || p instanceof ChargedLaserBurst) continue; // already handled above
         if (p instanceof GuidedMissile || p instanceof BomberMissile || p instanceof SwarmMissile) continue; // handled above
+        const lifeProgress = p.maxLifetime > 0 ? Math.min(1, Math.max(0, 1 - p.lifetime / p.maxLifetime)) : 1;
+        if (lifeProgress <= 0.02) continue;
         const bulletColor = p.team === Team.Player ? Colors.friendlyfire : Colors.enemyfire;
         const speed = Math.hypot(p.velocity.x, p.velocity.y);
         const speedFactor = Math.min(1, speed / 520);
-        const trailLen = p.radius * (7.5 + speedFactor * 7.5);
+        const screen = this.camera.worldToScreen(p.position);
+        const zoom = this.camera.zoom;
+        const glowFactor = lifeProgress * lifeProgress;
+        const trailLen = p.radius * (7.5 + speedFactor * 7.5) * zoom * glowFactor;
         const tail = new Vec2(
-          p.position.x - Math.cos(p.angle) * trailLen,
-          p.position.y - Math.sin(p.angle) * trailLen,
+          screen.x - Math.cos(p.angle) * trailLen,
+          screen.y - Math.sin(p.angle) * trailLen,
         );
         // Additive line bloom acts like a tiny post-process streak without per-pixel shaders.
-        glow.lineWorld(this.camera, tail, p.position, bulletColor, 0.045 + speedFactor * 0.06, p.radius * (2.8 + speedFactor * 1.5));
-        glow.circleWorld(this.camera, p.position, p.radius * (5.2 + speedFactor * 1.6), bulletColor, 0.055 + speedFactor * 0.03);
-        glow.circleWorld(this.camera, p.position, p.radius * (2.1 + speedFactor * 0.4), Colors.particles_switch, 0.06);
+        glow.lineScreen(tail, screen, bulletColor, (0.045 + speedFactor * 0.06) * glowFactor, p.radius * (2.8 + speedFactor * 1.5) * zoom * glowFactor);
+        glow.circleScreen(screen, p.radius * (5.2 + speedFactor * 1.6) * zoom * glowFactor, bulletColor, (0.055 + speedFactor * 0.03) * glowFactor);
+        glow.circleScreen(screen, p.radius * (2.1 + speedFactor * 0.4) * zoom * glowFactor, Colors.particles_switch, 0.06 * glowFactor);
       }
     }
   }

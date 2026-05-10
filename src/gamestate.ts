@@ -6,7 +6,7 @@ import { PlayerShip } from './ship.js';
 import { BuildingBase, CommandPost } from './building.js';
 import { Shipyard } from './building.js';
 import { SynonymousMineLayer, TurretBase } from './turret.js';
-import { ProjectileBase, RegenBullet, SynonymousNovaBomb } from './projectile.js';
+import { MassDriverBullet, ProjectileBase, RegenBullet, SynonymousNovaBomb } from './projectile.js';
 import { isSynonymousDriftMine } from './synonymousMine.js';
 import { FighterShip } from './fighter.js';
 import { ParticleSystem } from './particles.js';
@@ -287,6 +287,12 @@ export class GameState {
     for (const p of this.projectiles) {
       if (!p.alive) continue;
       p.update(dt);
+      if (p instanceof MassDriverBullet) {
+        const pulseRadius = p.consumeDamagePulse();
+        if (pulseRadius !== null) {
+          this.applyMassDriverPulse(p, pulseRadius);
+        }
+      }
       if (p instanceof SynonymousNovaBomb && p.consumePulse()) {
         this.applyNovaBombPulse(p);
       }
@@ -385,6 +391,7 @@ export class GameState {
   /** Returns true if the projectile hit and was consumed. */
   private checkHit(proj: ProjectileBase, target: Entity, isRegen: boolean): boolean {
     if (proj instanceof SynonymousNovaBomb) return false;
+    if (proj instanceof MassDriverBullet && proj.isBursting) return false;
     // Regen bullets heal same-team, damage other-team
     if (isRegen && proj.team === target.team) {
       if (target.health >= target.maxHealth) return false;
@@ -400,6 +407,15 @@ export class GameState {
 
     // Normal projectile: only hit enemies
     if (proj.team === target.team) return false;
+
+    if (proj instanceof MassDriverBullet) {
+      const dist = proj.position.distanceTo(target.position);
+      if (dist < proj.radius + target.radius) {
+        proj.triggerBurst();
+        return true;
+      }
+      return false;
+    }
 
     if (isSynonymousFaction(this.factionByTeam, target.team)) {
       const handled = this.synonymous.damageDroneAt(target.team, proj.position, proj.damage, {
@@ -627,6 +643,7 @@ export class GameState {
     // --- Projectile blocking -----------------------------------------------
     for (const proj of this.projectiles) {
       if (!proj.alive) continue;
+      if (proj instanceof MassDriverBullet && proj.isBursting) continue;
       const cx = Math.floor(proj.position.x / GRID_CELL_SIZE);
       const cy = Math.floor(proj.position.y / GRID_CELL_SIZE);
       const conduitTeam = this.grid.conduitTeam(cx, cy);
@@ -637,6 +654,10 @@ export class GameState {
         this.recordDestroyedConduit(cx, cy, conduitTeam);
       }
       this.power.markDirty();
+      if (proj instanceof MassDriverBullet) {
+        proj.triggerBurst();
+        continue;
+      }
       proj.destroy();
       if (this.projectileBlastRadius(proj) > 0) {
         this.detonateProjectile(proj);
@@ -1042,6 +1063,21 @@ export class GameState {
     if (best.type === EntityType.CommandPost) return null;
     best.startDeleting();
     return best;
+  }
+
+  private applyMassDriverPulse(proj: MassDriverBullet, radius: number): void {
+    for (const e of this.allEntities()) {
+      if (!e.alive || e === proj || e.team === Team.Neutral || e.team === proj.team) continue;
+      const d = e.position.distanceTo(proj.position);
+      if (d > radius + e.radius) continue;
+      const falloff = Math.max(0.45, 1 - d / Math.max(1, radius));
+      e.takeDamage(proj.damage * falloff, proj);
+      this.recentlyDamaged.add(e.id);
+      if (!e.alive) this.playEntityExplosionSound(e);
+    }
+    this.particles.emitExplosion(proj.position, radius * 0.18);
+    this.ringEffects.spawn('shockwave', proj.position.clone(), radius * 0.35, radius, 0.22, 1.1);
+    Audio.playSoundAt('explode1', this.player.position.distanceTo(proj.position));
   }
 
   sellAtGridCell(pos: Vec2, team: Team): 'building' | 'conduit' | null {

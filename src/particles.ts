@@ -49,6 +49,16 @@ function createParticle(): Particle {
   };
 }
 
+function lightenColor(color: Color, amount: number): Color {
+  const t = Math.min(1, Math.max(0, amount));
+  return {
+    r: color.r + (255 - color.r) * t,
+    g: color.g + (255 - color.g) * t,
+    b: color.b + (255 - color.b) * t,
+    intensity: color.intensity,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // ParticleSystem
 // ---------------------------------------------------------------------------
@@ -78,7 +88,12 @@ export class ParticleSystem {
 
   // --- Emitters ---
 
-  emitExhaust(pos: Vec2, angle: number, team: Team): void {
+  emitExhaust(
+    pos: Vec2,
+    angle: number,
+    team: Team,
+    options: { speedFraction?: number; scaleSizeWithSpeed?: boolean; varyLightness?: boolean } = {},
+  ): void {
     const count = 2;
     let color: Color;
     switch (team) {
@@ -91,21 +106,24 @@ export class ParticleSystem {
       default:
         color = Colors.particles_neutral_exhaust;
     }
+    const speedFraction = Math.min(1, Math.max(0, options.speedFraction ?? 0));
+    const spreadRange = 0.06 + 0.24 * (1 - speedFraction);
+    const sizeScale = options.scaleSizeWithSpeed ? 0.2 + 0.8 * speedFraction : 1;
     const backAngle = angle + Math.PI;
     for (let i = 0; i < count; i++) {
       const p = this.acquire();
       p.active = true;
       p.x = pos.x;
       p.y = pos.y;
-      const spread = randomRange(-0.3, 0.3);
+      const spread = randomRange(-spreadRange, spreadRange);
       const spd = randomRange(30, 80);
       p.vx = Math.cos(backAngle + spread) * spd;
       p.vy = Math.sin(backAngle + spread) * spd;
-      p.color = color;
+      p.color = options.varyLightness ? lightenColor(color, randomRange(0, 0.34)) : color;
       p.alpha = 1;
       p.life = randomRange(0.2, 0.5);
       p.maxLife = p.life;
-      p.size = randomRange(1, 2.5);
+      p.size = randomRange(1, 2.5) * sizeScale;
       p.additive = false;
     }
   }
@@ -118,7 +136,13 @@ export class ParticleSystem {
    *                 +1 = strafing right (left-side thruster fires, exhaust exits leftward)
    * @param team     Used to select exhaust colour
    */
-  emitSideExhaust(pos: Vec2, angle: number, sideSign: number, team: Team): void {
+  emitSideExhaust(
+    pos: Vec2,
+    angle: number,
+    sideSign: number,
+    team: Team,
+    options: { speedFraction?: number; varyLightness?: boolean } = {},
+  ): void {
     const count = 2;
     let color: Color;
     switch (team) {
@@ -131,6 +155,8 @@ export class ParticleSystem {
       default:
         color = Colors.particles_neutral_exhaust;
     }
+    const speedFraction = Math.min(1, Math.max(0, options.speedFraction ?? 0));
+    const spreadRange = 0.06 + 0.24 * (1 - speedFraction);
     // Thruster is on the opposite side from the strafe direction.
     // offsetAngle puts the spawn point on the thruster side.
     // exhaustAngle is opposite to the strafe, matching Newton's 3rd law.
@@ -143,11 +169,11 @@ export class ParticleSystem {
       const offsetDist = randomRange(3, 8);
       p.x = pos.x + Math.cos(offsetAngle) * offsetDist;
       p.y = pos.y + Math.sin(offsetAngle) * offsetDist;
-      const spread = randomRange(-0.3, 0.3);
+      const spread = randomRange(-spreadRange, spreadRange);
       const spd = randomRange(25, 60);
       p.vx = Math.cos(exhaustAngle + spread) * spd;
       p.vy = Math.sin(exhaustAngle + spread) * spd;
-      p.color = color;
+      p.color = options.varyLightness ? lightenColor(color, randomRange(0, 0.34)) : color;
       p.alpha = 0.9;
       p.life = randomRange(0.15, 0.35);
       p.maxLife = p.life;

@@ -6,7 +6,7 @@ import { GameState } from './gamestate.js';
 import { BuildingBase, CommandPost, Shipyard } from './building.js';
 import { RepairTurret, TurretBase } from './turret.js';
 import { FighterShip, SynonymousFighterShip, SynonymousNovaBomberShip } from './fighter.js';
-import { Bullet, Laser, Missile, SynonymousDroneLaser, SynonymousNovaBomb } from './projectile.js';
+import { Bullet, Laser, MassDriverBullet, Missile, SynonymousDroneLaser, SynonymousNovaBomb } from './projectile.js';
 import { HUD } from './hud.js';
 import { Colors } from './colors.js';
 import { Audio } from './audio.js';
@@ -46,6 +46,7 @@ export class PracticeMode {
   enemyResources: number = 0;
   /** Accumulator so the AI raid timer doesn't depend on dt at low FPS. */
   private raidTimer: number = 30;
+  private enemyWaveTimer: number = 0;
 
   score: PracticeScore = { basesDestroyed: 0, timeSurvived: 0 };
   gameOver: boolean = false;
@@ -60,6 +61,7 @@ export class PracticeMode {
     // Difficulty raises raid cadence floor.
     const idx = difficultyIndex(cfg.difficulty);
     this.raidTimer = [60, 45, 30, 22, 16][idx];
+    this.enemyWaveTimer = [0, 0, 34, 28, 22][idx];
   }
 
   /**
@@ -157,7 +159,7 @@ export class PracticeMode {
     this.updateEnemyShipyards(state);
 
     // Combat AI for already-launched fighters.
-    this.updateEnemyFighters(state);
+    this.updateEnemyFighters(state, dt);
   }
 
   private checkVictory(state: GameState): boolean {
@@ -242,7 +244,7 @@ export class PracticeMode {
         state.addEntity(new Bullet(b.team, b.position.clone(), b.turretAngle, b));
         Audio.playSoundAt('exciterbullet', playerDist);
       } else if (b.type === EntityType.MassDriverTurret) {
-        state.addEntity(new Bullet(b.team, b.position.clone(), b.turretAngle, b));
+        state.addEntity(new MassDriverBullet(b.team, b.position.clone(), b.turretAngle, b));
         Audio.playSoundAt('massdriverbullet', playerDist);
       } else {
         state.addEntity(new Bullet(b.team, b.position.clone(), b.turretAngle, b));
@@ -274,16 +276,22 @@ export class PracticeMode {
         b.activeShips++;
         state.addEntity(fighter);
 
-        const target = this.findNearestPlayerBuilding(state, b.position);
-        if (target) {
-          fighter.order = 'attack';
-          fighter.targetPos = target.position.clone();
+        if (this.shouldStageEnemyWaves()) {
+          fighter.order = 'waypoint';
+          fighter.targetPos = this.enemyRallyPoint(state, b.position, b.activeShips);
+        } else {
+          const target = this.findNearestPlayerBuilding(state, b.position);
+          if (target) {
+            fighter.order = 'attack';
+            fighter.targetPos = target.position.clone();
+          }
         }
       }
     }
   }
 
-  private updateEnemyFighters(state: GameState): void {
+  private updateEnemyFighters(state: GameState, dt: number): void {
+    this.updateEnemyAttackWaves(state, dt);
     // Determine the best strategic target based on the planner's doctrine.
     let doctrineTarget: { position: Vec2 } | null = null;
     if (this.planner) {
@@ -295,6 +303,10 @@ export class PracticeMode {
       if (!f.alive || f.docked || f.team !== Team.Enemy) continue;
       // Skip builder drones — they are utility units, not combatants.
       if (isBuilderDrone(f)) continue;
+
+      if (this.shouldStageEnemyWaves() && (f.order === 'waypoint' || f.order === 'follow' || f.order === 'protect')) {
+        continue;
+      }
 
       if (f.order === 'idle' || !f.targetPos) {
         // Doctrine-based strategic targets take precedence over opportunistic
@@ -339,6 +351,44 @@ export class PracticeMode {
         }
       }
     }
+  }
+
+  private shouldStageEnemyWaves(): boolean {
+    return difficultyIndex(this.config.difficulty) >= 2;
+  }
+
+  private enemyRallyPoint(state: GameState, fallback: Vec2, salt: number): Vec2 {
+    const cp = state.getEnemyCommandPost();
+    const center = cp?.position ?? fallback;
+    const angle = salt * 2.399963 + state.gameTime * 0.05;
+    const radius = 120 + (salt % 5) * 18;
+    return new Vec2(
+      center.x + Math.cos(angle) * radius,
+      center.y + Math.sin(angle) * radius,
+    );
+  }
+
+  private updateEnemyAttackWaves(state: GameState, dt: number): void {
+    if (!this.shouldStageEnemyWaves()) return;
+    this.enemyWaveTimer -= dt;
+    const staged = state.fighters.filter((f) =>
+      f.alive &&
+      !f.docked &&
+      f.team === Team.Enemy &&
+      !isBuilderDrone(f) &&
+      (f.order === 'waypoint' || f.order === 'follow' || f.order === 'protect')
+    );
+    const idx = difficultyIndex(this.config.difficulty);
+    const threshold = [0, 0, 7, 10, 13][idx];
+    if (staged.length < threshold && this.enemyWaveTimer > 0) return;
+    if (staged.length === 0) return;
+
+    const target = this.findNearestPlayerBuilding(state, state.player.position) ?? { position: state.player.position };
+    for (const f of staged) {
+      f.order = 'attack';
+      f.targetPos = target.position.clone();
+    }
+    this.enemyWaveTimer = [0, 0, 34, 28, 22][idx];
   }
 
   private damageSynonymousFighterLaser(state: GameState, start: Vec2, end: Vec2, source: FighterShip): void {

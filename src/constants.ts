@@ -218,10 +218,10 @@ export const WEAPON_STATS = {
     range: 350,
   },
   massdriverbullet: {
-    damage: 30,
-    speed: 700,
-    fireRate: 45,
-    range: 1000,
+    damage: 6,
+    speed: 135,
+    fireRate: 480,
+    range: 520,
   },
   regenbullet: {
     damage: -1,    // heals

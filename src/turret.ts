@@ -245,11 +245,26 @@ export class MassDriverTurret extends TurretBase {
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.moveTo(screen.x, screen.y);
-    ctx.lineTo(
-      screen.x + Math.cos(this.turretAngle) * r * 1.2,
-      screen.y + Math.sin(this.turretAngle) * r * 1.2,
-    );
+    const tipX = screen.x + Math.cos(this.turretAngle) * r * 1.2;
+    const tipY = screen.y + Math.sin(this.turretAngle) * r * 1.2;
+    ctx.lineTo(tipX, tipY);
     ctx.stroke();
+
+    if (this.targetEntity && this.fireTimer <= this.fireRate * DT * 0.42) {
+      const charge = 1 - Math.max(0, this.fireTimer) / Math.max(0.001, this.fireRate * DT * 0.42);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = colorToCSS(Colors.alert2, 0.18 + charge * 0.42);
+      ctx.lineWidth = 1 + charge * 3;
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, r * (0.25 + charge * 0.65), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = colorToCSS(Colors.explosion, 0.12 + charge * 0.28);
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, r * (0.18 + charge * 0.32), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 }
 
