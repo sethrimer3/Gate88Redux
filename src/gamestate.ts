@@ -293,12 +293,10 @@ export class GameState {
     // Resources from factories
     this.accumulateResources(dt);
 
-    // PR3: ship ↔ conduit interaction. Enemy fighters on friendly powered
-    // conduits are bounced back and take light damage. Projectiles that hit
-    // a powered opposing conduit are destroyed. Unpowered conduits are
-    // intangible (pass-through for ships and shots alike).
+    // PR3: conduit interaction. Conduits are flight lanes now: ships pass
+    // over them, while opposing shots can still chip powered conduit cells.
     this.applyConduitInteraction(dt);
-    this.applyWallInteraction();
+    this.applyStructureInteraction();
 
     // Tick pending conduit fronts. Every eligible frontier cell builds together.
     this.tickPendingConduits(dt);
@@ -387,8 +385,8 @@ export class GameState {
       return false;
     }
 
-    // Walls block shots from both teams; other friendly entities keep normal no-friendly-fire rules.
-    if (proj.team === target.team && target.type !== EntityType.Wall) return false;
+    // Friendly shots pass over friendly structures, including walls.
+    if (proj.team === target.team) return false;
     if (target.type === EntityType.Wall && proj.damage < 0) return false;
 
     if (proj instanceof MassDriverBullet) {
@@ -549,80 +547,17 @@ export class GameState {
   }
 
   // -----------------------------------------------------------------------
-  // Conduit interaction (PR3) — powered conduits block ships + shots
+  // Conduit interaction (PR3) — powered conduits block hostile shots only
   // -----------------------------------------------------------------------
 
   /**
-   * Powered conduits of team T block entities of team ≠ T:
-   *   • Ships entering a powered opposing conduit cell are bounced back
-   *     (velocity reflected on the penetration axis) and take a small
-   *     damage tick so camping is punished.
-   *   • Projectiles that enter a powered opposing conduit cell are destroyed
-   *     immediately (shots cannot pass through powered conduit walls).
-   * Unpowered conduits are fully intangible — ships and shots pass freely.
+   * Conduits do not block movement for any team. Powered conduits still act as
+   * vulnerable infrastructure: opposing shots that enter a powered conduit cell
+   * damage the conduit and are consumed.
    */
-  private applyConduitInteraction(dt: number): void {
+  private applyConduitInteraction(_dt: number): void {
     if (this.grid.conduitCount() === 0) return;
 
-    // --- Ship bounce -------------------------------------------------------
-    const CONDUIT_DPS = 0.5; // damage while touching an opposing powered conduit
-
-    const shipsToCheck: Entity[] = [];
-    for (const ship of this.playerShips.values()) {
-      if (ship.alive) shipsToCheck.push(ship);
-    }
-    for (const f of this.fighters) {
-      if (f.alive && !f.docked) shipsToCheck.push(f);
-    }
-
-    for (const ship of shipsToCheck) {
-      const cx = Math.floor(ship.position.x / GRID_CELL_SIZE);
-      const cy = Math.floor(ship.position.y / GRID_CELL_SIZE);
-      const conduitTeam = this.grid.conduitTeam(cx, cy);
-      // Only opposing-team powered conduits block ships.
-      if (conduitTeam === null || conduitTeam === ship.team) continue;
-      if (!this.power.isCellEnergized(conduitTeam, cx, cy)) continue;
-
-      // Find the smallest penetration axis and push the ship out of the cell.
-      const cellLeft   = cx * GRID_CELL_SIZE;
-      const cellRight  = cellLeft + GRID_CELL_SIZE;
-      const cellTop    = cy * GRID_CELL_SIZE;
-      const cellBottom = cellTop + GRID_CELL_SIZE;
-
-      const overlapL = ship.position.x - cellLeft;
-      const overlapR = cellRight  - ship.position.x;
-      const overlapT = ship.position.y - cellTop;
-      const overlapB = cellBottom - ship.position.y;
-
-      const minH = Math.min(overlapL, overlapR);
-      const minV = Math.min(overlapT, overlapB);
-
-      if (minH <= minV) {
-        // Horizontal push
-        if (overlapL < overlapR) {
-          ship.position.x = cellLeft - ship.radius;
-          if (ship.velocity.x > 0) ship.velocity.x *= -0.5;
-        } else {
-          ship.position.x = cellRight + ship.radius;
-          if (ship.velocity.x < 0) ship.velocity.x *= -0.5;
-        }
-      } else {
-        // Vertical push
-        if (overlapT < overlapB) {
-          ship.position.y = cellTop - ship.radius;
-          if (ship.velocity.y > 0) ship.velocity.y *= -0.5;
-        } else {
-          ship.position.y = cellBottom + ship.radius;
-          if (ship.velocity.y < 0) ship.velocity.y *= -0.5;
-        }
-      }
-
-      // Light damage tick — deters camping against conduit walls.
-      ship.takeDamage(CONDUIT_DPS * dt);
-      this.recentlyDamaged.add(ship.id);
-    }
-
-    // --- Projectile blocking -----------------------------------------------
     for (const proj of this.projectiles) {
       if (!proj.alive) continue;
       if (proj instanceof MassDriverBullet && proj.isBursting) continue;
@@ -649,12 +584,12 @@ export class GameState {
     }
   }
 
-  private applyWallInteraction(): void {
+  private applyStructureInteraction(): void {
     const walls = this.buildings.filter((b) => b.alive && b.buildProgress >= 1 && b.type === EntityType.Wall);
-    if (walls.length === 0) return;
     for (const proj of this.projectiles) {
       if (!proj.alive) continue;
       for (const wall of walls) {
+        if (proj.team === wall.team) continue;
         if (this.projectileIntersectsBuildingFootprint(proj, wall)) {
           this.applyProjectileDamage(proj, wall);
           proj.destroy();
@@ -671,8 +606,9 @@ export class GameState {
     }
 
     for (const ship of shipsToCheck) {
-      for (const wall of walls) {
-        this.pushEntityOutOfBuildingFootprint(ship, wall);
+      for (const building of this.buildings) {
+        if (!building.alive || building.buildProgress < 1) continue;
+        this.pushEntityOutOfBuildingFootprint(ship, building);
       }
     }
   }

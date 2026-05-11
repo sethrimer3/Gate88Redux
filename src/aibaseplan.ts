@@ -30,6 +30,10 @@ export function hash01plan(a: number, b: number, seed: number): number {
   return h / 0x100000000;
 }
 
+export function angularDistanceRadians(a: number, b: number): number {
+  return Math.abs(Math.atan2(Math.sin(a - b), Math.cos(a - b)));
+}
+
 /**
  * Trace a strictly 4-connected path of grid cells from (x0,y0) to (x1,y1).
  *
@@ -197,9 +201,7 @@ export function generateRingBuildingSlots(
 
     for (const c of cellsByAngle) {
       if (claimedKeys.has(cellKey(c.cx, c.cy))) continue;
-      // Angular distance (wrap).
-      let da = Math.abs(c.angle - targetAngle);
-      if (da > Math.PI) da = Math.PI * 2 - da;
+      const da = angularDistanceRadians(c.angle, targetAngle);
       if (da < bestDist) { bestDist = da; best = c; }
     }
 

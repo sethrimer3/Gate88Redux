@@ -162,7 +162,7 @@ Already has clear internal class boundaries (`HoldMenu`, `PaintMenu`,
 2. **`src/paintMenu.ts`** — Extract `PaintMenu` (~115 lines).
 3. **`src/holdMenu.ts`** — Extract `HoldMenu` and `LeftHoldMenu` (~270 lines).
 
-### `src/enemybaseplanner.ts` (~1,463 lines)
+### `src/enemybaseplanner.ts` (~1,729 lines)
 
 Several AI sub-systems have already been extracted (`aibaseplan.ts`,
 `aidoctrine.ts`, `airaids.ts`).  Remaining candidates:
@@ -171,6 +171,9 @@ Several AI sub-systems have already been extracted (`aibaseplan.ts`,
    (`maybeAdvanceRing`, `generateBastions`, ring conduit queuing).
 2. **`src/enemyBaseBuilder.ts`** — `nextBuildingSlotOrder`, connector-conduit
    dispatch, `computeConnectorPath`.
+
+3. **`src/enemyBaseDoctrineRuntime.ts`** - smart generator substitution,
+   inner-ring backfill, protective wall enqueueing, and power-restoration audits.
 
 ### `src/projectile.ts` (~1,178 lines)
 

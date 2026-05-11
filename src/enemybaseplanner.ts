@@ -53,6 +53,7 @@ import {
   generateRingBuildingSlots,
   generateSpokeCells,
   generateBastionLoop,
+  hash01plan,
   traceLine,
   AI_RING_THICKNESS_CONDUITS,
   AI_RING_SPACING_CONDUITS,
@@ -108,6 +109,7 @@ interface AdaptiveStats {
   builderKillsObserved: number;
   commandPostRushes: number;
   lastBuilderKillTime: number;
+  unpoweredSegments: Map<string, { count: number; lastTime: number; redundantLinks: number }>;
 }
 
 interface ActiveAutoBuild {
@@ -164,6 +166,8 @@ export class EnemyBasePlanner {
   private claimedBuildingKeys: Set<string> = new Set();
   /** Cells reserved by queued or active AI build orders. */
   private reservedCells: Set<string> = new Set();
+  private protectiveWallKeys: Set<string> = new Set();
+  private backfillKeys: Set<string> = new Set();
 
   // -- Timers -----------------------------------------------------------------
 
@@ -198,6 +202,7 @@ export class EnemyBasePlanner {
     builderKillsObserved: 0,
     commandPostRushes: 0,
     lastBuilderKillTime: -9999,
+    unpoweredSegments: new Map(),
   };
 
   private usesConduits(state: GameState): boolean {
@@ -481,11 +486,121 @@ export class EnemyBasePlanner {
         this.queue.splice(i, 1);
       }
     }
+    if (difficultyIndex(this.config.difficulty) >= 1 && this.usesConduits(state)) {
+      this.auditPowerRestoration(state);
+    }
+  }
+
+  private auditPowerRestoration(state: GameState): void {
+    const idx = difficultyIndex(this.config.difficulty);
+    const maxOrders = [0, 2, 4, 7, 10][idx];
+    let added = 0;
+    const unpowered = state.buildings
+      .filter((b) => b.alive && b.team === this.team && b.buildProgress >= 1 && !b.powered && !(b instanceof PowerGenerator))
+      .sort((a, b) => this.powerRepairPriority(b) - this.powerRepairPriority(a));
+
+    for (const b of unpowered) {
+      if (added >= maxOrders) break;
+      const c = cellOf(b.position);
+      const segmentKey = this.segmentKeyForCell(c.cx, c.cy);
+      const stat = this.adaptive.unpoweredSegments.get(segmentKey) ?? { count: 0, lastTime: 0, redundantLinks: 0 };
+      if (state.gameTime - stat.lastTime > 8) stat.count++;
+      stat.lastTime = state.gameTime;
+      this.adaptive.unpoweredSegments.set(segmentKey, stat);
+
+      const path = this.findPowerRepairPath(state, c.cx, c.cy, idx >= 3 ? 18 : 12);
+      if (path.length > 0) added += this.enqueueConduitPath(state, path, maxOrders - added);
+
+      if (idx >= 3 && stat.count >= [99, 99, 3, 2, 1][idx] && stat.redundantLinks < [0, 0, 1, 2, 3][idx]) {
+        const redundant = this.findRedundantRingConnector(state, c.cx, c.cy);
+        if (redundant.length > 0) {
+          added += this.enqueueConduitPath(state, redundant, maxOrders - added);
+          stat.redundantLinks++;
+        }
+      }
+    }
+  }
+
+  private powerRepairPriority(b: BuildingBase): number {
+    if (b instanceof Shipyard) return 8;
+    if (b instanceof ResearchLab) return 7;
+    if (b instanceof TurretBase) return 6;
+    if (b instanceof Factory) return 5;
+    return 2;
+  }
+
+  private segmentKeyForCell(cx: number, cy: number): string {
+    const dx = cx - this.centerCx;
+    const dy = cy - this.centerCy;
+    const ring = Math.max(0, Math.round((Math.hypot(dx, dy) - AI_INNER_RING_RADIUS_CELLS) / AI_RING_STEP_CELLS));
+    const angle = Math.atan2(dy, dx);
+    const segment = Math.floor(((angle + Math.PI) / (Math.PI * 2)) * 12) % 12;
+    return `${ring}:${segment}`;
+  }
+
+  private findPowerRepairPath(state: GameState, cx: number, cy: number, maxDistance: number): Array<{ cx: number; cy: number }> {
+    let best: Array<{ cx: number; cy: number }> = [];
+    let bestLen = Infinity;
+    const targets = [...this.spokes.flat(), ...this.rings.flatMap((r) => r.conduitCells)];
+    for (const t of targets) {
+      if (!state.power.isCellEnergized(this.team, t.cx, t.cy) && state.grid.conduitTeam(t.cx, t.cy) !== this.team) continue;
+      const d = Math.abs(t.cx - cx) + Math.abs(t.cy - cy);
+      if (d <= 1 || d > maxDistance || d >= bestLen) continue;
+      const path = traceLine(t.cx, t.cy, cx, cy).slice(1);
+      if (path.some((cell) => !state.grid.hasConduit(cell.cx, cell.cy) && !this.canAIPlaceConduit(state, cell.cx, cell.cy))) continue;
+      best = path;
+      bestLen = d;
+    }
+    return best;
+  }
+
+  private findRedundantRingConnector(state: GameState, cx: number, cy: number): Array<{ cx: number; cy: number }> {
+    const ringIndex = Math.max(1, Math.round((Math.hypot(cx - this.centerCx, cy - this.centerCy) - AI_INNER_RING_RADIUS_CELLS) / AI_RING_STEP_CELLS));
+    const inner = this.rings[Math.max(0, ringIndex - 1)];
+    const outer = this.rings[Math.min(this.rings.length - 1, ringIndex)];
+    if (!inner || !outer) return [];
+    let source = inner.conduitCells[0];
+    let best = Infinity;
+    for (const c of inner.conduitCells) {
+      if (!state.power.isCellEnergized(this.team, c.cx, c.cy)) continue;
+      const d = Math.abs(c.cx - cx) + Math.abs(c.cy - cy);
+      if (d < best) { best = d; source = c; }
+    }
+    const target = outer.conduitCells.reduce((acc, c) => {
+      const da = Math.abs(acc.cx - cx) + Math.abs(acc.cy - cy);
+      const db = Math.abs(c.cx - cx) + Math.abs(c.cy - cy);
+      return db < da ? c : acc;
+    }, outer.conduitCells[0]);
+    if (!source || !target) return [];
+    return traceLine(source.cx, source.cy, target.cx, target.cy).slice(1);
+  }
+
+  private enqueueConduitPath(state: GameState, path: Array<{ cx: number; cy: number }>, limit: number): number {
+    let added = 0;
+    for (const cell of path) {
+      if (added >= limit) break;
+      const k = cellKey(cell.cx, cell.cy);
+      if (this.claimedConduitKeys.has(k) || state.grid.hasConduit(cell.cx, cell.cy)) {
+        this.claimedConduitKeys.add(k);
+        continue;
+      }
+      if (!this.canAIPlaceConduit(state, cell.cx, cell.cy)) continue;
+      this.claimedConduitKeys.add(k);
+      this.reserveCells([cell]);
+      this.queue.unshift({ kind: 'conduit', cx: cell.cx, cy: cell.cy });
+      added++;
+    }
+    return added;
   }
 
   /** Called by PracticeMode when the player destroys an enemy conduit. */
   notifyConduitDestroyed(pos: Vec2): void {
     this.adaptive.conduitCutsObserved++;
+    const c = cellOf(pos);
+    const key = this.segmentKeyForCell(c.cx, c.cy);
+    const stat = this.adaptive.unpoweredSegments.get(key) ?? { count: 0, lastTime: 0, redundantLinks: 0 };
+    stat.count++;
+    this.adaptive.unpoweredSegments.set(key, stat);
     this.raidPlanner.notifyStructureDestroyed(pos);
   }
 
@@ -666,6 +781,9 @@ export class EnemyBasePlanner {
       if (order) return order;
     }
 
+    const backfillOrder = this.nextInnerBackfillOrder(state);
+    if (backfillOrder) return backfillOrder;
+
     // --- 3 + 4. Ring building slots ------------------------------------------
     for (let r = 0; r <= this.currentRing && r < this.rings.length; r++) {
       const order = this.nextBuildingSlotOrder(state, this.rings[r]);
@@ -699,14 +817,64 @@ export class EnemyBasePlanner {
     return null;
   }
 
+  private nextInnerBackfillOrder(state: GameState): BuildOrder | null {
+    const idx = difficultyIndex(this.config.difficulty);
+    if (idx < 1 || this.currentRing < 2 || this.rings.length < 2) return null;
+    const turretCoverage = this.countEnemyBuildings(state, (b) => b instanceof TurretBase);
+    if (turretCoverage < [99, 2, 3, 4, 5][idx]) return null;
+
+    const desired = [
+      { key: 'fighteryard', count: [0, 1, 2, 3, 4][idx] },
+      { key: 'bomberyard', count: [0, 0, 1, 2, 3][idx] },
+      { key: 'researchlab', count: [0, 1, 1, 2, 3][idx] },
+      { key: 'factory', count: [0, 0, 1, 1, 2][idx] },
+    ];
+
+    for (const want of desired) {
+      const def = getBuildDef(want.key);
+      if (!def) continue;
+      const current = this.countEnemyBuildings(state, (b) => buildDefForEntityType(b.type)?.key === want.key);
+      const alreadyQueued = this.queue.filter((order) => order.kind === 'building' && order.def.key === want.key).length
+        + this.activeAutoBuilds.filter((active) => active.order.kind === 'building' && active.order.def.key === want.key).length;
+      if (current + alreadyQueued >= want.count) continue;
+
+      const maxRing = Math.min(this.currentRing - 1, Math.min(2 + Math.floor(idx / 2), this.rings.length - 1));
+      for (let r = 0; r <= maxRing; r++) {
+        const ring = this.rings[r];
+        const attempts = Math.max(10, ring.conduitCells.length);
+        for (let n = 0; n < attempts; n++) {
+          const h = Math.floor(hash01plan(this.seed + want.key.length * 17, r * 97 + n, 9001) * Math.max(1, ring.conduitCells.length));
+          const anchor = ring.conduitCells[h];
+          if (!anchor) continue;
+          const cell = this.findBestBuildingCell(state, anchor.cx, anchor.cy, def, ring);
+          if (!cell) continue;
+          const k = `${want.key}:${cellKey(cell.cx, cell.cy)}`;
+          if (this.backfillKeys.has(k)) continue;
+          this.backfillKeys.add(k);
+          this.claimedBuildingKeys.add(cellKey(cell.cx, cell.cy));
+          this.reserveBuildingFootprint(def, cell.cx, cell.cy);
+          return { kind: 'building', cx: cell.cx, cy: cell.cy, def, layConduitFirst: false };
+        }
+      }
+    }
+    return null;
+  }
+
   private nextBuildingSlotOrder(
     state: GameState, ring: RingPlan,
   ): BuildOrder | null {
     for (const slot of ring.buildingSlots) {
       if (slot.placed) continue;
 
-      const def = getBuildDef(slot.buildingKey);
+      let def = getBuildDef(slot.buildingKey);
       if (!def) { slot.queued = true; continue; }
+      if (def.key === 'powergenerator' && !this.shouldPlacePowerGeneratorHere(state, ring, slot.cx, slot.cy)) {
+        const replacement = this.replacementForRedundantGenerator(ring);
+        const replacementDef = getBuildDef(replacement);
+        if (!replacementDef) { slot.queued = true; continue; }
+        slot.buildingKey = replacement;
+        def = replacementDef;
+      }
 
       // --- Phase A: dispatch pending connector conduits first ---
       if (slot.connectorQueuePtr >= 0) {
@@ -927,6 +1095,34 @@ export class EnemyBasePlanner {
     return this.isNearPlannedPower(state, origin.cx, origin.cy, def.footprintCells);
   }
 
+  private shouldPlacePowerGeneratorHere(state: GameState, ring: RingPlan, cx: number, cy: number): boolean {
+    const idx = difficultyIndex(this.config.difficulty);
+    if (idx <= 1) return true;
+    if (ring.role === 'forward' || this.doctrine.useLocalPowerIslands) return true;
+    const def = getBuildDef('powergenerator');
+    if (!def) return true;
+    const origin = { cx: cx - Math.floor(def.footprintCells / 2), cy: cy - Math.floor(def.footprintCells / 2) };
+    let energizedBorder = 0;
+    let enemyConduits = 0;
+    for (let y = origin.cy - 2; y <= origin.cy + def.footprintCells + 1; y++) {
+      for (let x = origin.cx - 2; x <= origin.cx + def.footprintCells + 1; x++) {
+        const near = x < origin.cx || x >= origin.cx + def.footprintCells || y < origin.cy || y >= origin.cy + def.footprintCells;
+        if (!near) continue;
+        if (state.power.isCellEnergized(this.team, x, y)) energizedBorder++;
+        if (state.grid.conduitTeam(x, y) === this.team || this.claimedConduitKeys.has(cellKey(x, y))) enemyConduits++;
+      }
+    }
+    if (energizedBorder >= 3 || enemyConduits >= 4) return false;
+    return ring.ringIndex >= this.currentRing && ring.role === 'picket';
+  }
+
+  private replacementForRedundantGenerator(ring: RingPlan): string {
+    if (ring.role === 'production') return difficultyIndex(this.config.difficulty) >= 3 ? 'bomberyard' : 'fighteryard';
+    if (ring.role === 'innerDefense') return 'wall';
+    if (ring.role === 'picket') return 'missileturret';
+    return 'researchlab';
+  }
+
   private findBestBuildingCell(
     state: GameState,
     preferredCx: number,
@@ -972,6 +1168,15 @@ export class EnemyBasePlanner {
     return count;
   }
 
+  private countEnemyBuildings(state: GameState, predicate: (b: BuildingBase) => boolean): number {
+    let count = 0;
+    for (const b of state.buildings) {
+      if (!b.alive || b.team !== this.team) continue;
+      if (predicate(b)) count++;
+    }
+    return count;
+  }
+
   private isNearPlannedPower(state: GameState, originCx: number, originCy: number, size: number): boolean {
     for (let y = originCy - 1; y <= originCy + size; y++) {
       for (let x = originCx - 1; x <= originCx + size; x++) {
@@ -997,6 +1202,65 @@ export class EnemyBasePlanner {
 
   private reserveCells(cells: Array<{ cx: number; cy: number }>): void {
     for (const c of cells) this.reservedCells.add(cellKey(c.cx, c.cy));
+  }
+
+  private enqueueProtectiveWallsForBuilding(state: GameState, buildingCx: number, buildingCy: number, def: BuildDef): void {
+    const idx = difficultyIndex(this.config.difficulty);
+    if (idx <= 0) return;
+    const wallDef = getBuildDef('wall');
+    if (!wallDef) return;
+
+    let cap = [0, 2, 4, 7, 10][idx];
+    const fp = def.footprintCells;
+    const originCx = buildingCx - Math.floor(fp / 2);
+    const originCy = buildingCy - Math.floor(fp / 2);
+    const candidates: Array<{ cx: number; cy: number }> = [];
+    const step = Math.max(1, wallDef.footprintCells);
+    const pushWallLine = (x0: number, x1: number, y: number): void => {
+      for (let x = x0; x <= x1; x += step) candidates.push({ cx: x, cy: y });
+    };
+    const pushWallColumn = (x: number, y0: number, y1: number): void => {
+      for (let y = y0; y <= y1; y += step) candidates.push({ cx: x, cy: y });
+    };
+
+    if (def.key === 'fighteryard' || def.key === 'bomberyard') {
+      pushWallLine(originCx, originCx + fp - 1, originCy - 1);
+      pushWallColumn(originCx - 1, originCy, originCy + fp - 2);
+      pushWallColumn(originCx + fp, originCy, originCy + fp - 2);
+    } else if (def.key === 'researchlab') {
+      pushWallLine(originCx, originCx + fp - 1, originCy - 1);
+      pushWallColumn(originCx - 1, originCy + 1, originCy + fp - 1);
+      pushWallColumn(originCx + fp, originCy + 1, originCy + fp - 1);
+      cap = Math.min(cap, 5);
+    } else if (
+      def.key === 'missileturret' ||
+      def.key === 'exciterturret' ||
+      def.key === 'massdriverturret' ||
+      def.key === 'regenturret'
+    ) {
+      const towardPlayerX = Math.sign(state.player.position.x - cellCenter(buildingCx, buildingCy).x);
+      const towardPlayerY = Math.sign(state.player.position.y - cellCenter(buildingCx, buildingCy).y);
+      if (Math.abs(towardPlayerX) >= Math.abs(towardPlayerY)) {
+        pushWallColumn(originCx + (towardPlayerX > 0 ? fp : -1), originCy, originCy + fp - 1);
+      } else {
+        pushWallLine(originCx, originCx + fp - 1, originCy + (towardPlayerY > 0 ? fp : -1));
+      }
+      cap = Math.min(cap, 3);
+    } else {
+      return;
+    }
+
+    for (const wall of candidates) {
+      if (cap <= 0) break;
+      const k = cellKey(wall.cx, wall.cy);
+      if (this.protectiveWallKeys.has(k) || this.claimedBuildingKeys.has(k)) continue;
+      if (!this.canAIPlaceStructure(state, wallDef, wall.cx, wall.cy)) continue;
+      this.protectiveWallKeys.add(k);
+      this.claimedBuildingKeys.add(k);
+      this.reserveBuildingFootprint(wallDef, wall.cx, wall.cy);
+      this.queue.push({ kind: 'building', cx: wall.cx, cy: wall.cy, def: wallDef, layConduitFirst: false });
+      cap--;
+    }
   }
 
   private releaseOrderReservation(order: BuildOrder): void {
@@ -1187,7 +1451,7 @@ export class EnemyBasePlanner {
   }
 
   private orderStrategicPriority(order: BuildOrder): number {
-    if (order.kind === 'conduit') return 20;
+    if (order.kind === 'conduit') return 105;
     switch (order.def.key) {
       case 'powergenerator': return 100;
       case 'researchlab': return 95;
@@ -1253,6 +1517,7 @@ export class EnemyBasePlanner {
           ]);
         }
         this.markBuildingPlaced(result.cx, result.cy);
+        if (def) this.enqueueProtectiveWallsForBuilding(state, result.cx, result.cy, def);
       }
     }
   }
@@ -1304,6 +1569,7 @@ export class EnemyBasePlanner {
         ]);
       }
       this.markBuildingPlaced(order.cx, order.cy);
+      this.enqueueProtectiveWallsForBuilding(state, order.cx, order.cy, order.def);
     }
   }
 
