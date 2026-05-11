@@ -22,8 +22,8 @@ import { BuildingBase, CommandPost, Wall } from './building.js';
 import { Shipyard } from './building.js';
 import { TurretBase } from './turret.js';
 import { FighterShip, BomberShip, SynonymousFighterShip, SynonymousNovaBomberShip } from './fighter.js';
-import { Bullet, GatlingBullet, Laser, SynonymousDroneLaser } from './projectile.js';
-import { GuidedMissile, BomberMissile, HomingBullet, SwarmMissile, ChargedLaserBurst, SynonymousNovaBomb, Missile, MassDriverBullet } from './projectile.js';
+import { Bullet, GatlingBullet, Laser } from './projectile.js';
+import { GuidedMissile, BomberMissile, HomingBullet, SwarmMissile, ChargedLaserBurst } from './projectile.js';
 import { PracticeMode } from './practicemode.js';
 import { cloneDefaultPracticeConfig } from './practiceconfig.js';
 import { TutorialMode } from './tutorial.js';
@@ -48,6 +48,9 @@ import { drawConfluenceTerritory, drawDebugOverlay, drawWaypointMarkers, type Sh
 import type { NetInputSnapshot, NetGameSnapshot } from './net/protocol.js';
 import type { WebRtcTransport } from './online/webrtcTransport.js';
 import { isHomingTarget, findClosestEnemy, damageLaserLine, damageLaserLineLimited } from './combatUtils.js';
+import { injectFluidForces } from './fluidForces.js';
+import { fireTurretShots } from './turretCombat.js';
+import { updateFighterWeaponFire } from './fighterCombat.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 
@@ -541,14 +544,14 @@ export class Game {
 
     // Player ship fighter spawning from shipyards
     this.updatePlayerShipyards();
-    this.updatePlayerFighterCombat();
+    updateFighterWeaponFire(this.state, this.spaceFluid);
     if (this.state.gameMode !== 'practice' && this.state.gameMode !== 'vs_ai') {
-      this.updateLocalPlayerTurrets();
+      fireTurretShots(this.state, this.localPlayerTeam());
     }
 
     // Inject fluid forces from all active entities.
     this.spaceFluid.setView(this.camera.position.x, this.camera.position.y, this.camera.zoom);
-    this.injectFluidForces();
+    injectFluidForces(this.state, this.spaceFluid);
 
     // HUD
     this.hud.update(DT);
@@ -1544,89 +1547,6 @@ export class Game {
     }
   }
 
-  private updatePlayerFighterCombat(): void {
-    for (const f of this.state.fighters) {
-      if (!f.alive || f.docked || f.team !== Team.Player) continue;
-      if (!(f instanceof BomberShip) && !(f instanceof SynonymousFighterShip)) {
-        f.weaponDamage = this.state.researchedItems.has('advancedFighters') ? 2 : 1;
-      }
-      if (!f.canFire()) continue;
-
-      const nearby = this.state.getEntitiesInRange(f.position, f.weaponRange);
-      let target = null;
-      let bestDist = Infinity;
-      for (const e of nearby) {
-        if (!e.alive || e.team !== Team.Enemy) continue;
-        const d = f.position.distanceTo(e.position);
-        if (d < bestDist) {
-          bestDist = d;
-          target = e;
-        }
-      }
-      if (!target) continue;
-      const angle = f.position.angleTo(target.position);
-      if (f instanceof SynonymousNovaBomberShip) {
-        const charged = f.consumeChargedNova();
-        if (charged) {
-          const angle = f.position.angleTo(charged.target);
-          this.state.addEntity(new SynonymousNovaBomb(f.team, f.position.clone(), angle, charged.aoeRadius, charged.damage, charged.travel, f));
-          Audio.playSound('laser');
-        } else {
-          f.beginNovaCharge(target.position);
-        }
-      } else if (f instanceof BomberShip) {
-        f.consumeShot(WEAPON_STATS.bigmissile.fireRate);
-        this.state.addEntity(new BomberMissile(f.team, f.position.clone(), angle, f));
-        Audio.playSound('missile');
-      } else if (f instanceof SynonymousFighterShip) {
-        f.markCombatSplit();
-        f.consumeShot(f.fireRate);
-        for (let i = 0; i < f.droneCount; i++) {
-          const start = f.firingOrigin(i);
-          const end = target.position.clone();
-          this.state.addEntity(new SynonymousDroneLaser(f.team, start, end, f));
-          damageLaserLineLimited(this.state, this.spaceFluid, start, end, f.weaponDamage, 3, 2, f);
-        }
-        Audio.playSound('laser');
-      } else {
-        f.consumeShot(WEAPON_STATS.fire.fireRate);
-        const bullet = new Bullet(f.team, f.position.clone(), angle, f, target);
-        bullet.damage = f.weaponDamage;
-        this.state.addEntity(bullet);
-      }
-    }
-  }
-
-  private updateLocalPlayerTurrets(): void {
-    const localTeam = this.localPlayerTeam();
-    const allEntities = this.state.allEntities();
-    for (const b of this.state.buildings) {
-      if (!b.alive || b.team !== localTeam || !(b instanceof TurretBase)) continue;
-      if (b.buildProgress < 1) continue;
-      b.acquireTarget(allEntities);
-      if (!b.canFire()) continue;
-      const target = b.targetEntity;
-      if (!target) continue;
-      b.consumeShot();
-      const playerDist = this.state.player.position.distanceTo(b.position);
-      if (b.type === EntityType.RegenTurret) {
-        target.takeDamage(-10, b);
-        this.state.particles.emitHealing(target.position);
-        b.showBeam(target.position);
-        Audio.playSoundAt('regenbullet', playerDist);
-      } else if (b.type === EntityType.MissileTurret) {
-        this.state.addEntity(new Missile(b.team, b.position.clone(), b.turretAngle, b, target));
-        Audio.playSoundAt('missile', playerDist);
-      } else if (b.type === EntityType.MassDriverTurret) {
-        this.state.addEntity(new MassDriverBullet(b.team, b.position.clone(), b.turretAngle, b));
-        Audio.playSoundAt('massdriverbullet', playerDist);
-      } else {
-        this.state.addEntity(new Bullet(b.team, b.position.clone(), b.turretAngle, b));
-        Audio.playSoundAt(b.type === EntityType.ExciterTurret ? 'exciterbullet' : 'fire', playerDist);
-      }
-    }
-  }
-
   private findNearestEnemyNear(pos: Vec2, range: number): { position: Vec2 } | null {
     let best: { position: Vec2 } | null = null;
     let bestDist = range;
@@ -1639,73 +1559,6 @@ export class Game {
       }
     }
     return best;
-  }
-
-  private injectFluidForces(): void {
-    // ── Player ship ─────────────────────────────────────────────────────────
-    if (this.state.player.alive) {
-      const pv = this.state.player.velocity;
-      this.spaceFluid.addForce({
-        x: this.state.player.position.x, y: this.state.player.position.y,
-        vx: pv.x,
-        vy: pv.y,
-        r: 56, g: 132, b: 68,   // friendly green exhaust
-        strength: 1.0,
-      });
-    }
-
-    // ── AI player ship (Vs. AI mode) ─────────────────────────────────────
-    if (this.state.aiPlayerShip?.alive) {
-      const ais = this.state.aiPlayerShip;
-      const sv = ais.velocity;
-      this.spaceFluid.addForce({
-        x: ais.position.x, y: ais.position.y,
-        vx: sv.x,
-        vy: sv.y,
-        r: 132, g: 56, b: 68,   // enemy red
-        strength: 1.0,
-      });
-    }
-
-    // ── All live fighters (player and enemy) ─────────────────────────────
-    for (const f of this.state.fighters) {
-      if (!f.alive || f.docked) continue;
-      const fv = f.velocity;
-      const isEnemy = f.team === Team.Enemy;
-      this.spaceFluid.addForce({
-        x: f.position.x, y: f.position.y,
-        vx: fv.x,
-        vy: fv.y,
-        r: isEnemy ? 132 : 56,
-        g: isEnemy ? 56 : 132,
-        b: 68,
-        strength: 0.6,
-      });
-    }
-
-    // ── Projectiles ──────────────────────────────────────────────────────
-    for (const e of this.state.allEntities()) {
-      if (!e.alive) continue;
-      // Only bullets / missiles / beams — skip ships and buildings.
-      if (
-        !(e instanceof Bullet) &&
-        !(e instanceof GatlingBullet) &&
-        !(e instanceof GuidedMissile) &&
-        !(e instanceof BomberMissile) &&
-        !(e instanceof Laser)
-      ) continue;
-      const ev = e.velocity;
-      const isEnemy = e.team === Team.Enemy;
-      this.spaceFluid.addForce({
-        x: e.position.x, y: e.position.y,
-        vx: ev.x,
-        vy: ev.y,
-        r: isEnemy ? 228 : 0,
-        g: isEnemy ? 0 : 176,
-        b: isEnemy ? 33 : 66,
-        strength: 0.5,
-      });
-    }
   }
 
   private startGame(mode: 'tutorial' | 'practice' | 'vs_ai'): void {

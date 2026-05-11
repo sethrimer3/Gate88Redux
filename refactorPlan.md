@@ -10,7 +10,7 @@ refactor is completed or a new large file is identified.
 
 | File | Lines | Status |
 |------|-------|--------|
-| `src/game.ts` | ~3,333 | 🔴 in progress |
+| `src/game.ts` | ~3,110 | 🔴 in progress |
 | `src/menu.ts` | ~2,215 | 🔴 planned |
 | `src/gamestate.ts` | ~1,731 | 🟡 planned |
 
@@ -26,7 +26,34 @@ refactor is completed or a new large file is identified.
 
 ## Completed splits
 
-### `src/game.ts` — Build 023 (this PR)
+### `src/game.ts` — Build 024 (this PR)
+
+**Extracted → `src/fluidForces.ts`**
+
+- `injectFluidForces(state, spaceFluid)` — pushes per-entity velocity/color
+  forces into the SpaceFluid simulation each tick; no longer requires
+  `game.ts` to import `Bullet`, `GatlingBullet`, `GuidedMissile`,
+  `BomberMissile`, and `Laser` solely for `instanceof` checks.
+
+**Extracted → `src/turretCombat.ts`**
+
+- `fireTurretShots(state, localTeam)` — acquires targets and fires for every
+  fully-built turret on `localTeam`; previously `updateLocalPlayerTurrets`.
+
+**Extracted → `src/fighterCombat.ts`**
+
+- `updateFighterWeaponFire(state, spaceFluid)` — per-tick weapon fire for all
+  live undocked Team.Player fighters; handles FighterShip, BomberShip,
+  SynonymousFighterShip, and SynonymousNovaBomberShip variants.
+
+Lines removed from `game.ts`: ~147 (3,257 → 3,110).
+New files: `src/fluidForces.ts` (~95 lines), `src/turretCombat.ts` (~50 lines),
+`src/fighterCombat.ts` (~90 lines).
+
+Import cleanup: `SynonymousDroneLaser`, `SynonymousNovaBomb`, `MassDriverBullet`,
+`Missile` removed from `game.ts` imports (no longer referenced directly).
+
+### `src/game.ts` — Build 023
 
 **Extracted → `src/combatUtils.ts`**
 
@@ -65,7 +92,7 @@ Lines removed from `game.ts`: ~100.  New file `src/combatUtils.ts`: ~95 lines.
 
 ## Planned splits (not yet started)
 
-### `src/game.ts` (remaining ~3,230 lines)
+### `src/game.ts` (remaining ~3,110 lines)
 
 The `Game` class is the largest remaining monolith.  Suggested extractions
 in rough priority order:
@@ -79,31 +106,26 @@ in rough priority order:
    - `activeGuidedMissile` is a `Game`-level field; the extracted functions
      can return the new missile reference so the `Game` can store it.
 
-2. **`src/turretCombat.ts`** (~35 lines)
-   - `updateLocalPlayerTurrets` → `fireTurretShots(state, localTeam)`.
-   - Dependencies: `state.buildings`, `Audio.playSoundAt`, `state.addEntity`.
-
-3. **`src/fighterCombat.ts`** (~55 lines)
-   - `updatePlayerFighterCombat` →
-     `updateFighterWeaponFire(state, spaceFluid)`.
-   - Uses `damageLaserLineLimited` from `combatUtils.ts`.
-
-4. **`src/commandMode.ts`** (~260 lines)
-   - `updateCommandMode`, `updateNumberGroupHotkeys`,
-     `updateNumberGroupTapOrders`, `updatePlayerFighterOrderTargets`.
-   - Needs a `CommandModeCtx` carrying `state, camera, hud,
-     commandSelectedFighters, commandSelectedTurrets,
-     commandDragStart, commandDragCurrent, lastGroupTap`.
-
-5. **`src/gameOverlays.ts`** (~300 lines)
+2. **`src/gameOverlays.ts`** (~300 lines)
    - `drawMergedWallOutlines`, `drawCommandModeOverlay`,
      `drawBuildingHoverHitpoints`, `drawGlowLayer`, `drawGhostSpectator`,
      `drawLossOverlay`, `drawScreenOverlays`.
    - Add to or extend `src/gameRender.ts`; pass an explicit context struct
      rather than accessing `this.*`.
 
-6. **`src/fluidForces.ts`** (~80 lines)
-   - `injectFluidForces` → `injectFluidForces(state, spaceFluid, player)`.
+3. **`src/commandMode.ts`** (~260 lines)
+   - `updateCommandMode`, `updateNumberGroupHotkeys`,
+     `updateNumberGroupTapOrders`, `updatePlayerFighterOrderTargets`.
+   - Needs a `CommandModeCtx` carrying `state, camera, hud,
+     commandSelectedFighters, commandSelectedTurrets,
+     commandDragStart, commandDragCurrent, lastGroupTap`.
+
+Previously completed from `game.ts`:
+- ✅ `src/fluidForces.ts` — `injectFluidForces` (Build 024)
+- ✅ `src/turretCombat.ts` — `fireTurretShots` (Build 024)
+- ✅ `src/fighterCombat.ts` — `updateFighterWeaponFire` (Build 024)
+- ✅ `src/combatUtils.ts` — laser damage helpers, `isHomingTarget`, `findClosestEnemy` (Build 023)
+- ✅ `src/gameRender.ts` — `drawWaypointMarkers`, `drawDebugOverlay`, `drawConfluenceTerritory`
 
 ### `src/menu.ts` (~2,215 lines)
 
