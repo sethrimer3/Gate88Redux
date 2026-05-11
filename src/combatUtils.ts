@@ -6,10 +6,10 @@
  * can be called from any module without importing the monolithic Game class.
  */
 
-import { Vec2 } from './math.js';
-import { Team, EntityType, Entity } from './entities.js';
 import { BuildingBase } from './building.js';
+import { Team, EntityType, Entity } from './entities.js';
 import { GameState } from './gamestate.js';
+import { Vec2 } from './math.js';
 import { SpaceFluid } from './spacefluid.js';
 
 // ---------------------------------------------------------------------------

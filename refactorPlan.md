@@ -6,21 +6,21 @@ refactor is completed or a new large file is identified.
 
 ---
 
-## Files over 2 000 lines (immediate priority)
+## Files over 2,000 lines (immediate priority)
 
 | File | Lines | Status |
 |------|-------|--------|
-| `src/game.ts` | ~3 333 | 🔴 in progress |
-| `src/menu.ts` | ~2 215 | 🔴 planned |
-| `src/gamestate.ts` | ~1 731 | 🟡 planned |
+| `src/game.ts` | ~3,333 | 🔴 in progress |
+| `src/menu.ts` | ~2,215 | 🔴 planned |
+| `src/gamestate.ts` | ~1,731 | 🟡 planned |
 
-## Files 1 000–2 000 lines (secondary priority)
+## Files 1 000–2,000 lines (secondary priority)
 
 | File | Lines | Status |
 |------|-------|--------|
-| `src/actionmenu.ts` | ~1 586 | 🟡 planned |
-| `src/enemybaseplanner.ts` | ~1 463 | 🟡 partially done (see below) |
-| `src/projectile.ts` | ~1 178 | 🟡 planned |
+| `src/actionmenu.ts` | ~1,586 | 🟡 planned |
+| `src/enemybaseplanner.ts` | ~1,463 | 🟡 partially done (see below) |
+| `src/projectile.ts` | ~1,178 | 🟡 planned |
 
 ---
 
@@ -65,7 +65,7 @@ Lines removed from `game.ts`: ~100.  New file `src/combatUtils.ts`: ~95 lines.
 
 ## Planned splits (not yet started)
 
-### `src/game.ts` (remaining ~3 230 lines)
+### `src/game.ts` (remaining ~3,230 lines)
 
 The `Game` class is the largest remaining monolith.  Suggested extractions
 in rough priority order:
@@ -105,7 +105,7 @@ in rough priority order:
 6. **`src/fluidForces.ts`** (~80 lines)
    - `injectFluidForces` → `injectFluidForces(state, spaceFluid, player)`.
 
-### `src/menu.ts` (~2 215 lines)
+### `src/menu.ts` (~2,215 lines)
 
 The `MainMenu` class covers setup UI, multiplayer lobby UI, settings, and
 all nested sub-menus.  Suggested extractions:
@@ -119,7 +119,7 @@ all nested sub-menus.  Suggested extractions:
 Each panel would expose a `draw(ctx, w, h, state): MenuAction | null`
 function so `MainMenu` delegates to it.
 
-### `src/gamestate.ts` (~1 731 lines)
+### `src/gamestate.ts` (~1,731 lines)
 
 `GameState` mixes entity management, territory/faction state, research, and
 power state.  Suggested extractions:
@@ -131,7 +131,7 @@ power state.  Suggested extractions:
 3. Move `DestroyedBuildingRecord` / `DestroyedConduitRecord` serialisation
    into `src/lan/protocol.ts` or a new `src/mapState.ts`.
 
-### `src/actionmenu.ts` (~1 586 lines)
+### `src/actionmenu.ts` (~1,586 lines)
 
 Already has clear internal class boundaries (`HoldMenu`, `PaintMenu`,
 `LeftHoldMenu`, `ShipMenu`, `QuickBuildMenu`, `ActionMenu`).
@@ -140,7 +140,7 @@ Already has clear internal class boundaries (`HoldMenu`, `PaintMenu`,
 2. **`src/paintMenu.ts`** — Extract `PaintMenu` (~115 lines).
 3. **`src/holdMenu.ts`** — Extract `HoldMenu` and `LeftHoldMenu` (~270 lines).
 
-### `src/enemybaseplanner.ts` (~1 463 lines)
+### `src/enemybaseplanner.ts` (~1,463 lines)
 
 Several AI sub-systems have already been extracted (`aibaseplan.ts`,
 `aidoctrine.ts`, `airaids.ts`).  Remaining candidates:
@@ -150,7 +150,7 @@ Several AI sub-systems have already been extracted (`aibaseplan.ts`,
 2. **`src/enemyBaseBuilder.ts`** — `nextBuildingSlotOrder`, connector-conduit
    dispatch, `computeConnectorPath`.
 
-### `src/projectile.ts` (~1 178 lines)
+### `src/projectile.ts` (~1,178 lines)
 
 Contains ~12 distinct projectile classes.  Could be split by type:
 
