@@ -57,9 +57,9 @@ export function updateFighterWeaponFire(state: GameState, spaceFluid: SpaceFluid
     if (f instanceof SynonymousNovaBomberShip) {
       const charged = f.consumeChargedNova();
       if (charged) {
-        const fireAngle = f.position.angleTo(charged.target);
+        const novaFireAngle = f.position.angleTo(charged.target);
         state.addEntity(new SynonymousNovaBomb(
-          f.team, f.position.clone(), fireAngle,
+          f.team, f.position.clone(), novaFireAngle,
           charged.aoeRadius, charged.damage, charged.travel, f,
         ));
         Audio.playSound('laser');

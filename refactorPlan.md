@@ -14,7 +14,7 @@ refactor is completed or a new large file is identified.
 | `src/menu.ts` | ~2,215 | 🔴 planned |
 | `src/gamestate.ts` | ~1,731 | 🟡 planned |
 
-## Files 1 000–2,000 lines (secondary priority)
+## Files 1,000–2,000 lines (secondary priority)
 
 | File | Lines | Status |
 |------|-------|--------|
@@ -26,7 +26,7 @@ refactor is completed or a new large file is identified.
 
 ## Completed splits
 
-### `src/game.ts` — Build 024 (this PR)
+### `src/game.ts` — Build 023 part 2 (this PR)
 
 **Extracted → `src/fluidForces.ts`**
 
@@ -121,9 +121,9 @@ in rough priority order:
      commandDragStart, commandDragCurrent, lastGroupTap`.
 
 Previously completed from `game.ts`:
-- ✅ `src/fluidForces.ts` — `injectFluidForces` (Build 024)
-- ✅ `src/turretCombat.ts` — `fireTurretShots` (Build 024)
-- ✅ `src/fighterCombat.ts` — `updateFighterWeaponFire` (Build 024)
+- ✅ `src/fluidForces.ts` — `injectFluidForces` (Build 023)
+- ✅ `src/turretCombat.ts` — `fireTurretShots` (Build 023)
+- ✅ `src/fighterCombat.ts` — `updateFighterWeaponFire` (Build 023)
 - ✅ `src/combatUtils.ts` — laser damage helpers, `isHomingTarget`, `findClosestEnemy` (Build 023)
 - ✅ `src/gameRender.ts` — `drawWaypointMarkers`, `drawDebugOverlay`, `drawConfluenceTerritory`
 
