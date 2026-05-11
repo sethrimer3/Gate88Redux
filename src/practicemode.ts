@@ -21,6 +21,7 @@ import { BuilderDrone, isBuilderDrone } from './builderdrone.js';
 import { isSynonymousFaction } from './confluence.js';
 
 const TURRET_FIRE_CHECK_INTERVAL = 0.1;
+const AI_MAIN_SHIP_ORDER_RADIUS = 1000;
 
 export interface PracticeScore {
   basesDestroyed: number;
@@ -350,9 +351,10 @@ export class PracticeMode {
 
   private enemyRallyPoint(state: GameState, fallback: Vec2, salt: number): Vec2 {
     const cp = state.getEnemyCommandPost();
-    const center = cp?.position ?? fallback;
+    const mainShip = state.aiPlayerShip?.alive ? state.aiPlayerShip.position : null;
+    const center = mainShip ?? cp?.position ?? fallback;
     const angle = salt * 2.399963 + state.gameTime * 0.05;
-    const radius = 120 + (salt % 5) * 18;
+    const radius = Math.min(AI_MAIN_SHIP_ORDER_RADIUS * 0.35, 120 + (salt % 5) * 18);
     return new Vec2(
       center.x + Math.cos(angle) * radius,
       center.y + Math.sin(angle) * radius,
@@ -370,7 +372,7 @@ export class PracticeMode {
       (f.order === 'waypoint' || f.order === 'follow' || f.order === 'protect')
     );
     const idx = difficultyIndex(this.config.difficulty);
-    const threshold = [0, 0, 7, 10, 13][idx];
+    const threshold = this.enemyWaveLaunchThreshold(state, idx);
     if (staged.length < threshold && this.enemyWaveTimer > 0) return;
     if (staged.length === 0) return;
 
@@ -380,6 +382,17 @@ export class PracticeMode {
       f.targetPos = target.position.clone();
     }
     this.enemyWaveTimer = [0, 0, 34, 28, 22][idx];
+  }
+
+  private enemyWaveLaunchThreshold(state: GameState, idx: number): number {
+    if (idx < 4) return [0, 0, 7, 10, 13][idx];
+    let nearCapacity = 0;
+    for (const b of state.buildings) {
+      if (!b.alive || b.team !== Team.Enemy || !(b instanceof Shipyard)) continue;
+      if (!b.powered || b.buildProgress < 1) continue;
+      nearCapacity += Math.max(1, b.shipCapacity - 1);
+    }
+    return Math.max(8, nearCapacity);
   }
 
   private damageSynonymousFighterLaser(state: GameState, start: Vec2, end: Vec2, source: FighterShip): void {

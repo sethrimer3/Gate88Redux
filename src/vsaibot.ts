@@ -118,7 +118,7 @@ export class AIShip extends PlayerShip {
 // Vs. AI director
 // ---------------------------------------------------------------------------
 
-type Goal = 'patrol' | 'harass' | 'attack' | 'retreat' | 'defend' | 'chase';
+type Goal = 'patrol' | 'harass' | 'attack' | 'retreat' | 'defend' | 'chase' | 'build';
 
 interface KnownTarget {
   entity: Entity;
@@ -163,6 +163,12 @@ const GOAL_PHRASES: Record<Goal, string[]> = {
     'Finishing the fight!',
     'Pursuing — your ship is almost gone!',
     "I see you're damaged. Surrender.",
+  ],
+  build:   [
+    'Moving to construction range.',
+    'Advancing to place structures.',
+    'Expanding the base perimeter.',
+    'Positioning for construction.',
   ],
 };
 
@@ -376,6 +382,16 @@ export class VsAIDirector {
     const cp = this.findOwnCP(state);
     const idx = Math.floor(effectiveDifficultyScalar(this.config));
 
+    if (this.planner && idx >= 1) {
+      const pendingSite = this.planner.getNearestPendingConstructionSite(this.ship.position);
+      if (pendingSite && pendingSite.distanceTo(this.ship.position) > 900) {
+        this.setGoal('build', state);
+        this.goalTarget = pendingSite;
+        this.reactionTimer = this.reactionDelay();
+        return;
+      }
+    }
+
     // 1. Defensive override — planner signals a high-priority defense point.
     //    Only on Hard+ (idx >= 2): easier difficulties use simpler reactive defense
     //    to keep the AI feeling sluggish and beatable.
@@ -586,9 +602,9 @@ export class VsAIDirector {
       // Move toward the goal and don't fire.
       this.setMove(toTarget);
       this.ship.wantsFire = false;
-    } else if (this.goal === 'patrol') {
+    } else if (this.goal === 'patrol' || this.goal === 'build') {
       // Mosey toward the patrol point at half thrust.
-      this.setMove(toTarget, 0.5);
+      this.setMove(toTarget, this.goal === 'build' ? 0.85 : 0.5);
       this.ship.wantsFire = false;
     } else if (this.goal === 'chase') {
       // Full-speed pursuit, firing opportunistically.

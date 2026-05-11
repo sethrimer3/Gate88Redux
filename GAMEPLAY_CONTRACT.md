@@ -60,6 +60,12 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 - Advanced Fighters research raises player shipyard capacity and speeds player ship production.
 - C-menu orders are active: Protect Base defends the player Command Post, Set Waypoint uses the cursor location, Follow Player follows the player ship, and Dock returns ships to their home yard.
 
+## Enemy AI
+
+- Enemy structures are queued by the base planner and then build visibly like player structures; in Vs. AI, the enemy main ship must be within 1000 world units of a queued structure before placement can start.
+- Enemy fighter rally waypoints stay within 1000 world units of the enemy main ship when that ship exists.
+- Higher difficulty enemies stage produced fighters near base before attacking. Nightmare timing waits for near-full shipyard output so ship production is not left capped and idle.
+
 ## Research
 
 - Research requires at least one powered, finished Research Lab to progress.

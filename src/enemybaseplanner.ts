@@ -37,9 +37,9 @@ import { Team } from './entities.js';
 import { GameState } from './gamestate.js';
 import { BuildingBase, CommandPost, Shipyard, PowerGenerator, ResearchLab, Factory } from './building.js';
 import { TurretBase } from './turret.js';
-import { GRID_CELL_SIZE, cellCenter, cellKey } from './grid.js';
+import { GRID_CELL_SIZE, cellCenter, cellKey, footprintCenter } from './grid.js';
 import { CONDUIT_COST, WORLD_WIDTH, WORLD_HEIGHT } from './constants.js';
-import { buildDefForEntityType, getBuildDef } from './builddefs.js';
+import { buildDefForEntityType, createBuildingFromDef, getBuildDef } from './builddefs.js';
 import type { BuildDef } from './builddefs.js';
 import { BuilderDrone, isBuilderDrone } from './builderdrone.js';
 import type { BuildOrder } from './builderdrone.js';
@@ -90,6 +90,9 @@ const AI_INNER_RING_RADIUS_CELLS = 7;
 const AI_RING_STEP_CELLS = AI_RING_THICKNESS_CONDUITS + AI_RING_SPACING_CONDUITS;
 /** Grid-cell radius within which a player approaching the Command Post triggers a rush alert. */
 const CP_RUSH_DETECTION_CELLS = 12;
+const AI_BUILD_RADIUS = 1000;
+const AUTO_CONDUIT_BUILD_SECONDS = 0.45;
+const AUTO_STRUCTURE_PLACEMENT_SECONDS = 1.6;
 
 /** 4-connected cardinal neighbour offsets for grid-neighbour operations. */
 const CARDINAL_OFFSETS: ReadonlyArray<readonly [number, number]> = [
@@ -105,6 +108,11 @@ interface AdaptiveStats {
   builderKillsObserved: number;
   commandPostRushes: number;
   lastBuilderKillTime: number;
+}
+
+interface ActiveAutoBuild {
+  order: BuildOrder;
+  remaining: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,6 +156,8 @@ export class EnemyBasePlanner {
 
   /** Pending build orders to dispatch to idle builders. */
   private queue: BuildOrder[] = [];
+  /** Build orders currently being placed by the AI main ship. */
+  private activeAutoBuilds: ActiveAutoBuild[] = [];
   /** Keys of conduit cells that have been queued (avoids double-queuing). */
   private claimedConduitKeys: Set<string> = new Set();
   /** Keys of building cells that have been queued (avoids double-queuing). */
@@ -252,7 +262,6 @@ export class EnemyBasePlanner {
 
     this.generatePlan();
     this.replanQueue(state);
-    this.spawnBuilder(state, cp);
   }
 
   // ---------------------------------------------------------------------------
@@ -377,7 +386,8 @@ export class EnemyBasePlanner {
     // 1. Builder lifecycle.
     this.processBuilderRebuilds(state, cp, dt);
     this.assignRepairTargets(state);
-    let spent = this.dispatchIdleBuilders(enemyResources);
+    let spent = this.dispatchAutoBuilds(state, cp, enemyResources);
+    this.collectFinishedAutoBuilds(state, dt);
     this.collectFinishedBuilds(state);
 
     // 2. Adaptive counters.
@@ -392,7 +402,7 @@ export class EnemyBasePlanner {
       this.tickTimer = this.basePlannerInterval();
       this.maybeAdvanceRing(state);
       this.replanQueue(state);
-      spent += this.dispatchIdleBuilders(enemyResources - spent);
+      spent += this.dispatchAutoBuilds(state, cp, enemyResources - spent);
     }
 
     // 5. Narrate notable events.
@@ -1100,6 +1110,48 @@ export class EnemyBasePlanner {
     return spent;
   }
 
+  private dispatchAutoBuilds(state: GameState, cp: CommandPost, enemyResources: number): number {
+    if (this.queue.length === 0) return 0;
+    const idx = difficultyIndex(this.config.difficulty);
+    const maxActive = [1, 1, 2, 3, 4][idx];
+    let spent = 0;
+    while (this.activeAutoBuilds.length < maxActive) {
+      const orderIndex = this.pickAffordableAutoOrderIndex(state, cp, enemyResources - spent);
+      if (orderIndex < 0) break;
+      const [order] = this.queue.splice(orderIndex, 1);
+      spent += this.orderCost(order);
+      this.activeAutoBuilds.push({
+        order,
+        remaining: order.kind === 'conduit' ? AUTO_CONDUIT_BUILD_SECONDS : AUTO_STRUCTURE_PLACEMENT_SECONDS,
+      });
+    }
+    return spent;
+  }
+
+  private pickAffordableAutoOrderIndex(state: GameState, cp: CommandPost, enemyResources: number): number {
+    const affordable: Array<{ index: number; order: BuildOrder; priority: number; cost: number }> = [];
+    for (let i = 0; i < this.queue.length; i++) {
+      const order = this.queue[i];
+      const cost = this.orderCost(order);
+      if (cost > enemyResources) continue;
+      if (!this.isOrderWithinBuildRadius(state, cp, order)) continue;
+      affordable.push({ index: i, order, priority: this.orderStrategicPriority(order), cost });
+    }
+    if (affordable.length === 0) return -1;
+    if (difficultyIndex(this.config.difficulty) <= 1) return affordable[0].index;
+    affordable.sort((a, b) => {
+      const pa = b.priority - a.priority;
+      if (pa !== 0) return pa;
+      return a.index - b.index;
+    });
+    return affordable[0].index;
+  }
+
+  private isOrderWithinBuildRadius(state: GameState, cp: CommandPost, order: BuildOrder): boolean {
+    const hero = state.aiPlayerShip?.alive ? state.aiPlayerShip.position : cp.position;
+    return cellCenter(order.cx, order.cy).distanceTo(hero) <= AI_BUILD_RADIUS;
+  }
+
   private pickAffordableOrderIndex(enemyResources: number): number {
     const idx = difficultyIndex(this.config.difficulty);
     const affordable: Array<{ index: number; order: BuildOrder; priority: number; cost: number }> = [];
@@ -1205,6 +1257,56 @@ export class EnemyBasePlanner {
     }
   }
 
+  private collectFinishedAutoBuilds(state: GameState, dt: number): void {
+    for (let i = this.activeAutoBuilds.length - 1; i >= 0; i--) {
+      const active = this.activeAutoBuilds[i];
+      active.remaining -= dt * this.config.enemyBuildSpeedMul * [0.85, 1.0, 1.15, 1.30, 1.50][difficultyIndex(this.config.difficulty)];
+      if (active.remaining > 0) continue;
+
+      const order = active.order;
+      this.activeAutoBuilds.splice(i, 1);
+
+      if (order.kind === 'conduit') {
+        this.reservedCells.delete(cellKey(order.cx, order.cy));
+        if (state.isConduitPlacementCellClear(order.cx, order.cy).valid) {
+          state.grid.addConduit(order.cx, order.cy, this.team);
+        } else if (!state.grid.hasConduit(order.cx, order.cy)) {
+          this.claimedConduitKeys.delete(cellKey(order.cx, order.cy));
+        }
+        state.power.markDirty();
+        continue;
+      }
+
+      this.releaseOrderReservation(order);
+      if (!state.getStructureFootprintStatus(order.def, order.cx, order.cy).valid) continue;
+      const ent = createBuildingFromDef(order.def, footprintCenter(order.cx, order.cy, order.def.footprintCells), this.team);
+      if (ent.buildProgress < 1) ent.buildProgress = 0.05;
+      state.addEntity(ent);
+      state.applyConfluencePlacement(this.team, ent.position, String(ent.id));
+      this.buildsPlaced++;
+      state.recentEnemyConstructions.push({
+        pos: ent.position.clone(),
+        time: state.gameTime,
+      });
+      state.power.markDirty();
+      if (ent instanceof Shipyard) {
+        this.emitPlannerChat([
+          'Shipyard online - fighters launching soon!',
+          'Ship production facility constructed!',
+          'Our shipyard is operational. Prepare for our fleet.',
+          'Fighter yard complete - reinforcements incoming!',
+        ]);
+      } else if (ent instanceof PowerGenerator) {
+        this.emitPlannerChat([
+          'Power generator online - base expanding.',
+          'New power grid sector activated.',
+          'Energy infrastructure complete.',
+        ]);
+      }
+      this.markBuildingPlaced(order.cx, order.cy);
+    }
+  }
+
   private markBuildingPlaced(cx: number, cy: number): void {
     const k = cellKey(cx, cy);
     for (const ring of this.rings) {
@@ -1244,18 +1346,7 @@ export class EnemyBasePlanner {
       if (!b.alive && b.buildOrder) this.releaseOrderReservation(b.buildOrder);
     }
     this.builders = this.builders.filter((b) => b.alive);
-    const wanted = this.config.enemyMaxBuilders - this.builders.length;
-
-    while (this.rebuildTimers.length < wanted) this.rebuildTimers.push(this.config.enemyBuilderRebuildSeconds);
-    while (this.rebuildTimers.length > wanted) this.rebuildTimers.pop();
-
-    for (let i = 0; i < this.rebuildTimers.length; i++) {
-      this.rebuildTimers[i] -= dt;
-      if (this.rebuildTimers[i] <= 0) {
-        this.spawnBuilder(state, cp);
-        this.rebuildTimers[i] = this.config.enemyBuilderRebuildSeconds;
-      }
-    }
+    this.rebuildTimers.length = 0;
   }
 
   private spawnBuilder(state: GameState, cp: CommandPost): void {
@@ -1290,9 +1381,32 @@ export class EnemyBasePlanner {
 
   /** Returns world positions of active construction sites. */
   getActiveConstructionSites(): Vec2[] {
-    return this.builders
+    const activeSites = this.activeAutoBuilds.map((b) => cellCenter(b.order.cx, b.order.cy));
+    const queuedStructure = this.queue
+      .filter((order) => order.kind === 'building')
+      .slice(0, 4)
+      .map((order) => cellCenter(order.cx, order.cy));
+    return activeSites.concat(queuedStructure).concat(this.builders
       .filter((b) => b.alive && b.buildOrder !== null)
-      .map((b) => cellCenter(b.buildOrder!.cx, b.buildOrder!.cy));
+      .map((b) => cellCenter(b.buildOrder!.cx, b.buildOrder!.cy)));
+  }
+
+  getNearestPendingConstructionSite(from: Vec2): Vec2 | null {
+    let best: Vec2 | null = null;
+    let bestDist = Infinity;
+    const consider = (pos: Vec2): void => {
+      const d = pos.distanceTo(from);
+      if (d < bestDist) {
+        bestDist = d;
+        best = pos;
+      }
+    };
+    for (const active of this.activeAutoBuilds) consider(cellCenter(active.order.cx, active.order.cy));
+    for (const order of this.queue) {
+      if (order.kind !== 'building') continue;
+      consider(cellCenter(order.cx, order.cy));
+    }
+    return best;
   }
 
   /**
@@ -1340,7 +1454,7 @@ export class EnemyBasePlanner {
       currentRing:     this.currentRing,
       buildsPlaced:    this.buildsPlaced,
       builderCount:    this.livingBuilders(),
-      queueSize:       this.queue.length,
+      queueSize:       this.queue.length + this.activeAutoBuilds.length,
       doctrine:        this.doctrineType,
       ringCount:       this.rings.length,
       conduitProgress: totalCells > 0 ? queuedCells / totalCells : 0,
