@@ -47,6 +47,7 @@ import { DEFAULT_VISUAL_QUALITY, VISUAL_QUALITY_PRESETS, type VisualQuality, typ
 import { drawConfluenceTerritory, drawDebugOverlay, drawWaypointMarkers, type ShipCommandGroup, type WaypointMarker } from './gameRender.js';
 import type { NetInputSnapshot, NetGameSnapshot } from './net/protocol.js';
 import type { WebRtcTransport } from './online/webrtcTransport.js';
+import { isHomingTarget, findClosestEnemy, damageLaserLine, damageLaserLineLimited } from './combatUtils.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 
@@ -995,7 +996,7 @@ export class Game {
           start.y + Math.sin(player.angle) * burstRange,
         );
         this.state.addEntity(new ChargedLaserBurst(Team.Player, start, end, player, chargeFraction));
-        this.damageLaserLine(start, end, burstDamage, hitRadius);
+        damageLaserLine(this.state, this.spaceFluid, player, start, end, burstDamage, hitRadius);
         player.weaponSpecialCooldown = LASER_CHARGE_COOLDOWN_SECS;
         player.laserChargeTimer = 0;
         Audio.playSound('laser');
@@ -1047,7 +1048,7 @@ export class Game {
     let target: Entity | null = null;
     let bestDist = 600;
     for (const e of this.state.getEnemiesOf(Team.Player)) {
-      if (!this.isHomingTarget(e)) continue;
+      if (!isHomingTarget(e)) continue;
       const d = player.position.distanceTo(e.position);
       if (d < bestDist) { bestDist = d; target = e; }
     }
@@ -1147,7 +1148,7 @@ export class Game {
         start.y + Math.sin(this.state.player.angle) * WEAPON_STATS.laser.range,
       );
       this.state.addEntity(new Laser(Team.Player, start, end, this.state.player));
-      this.damageLaserLine(start, end, WEAPON_STATS.laser.damage);
+      damageLaserLine(this.state, this.spaceFluid, this.state.player, start, end, WEAPON_STATS.laser.damage);
       Audio.playSound('laser');
       return;
     }
@@ -1162,12 +1163,15 @@ export class Game {
         start.y + Math.sin(player.angle) * WEAPON_STATS.synonymousLaser.range,
       );
       this.state.addEntity(new Laser(Team.Player, start, end, player));
-      this.damageLaserLineLimited(
+      damageLaserLineLimited(
+        this.state,
+        this.spaceFluid,
         start,
         end,
         WEAPON_STATS.synonymousLaser.damage,
         5,
         WEAPON_STATS.synonymousLaser.pierce * player.synonymousPierceMultiplier,
+        player,
       );
       Audio.playSound('laser');
       return;
@@ -1179,7 +1183,7 @@ export class Game {
       this.state.player.position.clone(),
       this.state.player.angle,
       this.state.player,
-      this.findClosestEnemyForTeam(this.state.player.position, Team.Player, 520),
+      findClosestEnemy(this.state, this.state.player.position, Team.Player, 520),
     ));
     Audio.playSound('fire');
   }
@@ -1203,33 +1207,6 @@ export class Game {
       return;
     }
     missile.steerToward(this.camera.screenToWorld(Input.mousePos));
-  }
-
-  private damageLaserLine(start: Vec2, end: Vec2, damage: number, hitRadius: number = 2): void {
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const lenSq = dx * dx + dy * dy;
-    if (lenSq <= 0) return;
-    for (const target of this.state.allEntities()) {
-      // Skip neutrals and own-team entities
-      if (!target.alive || target.team === Team.Player || target.team === Team.Neutral) continue;
-      const tx = target.position.x - start.x;
-      const ty = target.position.y - start.y;
-      const t = Math.max(0, Math.min(1, (tx * dx + ty * dy) / lenSq));
-      const px = start.x + dx * t;
-      const py = start.y + dy * t;
-      const dist = Math.hypot(target.position.x - px, target.position.y - py);
-      if (dist <= target.radius + hitRadius) {
-        target.takeDamage(damage, this.state.player);
-        this.state.recentlyDamaged.add(target.id);
-        if (!target.alive) {
-          this.state.particles.emitExplosion(target.position, target.radius);
-          this.spaceFluid.addExplosion(target.position.x, target.position.y, 1.2, 214, 134, 48); // warm orange explosion
-        } else {
-          this.state.particles.emitSpark(target.position);
-        }
-      }
-    }
   }
 
   private handleActionResult(result: MenuResult): void {
@@ -1608,7 +1585,7 @@ export class Game {
           const start = f.firingOrigin(i);
           const end = target.position.clone();
           this.state.addEntity(new SynonymousDroneLaser(f.team, start, end, f));
-          this.damageLaserLineLimited(start, end, f.weaponDamage, 3, 2, f);
+          damageLaserLineLimited(this.state, this.spaceFluid, start, end, f.weaponDamage, 3, 2, f);
         }
         Audio.playSound('laser');
       } else {
@@ -1662,28 +1639,6 @@ export class Game {
       }
     }
     return best;
-  }
-
-  private findClosestEnemyForTeam(pos: Vec2, team: Team, range: number): Entity | null {
-    let best: Entity | null = null;
-    let bestDist = range;
-    for (const e of this.state.getEnemiesOf(team)) {
-      if (!e.alive) continue;
-      if (!this.isHomingTarget(e)) continue;
-      const d = e.position.distanceTo(pos);
-      if (d < bestDist) {
-        bestDist = d;
-        best = e;
-      }
-    }
-    return best;
-  }
-
-  private isHomingTarget(entity: Entity): boolean {
-    return entity.type === EntityType.PlayerShip ||
-      entity.type === EntityType.Fighter ||
-      entity.type === EntityType.Bomber ||
-      entity instanceof BuildingBase;
   }
 
   private injectFluidForces(): void {
@@ -2651,37 +2606,6 @@ export class Game {
     });
   }
 
-  private damageLaserLineLimited(start: Vec2, end: Vec2, damage: number, hitRadius: number, pierceCount: number, source: Entity = this.state.player): void {
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const lenSq = dx * dx + dy * dy;
-    if (lenSq <= 0) return;
-    const hits: Array<{ target: Entity; t: number }> = [];
-    for (const target of this.state.allEntities()) {
-      if (!target.alive || target.team === source.team || target.team === Team.Neutral) continue;
-      const tx = target.position.x - start.x;
-      const ty = target.position.y - start.y;
-      const t = Math.max(0, Math.min(1, (tx * dx + ty * dy) / lenSq));
-      const px = start.x + dx * t;
-      const py = start.y + dy * t;
-      const dist = Math.hypot(target.position.x - px, target.position.y - py);
-      if (dist <= target.radius + hitRadius) hits.push({ target, t });
-    }
-    hits.sort((a, b) => a.t - b.t);
-    const count = Math.min(pierceCount, hits.length);
-    for (let i = 0; i < count; i++) {
-      const target = hits[i].target;
-      target.takeDamage(damage, source);
-      this.state.recentlyDamaged.add(target.id);
-      if (!target.alive) {
-        this.state.particles.emitExplosion(target.position, target.radius);
-        this.spaceFluid.addExplosion(target.position.x, target.position.y, 0.75, 42, 190, 120);
-      } else {
-        this.state.particles.emitSpark(target.position);
-      }
-    }
-  }
-
   /**
    * Send this client's local input to the server (for the host to apply).
    * Called every tick for non-host LAN clients.
@@ -2756,7 +2680,7 @@ export class Game {
       ship.position.clone(),
       angle,
       ship,
-      this.findClosestEnemyForTeam(ship.position, ship.team, 520),
+      findClosestEnemy(this.state, ship.position, ship.team, 520),
     ));
   }
 
