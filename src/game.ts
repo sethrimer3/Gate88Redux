@@ -3049,76 +3049,66 @@ export class Game {
 
   private drawBuildingHoverHitpoints(ctx: CanvasRenderingContext2D): void {
     const world = this.camera.screenToWorld(Input.mousePos);
-    let hovered: BuildingBase | null = null;
-    let hoverAlpha = 0;
-    let bestDist = Infinity;
+    const fadeRadius = GRID_CELL_SIZE * 6;
+    const maxOverlayAlpha = 0.3;
+
     for (const b of this.state.buildings) {
       if (!b.alive) continue;
-      const half = footprintForBuildingType(b.type) * GRID_CELL_SIZE * 0.5;
-      const dx = Math.abs(world.x - b.position.x);
-      const dy = Math.abs(world.y - b.position.y);
-      const edgeDx = Math.max(0, dx - half);
-      const edgeDy = Math.max(0, dy - half);
-      const d = Math.hypot(edgeDx, edgeDy);
-      const fadeRadius = 190;
+      const d = Math.hypot(world.x - b.position.x, world.y - b.position.y);
       if (d > fadeRadius) continue;
-      if (d < bestDist) {
-        hovered = b;
-        hoverAlpha = 0.8 * (1 - d / fadeRadius);
-        bestDist = d;
-      }
-    }
-    if (!hovered) return;
 
-    const screen = this.camera.worldToScreen(hovered.position);
-    const range = this.buildingEffectRange(hovered);
-    const tint = hovered.team === Team.Player ? Colors.radar_friendly_status : Colors.enemyfire;
-    if (range > 0) {
-      const radius = range * this.camera.zoom;
+      const hoverAlpha = maxOverlayAlpha * (1 - d / fadeRadius);
+      const screen = this.camera.worldToScreen(b.position);
+      const range = this.buildingEffectRange(b);
+      const tint = b.team === Team.Player ? Colors.radar_friendly_status : Colors.enemyfire;
+      if (range > 0) {
+        const radius = range * this.camera.zoom;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = colorToCSS(tint, 0.08 * hoverAlpha);
+        ctx.strokeStyle = colorToCSS(tint, hoverAlpha);
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([8, 6]);
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+
+      const text = `${Math.ceil(b.health)}/${Math.ceil(b.maxHealth)}`;
+      const shieldText = b instanceof Wall && b.maxShield > 0
+        ? `${Math.ceil(b.shield)}/${Math.ceil(b.maxShield)}`
+        : '';
       ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.fillStyle = colorToCSS(tint, 0.035 * hoverAlpha / 0.8);
-      ctx.strokeStyle = colorToCSS(tint, 0.36 * hoverAlpha / 0.8);
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([8, 6]);
+      ctx.font = 'bold 14px "Poiret One", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const metrics = ctx.measureText(shieldText || text);
+      const padX = 8;
+      const boxW = metrics.width + padX * 2;
+      const boxH = shieldText ? 38 : 22;
+      const x = screen.x;
+      const y = screen.y - b.radius * this.camera.zoom - 18;
+      ctx.fillStyle = colorToCSS(Colors.friendly_background, hoverAlpha * 0.72);
+      ctx.strokeStyle = colorToCSS(tint, hoverAlpha);
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+      ctx.roundRect(x - boxW / 2, y - boxH / 2, boxW, boxH, 4);
       ctx.fill();
       ctx.stroke();
-      ctx.setLineDash([]);
+      if (shieldText) {
+        ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, hoverAlpha);
+        ctx.fillText(shieldText, x, y - 8);
+        ctx.fillStyle = colorToCSS(b.team === Team.Enemy ? Colors.enemyfire : Colors.general_building, hoverAlpha);
+        ctx.fillText(text, x, y + 10);
+      } else {
+        ctx.fillStyle = colorToCSS(b.team === Team.Enemy ? Colors.enemyfire : Colors.general_building, hoverAlpha);
+        ctx.fillText(text, x, y + 1);
+      }
       ctx.restore();
     }
-    const text = `${Math.ceil(hovered.health)}/${Math.ceil(hovered.maxHealth)}`;
-    const shieldText = hovered instanceof Wall && hovered.maxShield > 0
-      ? `${Math.ceil(hovered.shield)}/${Math.ceil(hovered.maxShield)}`
-      : '';
-    ctx.save();
-    ctx.font = 'bold 14px "Poiret One", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const metrics = ctx.measureText(shieldText || text);
-    const padX = 8;
-    const boxW = metrics.width + padX * 2;
-    const boxH = shieldText ? 38 : 22;
-    const x = screen.x;
-    const y = screen.y - hovered.radius * this.camera.zoom - 18;
-    ctx.fillStyle = colorToCSS(Colors.friendly_background, 0.58 * hoverAlpha / 0.8);
-    ctx.strokeStyle = colorToCSS(tint, hoverAlpha);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.roundRect(x - boxW / 2, y - boxH / 2, boxW, boxH, 4);
-    ctx.fill();
-    ctx.stroke();
-    if (shieldText) {
-      ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, hoverAlpha);
-      ctx.fillText(shieldText, x, y - 8);
-      ctx.fillStyle = colorToCSS(hovered.team === Team.Enemy ? Colors.enemyfire : Colors.general_building, hoverAlpha);
-      ctx.fillText(text, x, y + 10);
-    } else {
-      ctx.fillStyle = colorToCSS(hovered.team === Team.Enemy ? Colors.enemyfire : Colors.general_building, hoverAlpha);
-      ctx.fillText(text, x, y + 1);
-    }
-    ctx.restore();
   }
 
   private buildingEffectRange(building: BuildingBase): number {
