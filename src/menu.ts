@@ -47,7 +47,12 @@ import type { LobbyState, LobbySlot, AIDifficulty, MsgMatchStart, LanDiscoveredL
 import { factionLabel, RACE_SELECTIONS, type RaceSelection } from './confluence.js';
 import type { WebRtcTransport } from './online/webrtcTransport.js';
 import type { OnlineLobbyRow } from './online/onlineLobby.js';
-import { createSupabaseClient } from './online/supabaseClient.js';
+import {
+  createSupabaseClient,
+  describeSupabaseError,
+  ensureAnonymousSession,
+  isSupabaseConfigured,
+} from './online/supabaseClient.js';
 import { OnlineLobbyManager } from './online/onlineLobby.js';
 import { SignalingClient } from './online/signalingClient.js';
 
@@ -221,6 +226,8 @@ export class MainMenu {
   private _onlineJoinActiveField: 'code' | 'name' = 'code';
   /** Join screen: status message. */
   private _onlineJoinStatus: string = '';
+  /** Online root/host status message for Supabase setup and lobby errors. */
+  private _onlineStatus: string = '';
 
   /** Hit rectangles registered during draw, consumed during update. */
   private hits: Array<{ rect: HitRect; key: string }> = [];
@@ -1834,12 +1841,17 @@ export class MainMenu {
     ctx.fillStyle = colorToCSS(TextColors.title);
     ctx.fillText('ONLINE MULTIPLAYER', cx, 68);
 
-    const supabaseConfigured = Boolean(createSupabaseClient());
+    const supabaseConfigured = isSupabaseConfigured();
 
     if (supabaseConfigured) {
       ctx.font = gameFont(13);
       ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.9);
       ctx.fillText('Supabase connected — WebRTC online lobbies available.', cx, 118);
+      if (this._onlineStatus) {
+        ctx.font = gameFont(11);
+        ctx.fillStyle = colorToCSS(Colors.alert2, 0.9);
+        ctx.fillText(this._onlineStatus, cx, 145);
+      }
 
       this.drawButtonRow(ctx, [
         {
@@ -1864,6 +1876,7 @@ export class MainMenu {
         '  VITE_SUPABASE_ANON_KEY=your-anon-key',
         '',
         'Create a free Supabase project at supabase.com, then run:',
+        '  supabase/schema.sql in the Supabase SQL editor',
         '  npm run dev',
         '',
         'See docs/ONLINE_MULTIPLAYER.md for SQL setup and full instructions.',
@@ -1894,16 +1907,32 @@ export class MainMenu {
 
   private beginOnlineHost(): void {
     const client = createSupabaseClient();
-    if (!client) return;
+    if (!client) {
+      this._onlineStatus = 'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.';
+      return;
+    }
+    this._onlineStatus = 'Signing in anonymously...';
     this._onlineSeed = Math.random() * 0xFFFFFF | 0;
     const manager = new OnlineLobbyManager(client);
-    manager.createLobby(this._onlinePlayerName || 'Host').then((row) => {
+    ensureAnonymousSession(client).then(() => manager.createLobby(this._onlinePlayerName || 'Host')).then((row) => {
       this._onlineLobbyRow = row;
       this._onlineConnectedSlots = [];
       this._onlineLobbyHeartbeatTimer = 0;
+      const signaling = new SignalingClient(client, row.id, row.host_slot);
+      this._onlineSignaling = signaling;
+      signaling.startPolling((signal) => {
+        if (signal.type === 'want_connect') {
+          const slot = Number((signal.payload as { slot?: unknown }).slot ?? signal.from_slot);
+          if (Number.isInteger(slot) && slot >= 1 && slot <= 7 && !this._onlineConnectedSlots.includes(slot)) {
+            this._onlineConnectedSlots.push(slot);
+          }
+        }
+      });
+      this._onlineStatus = '';
       this.setState('online_host_lobby');
     }).catch((e) => {
       console.error('[OnlineHost] createLobby failed:', e);
+      this._onlineStatus = describeSupabaseError(e);
     });
   }
 
@@ -1924,6 +1953,18 @@ export class MainMenu {
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.7);
       ctx.fillText('Creating lobby…', cx, 130);
     } else {
+      const nowMs = Date.now();
+      if (nowMs - this._onlineLobbyHeartbeatTimer > MainMenu.ONLINE_HEARTBEAT_INTERVAL) {
+        this._onlineLobbyHeartbeatTimer = nowMs;
+        const client = createSupabaseClient();
+        if (client) {
+          new OnlineLobbyManager(client).heartbeat(row.id).catch((e) => {
+            this._onlineStatus = describeSupabaseError(e);
+            console.warn('[OnlineHost] heartbeat failed:', e);
+          });
+        }
+      }
+
       // Room code
       ctx.font = gameFont(14);
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.7);
@@ -1941,6 +1982,11 @@ export class MainMenu {
       ctx.font = gameFont(13);
       ctx.fillStyle = colorToCSS(Colors.general_building, 0.9);
       ctx.fillText(`Connected: ${connectedCount} / ${row.max_players}`, cx, 215);
+      if (this._onlineStatus) {
+        ctx.font = gameFont(10);
+        ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
+        ctx.fillText(this._onlineStatus.slice(0, 96), cx, 242);
+      }
 
       // Start Match button (only if at least 2 players)
       if (connectedCount >= 1) {
@@ -1960,10 +2006,15 @@ export class MainMenu {
           if (this._onlineLobbyRow) {
             const client = createSupabaseClient();
             if (client) {
-              new OnlineLobbyManager(client).deleteLobby(this._onlineLobbyRow!.id).catch(console.warn);
+              new OnlineLobbyManager(client).deleteLobby(this._onlineLobbyRow!.id).catch((e) => {
+                this._onlineStatus = describeSupabaseError(e);
+                console.warn(e);
+              });
             }
           }
           this._onlineLobbyRow = null;
+          this._onlineSignaling?.cleanup().catch(console.warn);
+          this._onlineSignaling = null;
           this._onlineTransport?.disconnect();
           this._onlineTransport = null;
           this.setState('online_multiplayer');
@@ -2023,10 +2074,14 @@ export class MainMenu {
     // Mark started in Supabase.
     const client = createSupabaseClient();
     if (client) {
-      new OnlineLobbyManager(client).markStarted(row.id).catch(console.warn);
+      new OnlineLobbyManager(client).markStarted(row.id).catch((e) => {
+        this._onlineStatus = describeSupabaseError(e);
+        console.warn(e);
+      });
     }
 
     this._onlineLobbyRow = null;
+    this._onlineSignaling?.stopPolling();
     this.pendingAction = 'start_online_host';
   }
 
@@ -2124,11 +2179,11 @@ export class MainMenu {
   private joinOnlineGame(code: string): void {
     const client = createSupabaseClient();
     if (!client) {
-      this._onlineJoinStatus = 'Supabase not configured.';
+      this._onlineJoinStatus = 'Supabase not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.';
       return;
     }
     const manager = new OnlineLobbyManager(client);
-    manager.getLobbyByCode(code).then((row) => {
+    ensureAnonymousSession(client).then(() => manager.joinLobbyByCode(code)).then((row) => {
       if (!row) {
         this._onlineJoinStatus = `No lobby found with code "${code}".`;
         return;
@@ -2138,7 +2193,7 @@ export class MainMenu {
         return;
       }
       // Assign a slot index (simple: slots 1–7 in order).
-      const mySlot = 1; // TODO: proper slot negotiation via signaling
+      const mySlot = Math.max(1, Math.min(7, row.player_count - 1));
       const signalingClient = new SignalingClient(client, row.id, mySlot);
       this._onlineSignaling = signalingClient;
       this._onlineJoinStatus = 'Connecting…';
@@ -2162,10 +2217,12 @@ export class MainMenu {
       });
 
       // Signal host we want to connect.
-      signalingClient.sendSignal(0, 'want_connect', { slot: mySlot }).catch(console.warn);
-      manager.incrementPlayerCount(row.id).catch(console.warn);
+      signalingClient.sendSignal(0, 'want_connect', { slot: mySlot }).catch((e) => {
+        this._onlineJoinStatus = describeSupabaseError(e).slice(0, 90);
+        console.warn(e);
+      });
     }).catch((e) => {
-      this._onlineJoinStatus = `Error: ${String(e).slice(0, 60)}`;
+      this._onlineJoinStatus = describeSupabaseError(e).slice(0, 90);
     });
   }
 

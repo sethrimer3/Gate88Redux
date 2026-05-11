@@ -11,7 +11,7 @@ refactor is completed or a new large file is identified.
 | File | Lines | Status |
 |------|-------|--------|
 | `src/game.ts` | ~3,110 | 🔴 in progress |
-| `src/menu.ts` | ~2,215 | 🔴 planned |
+| `src/menu.ts` | 2,272 | 🔴 planned; online Supabase setup pass added more lobby/auth UI |
 | `src/gamestate.ts` | ~1,731 | 🟡 planned |
 
 ## Files 1,000–2,000 lines (secondary priority)
@@ -127,7 +127,7 @@ Previously completed from `game.ts`:
 - ✅ `src/combatUtils.ts` — laser damage helpers, `isHomingTarget`, `findClosestEnemy` (Build 023)
 - ✅ `src/gameRender.ts` — `drawWaypointMarkers`, `drawDebugOverlay`, `drawConfluenceTerritory`
 
-### `src/menu.ts` (~2,215 lines)
+### `src/menu.ts` (2,272 lines)
 
 The `MainMenu` class covers setup UI, multiplayer lobby UI, settings, and
 all nested sub-menus.  Suggested extractions:

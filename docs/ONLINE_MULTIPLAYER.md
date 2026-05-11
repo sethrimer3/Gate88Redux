@@ -1,170 +1,161 @@
-# Gate88Redux — Online Multiplayer
+# Gate88Redux Online Multiplayer
 
-This document covers the architecture, setup, and current status of online
+This document covers the setup and current implementation shape for online
 multiplayer in Gate88Redux.
 
-## Architecture Overview
+## Architecture
 
-Gate88Redux uses a **host-authoritative snapshot model** for all multiplayer
-modes (LAN and future online).
+Gate88Redux uses a host-authoritative snapshot model for multiplayer. The host
+browser owns the simulation. Remote clients send input snapshots and receive
+authoritative game snapshots.
 
-```
-Host Browser (authoritative simulation)
-    │
-    │  NetGameSnapshot (at NET_SNAPSHOT_HZ = 20 Hz)
-    ▼
-Transport Layer (LAN WebSocket relay or future WebRTC DataChannels)
-    │
-    │  NetInputSnapshot (every tick, ~60 Hz)
-    ▼
-Remote Client Browser (receives snapshots, sends inputs)
-```
+Supabase is used only for low-frequency setup traffic:
 
-### Key properties
+- lobby discovery
+- lobby heartbeat and stale-lobby cleanup
+- WebRTC signaling: `want_connect`, `offer`, `answer`, `ice`, `match_start`
 
-- **Host browser owns the truth.** All damage, projectile creation, resource
-  changes, building placement, and win/loss decisions happen on the host.
-- **Remote clients are display terminals.** They interpolate entity positions
-  between snapshots and locally predict their own ship for responsive controls.
-- **Client-side prediction** for the local player ship: inputs are applied
-  locally immediately, then a soft correction blends the ship toward the host's
-  authoritative position when a snapshot arrives.
-- **Entity reconciliation**: fighters and projectiles are reconciled by id
-  against each snapshot. Unknown entities are created as lightweight
-  placeholders; removed entities are destroyed.
-- **No lockstep.** The game does not require deterministic simulation. The host
-  is always authoritative over game outcomes.
+Supabase is not used for high-frequency gameplay traffic. Gameplay snapshots
+and player inputs must go through WebRTC DataChannels.
 
-## Phase Implementation Status
+## Current Status
 
-| Phase | Description | Status |
-|-------|-------------|--------|
-| 1 | Transport abstraction (`src/net/transport.ts`, `src/lan/lanTransport.ts`) | ✅ Done |
-| 2 | Versioned protocol types (`src/net/protocol.ts`) | ✅ Done |
-| 3 | Host snapshot production at 20 Hz (`broadcastLanSnapshot`) | ✅ Done (pre-existing) |
-| 4 | Snapshot application with fighter/projectile reconciliation | ✅ Done |
-| 5 | Client-side prediction with soft correction | ✅ Done |
-| 6 | Remote input handling on host | ✅ Done (pre-existing) |
-| 7 | Online lobby with Supabase | 🔲 Stub only (see below) |
-| 8 | WebRTC DataChannel transport | 🔲 Not implemented (see nextSteps.md) |
-| 9 | Menu/HUD integration | ✅ Online Multiplayer entry added (stub) |
-| 10 | Documentation | ✅ This file |
+| Area | Status |
+|------|--------|
+| LAN multiplayer | Working through the local WebSocket relay |
+| Online lobby rows | Implemented through Supabase |
+| WebRTC signaling rows | Implemented through Supabase polling |
+| Gameplay transport | WebRTC DataChannel implementation exists, still beta |
+| TURN support | Not bundled |
 
-## LAN Multiplayer (Fully Working)
+## Supabase Setup
 
-LAN multiplayer is the primary working multiplayer mode. It uses a Node.js
-WebSocket relay server running on the host machine.
+1. Create a Supabase project.
+2. In the Supabase dashboard, enable Anonymous Sign-Ins under Authentication.
+3. Open the SQL editor and run [`supabase/schema.sql`](../supabase/schema.sql).
+4. Create `.env.local` at the repo root:
 
-See [LAN.md](LAN.md) for setup instructions.
-
-## Online Multiplayer (Stub / Not Yet Functional)
-
-Online multiplayer is accessible from **Play → Online Multiplayer** in the
-main menu. Currently it shows a configuration message if Supabase environment
-variables are not set.
-
-### Supabase Setup (Lobby / Signaling)
-
-Supabase is intended for:
-- Online lobby list (host creates a record, joiners browse or enter room code)
-- Host heartbeat and stale lobby cleanup
-- WebRTC signaling (offer/answer/ICE candidates)
-
-**Supabase is NOT suitable for high-frequency gameplay relay** (20–60 msg/s
-per client). WebRTC DataChannels should be used for gameplay traffic.
-
-#### Environment Variables
-
-Add these to your `.env.local` (never commit them):
-
-```
+```env
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-public-key
 ```
 
-See `.env.example` for the template.
+Do not commit `.env.local`. Do not expose or add a `service_role` key to any
+frontend environment file. The browser uses only the public anon key, then signs
+in with Supabase Auth anonymous sessions so RLS policies see the user as
+`authenticated`.
 
-#### Recommended Supabase Schema
+## SQL Schema
+
+The real schema lives in [`supabase/schema.sql`](../supabase/schema.sql). It
+creates:
+
+- `lobbies`
+- `lobby_participants`
+- `signals`
+- indexes for lobby listing, room-code lookup, signal polling, and cleanup
+- check constraints for room codes, slot ranges, player counts, signal types,
+  and payload size
+- RLS policies for anonymous Auth users
+- `join_lobby_by_code(p_room_code text)` for atomic joins
+- `clean_stale_lobbies()` and `clean_old_signals()`
+
+Do not use the old embedded sample schema from earlier revisions; it created
+only `lobbies` and did not match the TypeScript signaling client.
+
+## Cleanup
+
+Cleanup functions do not run automatically just because they exist.
+
+For manual testing, run:
 
 ```sql
--- Lobbies table for online matchmaking
-create table if not exists lobbies (
-  id           uuid primary key default gen_random_uuid(),
-  room_code    text unique not null,
-  host_name    text not null,
-  player_count int not null default 1,
-  max_players  int not null default 6,
-  match_started boolean not null default false,
-  created_at   timestamptz not null default now(),
-  updated_at   timestamptz not null default now()
-);
-
--- Enable Row Level Security (public read, authenticated write)
-alter table lobbies enable row level security;
-
-create policy "Anyone can read lobbies"
-  on lobbies for select using (true);
-
-create policy "Authenticated users can insert"
-  on lobbies for insert to authenticated with check (true);
-
-create policy "Authenticated users can update their lobbies"
-  on lobbies for update to authenticated using (true);
-
--- Auto-clean stale lobbies (no heartbeat for > 60 s)
-create or replace function clean_stale_lobbies() returns void as $$
-  delete from lobbies where updated_at < now() - interval '60 seconds';
-$$ language sql;
+select public.clean_stale_lobbies();
+select public.clean_old_signals();
 ```
 
-#### Free Tier Warning
+For a public prototype, call those functions from a trusted scheduled job, or
+use `pg_cron` if your Supabase project supports it. Example schedule:
 
-The Supabase Free tier is appropriate for lobby/signaling (infrequent updates).
-Do **not** route high-frequency gameplay messages (inputs at 60 Hz, snapshots
-at 20 Hz) through Supabase — use WebRTC DataChannels for that. See Phase 8 in
-`nextSteps.md`.
+```sql
+select cron.schedule(
+  'gate88-clean-stale-lobbies',
+  '* * * * *',
+  $$select public.clean_stale_lobbies();$$
+);
 
-## WebRTC DataChannel Transport (Not Implemented)
+select cron.schedule(
+  'gate88-clean-old-signals',
+  '* * * * *',
+  $$select public.clean_old_signals();$$
+);
+```
 
-See `nextSteps.md` for the detailed WebRTC implementation checklist.
+Enable `pg_cron` only if it is available for the project. Otherwise use manual
+SQL calls during testing or an external scheduled job.
 
-**Star topology** (planned):
-- Host has one RTCPeerConnection to each remote client.
-- Clients connect only to the host.
-- `reliable ordered` channel for lobby/control messages.
-- `unreliable unordered` channel for snapshots (new snapshot supersedes old).
-- `reliable ordered` channel for client inputs (can tolerate small seq gaps).
+## Client Behavior
 
-**Signaling** (planned via Supabase Realtime):
-- Host creates a lobby row, remote clients subscribe to that row.
-- SDP offer/answer and ICE candidates exchanged through Supabase Realtime
-  or a dedicated `signals` table.
+`src/online/supabaseClient.ts` initializes `@supabase/supabase-js` from:
 
-## Known Limitations
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
 
-- LAN mode requires all players to be on the same network or VPN.
-- Remote client input only moves the ship (no firing forwarding yet; host
-  controls firing for remote ships indirectly via the authoritative simulation).
-- Full building sync (create new buildings from snapshots) is not yet
-  implemented — clients start from the same seed layout and only sync
-  health/progress.
-- Prediction reconciliation is soft (blend + snap) but does not replay
-  unacknowledged inputs from a correction point (full replay is in nextSteps).
-- No TURN server is bundled; some NAT configurations may block WebRTC
-  peer-to-peer connections without one.
+Before lobby or signaling writes, the client calls `signInAnonymously()` if no
+session exists. RLS policies target `authenticated`, not unauthenticated anon
+requests.
+
+`OnlineLobbyManager.joinLobbyByCode()` uses the `join_lobby_by_code` RPC rather
+than allowing joiners to update `player_count` directly. Hosts can heartbeat,
+mark started, and delete only their own lobby rows.
+
+`SignalingClient` inserts and polls rows in `signals`. Signal traffic is
+intended only for WebRTC setup, not gameplay state.
+
+## Failure Messages
+
+The online menu should show useful errors for:
+
+- missing `VITE_SUPABASE_URL` or `VITE_SUPABASE_ANON_KEY`
+- Anonymous Sign-Ins disabled in Supabase Auth
+- missing schema or stale schema cache
+- RLS policy failures
+- network/API failures
+
+LAN and offline modes do not require Supabase configuration.
+
+## TURN / NAT
+
+The WebRTC transport uses public STUN servers. Some NATs require a TURN server
+for reliable peer-to-peer connections. Add TURN credentials to the WebRTC ICE
+server configuration before treating online multiplayer as broadly reliable.
 
 ## Testing Checklist
 
-- [ ] Offline single-player still starts and plays normally.
-- [ ] VS AI still starts normally.
-- [ ] LAN host lobby opens and connects to local server.
-- [ ] LAN client lobby joins and shows correct slot.
-- [ ] Host receives remote input and applies it to the remote ship.
-- [ ] Host snapshots are produced at ~20 Hz (check debug overlay with F3).
-- [ ] Non-host client applies snapshots: remote ships move correctly.
-- [ ] Fighter reconciliation: remote fighters appear and disappear correctly.
-- [ ] Prediction correction: local ship does not rubber-band badly.
-- [ ] Online Multiplayer menu entry opens the stub screen.
-- [ ] Stub screen shows "not configured" message when env vars are absent.
-- [ ] Disconnect does not crash the game.
-- [ ] TypeScript compiles cleanly (`npm run typecheck`).
+- [ ] `npm install`
+- [ ] `npm run typecheck`
+- [ ] `npm run build`
+- [ ] Supabase Anonymous Sign-Ins enabled
+- [ ] `supabase/schema.sql` runs in the Supabase SQL editor
+- [ ] `.env.local` contains only URL and anon key
+- [ ] Online screen shows a useful missing-config message with no env vars
+- [ ] Host can create a lobby and see a room code
+- [ ] Joiner can join by room code through `join_lobby_by_code`
+- [ ] `signals` rows are created for `want_connect`, offer/answer/ICE, and match start
+- [ ] `select public.clean_stale_lobbies();` removes old unstarted lobbies
+- [ ] `select public.clean_old_signals();` removes old signaling rows
+- [ ] Offline single-player still starts
+- [ ] Vs AI still starts
+- [ ] LAN hosting and joining still work
+
+## Implementation Summary
+
+- Added a dedicated Supabase setup file at `supabase/schema.sql`.
+- Added anonymous Supabase Auth sign-in through `@supabase/supabase-js`.
+- Aligned lobby and signal RLS with authenticated anonymous users.
+- Replaced direct joiner-side `player_count` updates with an atomic RPC.
+- Kept Supabase scoped to lobby discovery, heartbeat, cleanup, and signaling.
+
+Remaining limitations: online multiplayer is still prototype-grade, slot
+negotiation is minimal, TURN is not configured, and cleanup must be scheduled or
+called manually.
