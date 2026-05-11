@@ -508,8 +508,8 @@ export class VsAIDirector {
       else if (e instanceof TurretBase) priority = -2; // avoid hard targets
       else if (e instanceof CommandPost) priority = 2;
       if (priority <= 0) continue;
-      const dist = this.ship.position.distanceTo(m.lastSeenPos);
-      const score = priority * 100 - dist;
+      const routeCost = state.scoreShipRoute(this.ship.position, m.lastSeenPos, this.ship.team, this.ship.radius, Math.floor(effectiveDifficultyScalar(this.config)));
+      const score = priority * 100 - routeCost;
       if (score > bestScore) {
         bestScore = score;
         best = m;
@@ -528,7 +528,8 @@ export class VsAIDirector {
       const healthBias = m.entity instanceof PlayerShip
         ? (1.0 - Math.max(0, m.entity.healthFraction)) * 200
         : 0;
-      const d = this.ship.position.distanceTo(m.lastSeenPos) - healthBias;
+      const routeCost = state.scoreShipRoute(this.ship.position, m.lastSeenPos, this.ship.team, this.ship.radius, Math.floor(effectiveDifficultyScalar(this.config)));
+      const d = routeCost - healthBias;
       if (d < bestDist) {
         bestDist = d;
         best = m;
@@ -571,8 +572,10 @@ export class VsAIDirector {
     }
 
     const target = this.goalTarget;
-    const toTarget = new Vec2(target.x - this.ship.position.x,
-                              target.y - this.ship.position.y);
+    const intelligence = Math.floor(effectiveDifficultyScalar(this.config));
+    const moveTarget = state.resolveShipNavigationTarget(this.ship, target, intelligence);
+    const toTarget = new Vec2(moveTarget.x - this.ship.position.x,
+                              moveTarget.y - this.ship.position.y);
     const dist = toTarget.length();
 
     // Aim

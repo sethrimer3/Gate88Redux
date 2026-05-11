@@ -206,9 +206,18 @@ export class EnemyAI {
     }
     if (candidates.length === 0) return;
 
-    const pick = this.score.bestAttackTarget(state, this.team, candidates);
-    if (!pick) return;
-    const target = candidates.find((c) => c.cx === pick.cx && c.cy === pick.cy);
+    const scored = candidates
+      .map((c) => {
+        const opportunity = this.score.bestAttackTarget(state, this.team, [c])?.score ?? 0;
+        let route = 0;
+        for (const f of myFighters.slice(0, Math.min(4, myFighters.length))) {
+          route += state.scoreShipRoute(f.position, c.pos, f.team, f.radius, 2);
+        }
+        route /= Math.max(1, Math.min(4, myFighters.length));
+        return { target: c, score: opportunity * 130 - route };
+      })
+      .sort((a, b) => b.score - a.score);
+    const target = scored[0]?.target;
     if (!target) return;
 
     for (const f of myFighters) {

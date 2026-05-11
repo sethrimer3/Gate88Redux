@@ -1,0 +1,271 @@
+import { EntityType, Team } from './entities.js';
+import type { GameState } from './gamestate.js';
+import { GRID_CELL_SIZE, cellCenter, cellKey, footprintOrigin, worldToCell } from './grid.js';
+import { Vec2, pointToSegmentDistance } from './math.js';
+import { WORLD_HEIGHT, WORLD_WIDTH } from './constants.js';
+import { footprintForBuildingType } from './buildingfootprint.js';
+import { TurretBase } from './turret.js';
+
+export interface ShipPathOptions {
+  team: Team;
+  intelligence: number;
+  radius: number;
+  preferBreach?: boolean;
+}
+
+interface NavCell {
+  cx: number;
+  cy: number;
+}
+
+interface WallRect {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+  center: Vec2;
+  hp: number;
+}
+
+const NAV_CELL = GRID_CELL_SIZE * 4;
+const MAX_EXPANSIONS = 900;
+const WALL_MARGIN = GRID_CELL_SIZE * 1.35;
+
+export function resolveShipNavigationTarget(
+  state: GameState,
+  from: Vec2,
+  target: Vec2,
+  options: ShipPathOptions,
+): Vec2 {
+  const walls = collectWalls(state, options.radius + WALL_MARGIN);
+  if (walls.length === 0 || hasClearLine(from, target, walls)) return target.clone();
+
+  const breach = options.intelligence >= 2
+    ? findBestBreachPoint(state, from, target, walls, options)
+    : null;
+  const routeTarget = breach?.worthIt ? breach.pos : target;
+  const route = findRoute(state, from, routeTarget, walls, options);
+  if (route) return route;
+  if (breach) return breach.pos;
+  return target.clone();
+}
+
+export function scoreShipRoute(
+  state: GameState,
+  from: Vec2,
+  target: Vec2,
+  options: ShipPathOptions,
+): number {
+  const walls = collectWalls(state, options.radius + WALL_MARGIN);
+  if (walls.length === 0 || hasClearLine(from, target, walls)) {
+    return from.distanceTo(target) + routeThreat(state, options.team, from, target) * threatWeight(options.intelligence);
+  }
+  const waypoint = resolveShipNavigationTarget(state, from, target, options);
+  const direct = from.distanceTo(waypoint) + waypoint.distanceTo(target);
+  const blockedPenalty = waypoint.distanceTo(target) < GRID_CELL_SIZE * 8 ? 0 : GRID_CELL_SIZE * 80;
+  return direct + blockedPenalty + routeThreat(state, options.team, from, waypoint) * threatWeight(options.intelligence);
+}
+
+function collectWalls(state: GameState, inflate: number): WallRect[] {
+  const walls: WallRect[] = [];
+  for (const b of state.buildings) {
+    if (!b.alive || b.buildProgress < 1 || b.type !== EntityType.Wall) continue;
+    const c = worldToCell(b.position);
+    const size = footprintForBuildingType(b.type);
+    const origin = footprintOrigin(c.cx, c.cy, size);
+    walls.push({
+      left: origin.cx * GRID_CELL_SIZE - inflate,
+      right: (origin.cx + size) * GRID_CELL_SIZE + inflate,
+      top: origin.cy * GRID_CELL_SIZE - inflate,
+      bottom: (origin.cy + size) * GRID_CELL_SIZE + inflate,
+      center: b.position.clone(),
+      hp: Math.max(1, b.health + ('shield' in b ? Number(b.shield) || 0 : 0)),
+    });
+  }
+  return walls;
+}
+
+function hasClearLine(from: Vec2, to: Vec2, walls: WallRect[]): boolean {
+  for (const wall of walls) {
+    if (segmentIntersectsRect(from, to, wall)) return false;
+  }
+  return true;
+}
+
+function segmentIntersectsRect(a: Vec2, b: Vec2, r: WallRect): boolean {
+  if (pointInRect(a, r) || pointInRect(b, r)) return true;
+  const corners = [
+    new Vec2(r.left, r.top),
+    new Vec2(r.right, r.top),
+    new Vec2(r.right, r.bottom),
+    new Vec2(r.left, r.bottom),
+  ];
+  for (let i = 0; i < 4; i++) {
+    if (segmentsIntersect(a, b, corners[i], corners[(i + 1) % 4])) return true;
+  }
+  return false;
+}
+
+function pointInRect(p: Vec2, r: WallRect): boolean {
+  return p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom;
+}
+
+function segmentsIntersect(a: Vec2, b: Vec2, c: Vec2, d: Vec2): boolean {
+  const ccw = (p1: Vec2, p2: Vec2, p3: Vec2) => (p3.y - p1.y) * (p2.x - p1.x) > (p2.y - p1.y) * (p3.x - p1.x);
+  return ccw(a, c, d) !== ccw(b, c, d) && ccw(a, b, c) !== ccw(a, b, d);
+}
+
+function findRoute(
+  state: GameState,
+  from: Vec2,
+  target: Vec2,
+  walls: WallRect[],
+  options: ShipPathOptions,
+): Vec2 | null {
+  const start = toNavCell(from);
+  const goal = toNavCell(target);
+  const minCx = Math.max(0, Math.min(start.cx, goal.cx) - 28);
+  const maxCx = Math.min(Math.floor(WORLD_WIDTH / NAV_CELL), Math.max(start.cx, goal.cx) + 28);
+  const minCy = Math.max(0, Math.min(start.cy, goal.cy) - 28);
+  const maxCy = Math.min(Math.floor(WORLD_HEIGHT / NAV_CELL), Math.max(start.cy, goal.cy) + 28);
+  const open: Array<NavCell & { g: number; f: number }> = [{ ...start, g: 0, f: heuristic(start, goal) }];
+  const cameFrom = new Map<string, string>();
+  const costSoFar = new Map<string, number>([[cellKey(start.cx, start.cy), 0]]);
+  let expansions = 0;
+
+  while (open.length > 0 && expansions++ < MAX_EXPANSIONS) {
+    open.sort((a, b) => a.f - b.f);
+    const cur = open.shift()!;
+    if (cur.cx === goal.cx && cur.cy === goal.cy) {
+      return firstUsefulWaypoint(reconstruct(start, goal, cameFrom), from, target, walls);
+    }
+    for (const n of neighbors(cur)) {
+      if (n.cx < minCx || n.cx > maxCx || n.cy < minCy || n.cy > maxCy) continue;
+      const pos = navCenter(n);
+      if (isBlocked(pos, walls)) continue;
+      const step = cur.cx !== n.cx && cur.cy !== n.cy ? 1.414 : 1;
+      const threat = routeThreat(state, options.team, navCenter(cur), pos) * threatWeight(options.intelligence);
+      const newCost = cur.g + step * NAV_CELL + threat;
+      const nk = cellKey(n.cx, n.cy);
+      if (newCost >= (costSoFar.get(nk) ?? Infinity)) continue;
+      costSoFar.set(nk, newCost);
+      cameFrom.set(nk, cellKey(cur.cx, cur.cy));
+      open.push({ ...n, g: newCost, f: newCost + heuristic(n, goal) * NAV_CELL });
+    }
+  }
+  return null;
+}
+
+function firstUsefulWaypoint(path: NavCell[], from: Vec2, target: Vec2, walls: WallRect[]): Vec2 | null {
+  if (path.length < 2) return target.clone();
+  for (let i = path.length - 1; i >= 1; i--) {
+    const p = i === path.length - 1 ? target : navCenter(path[i]);
+    if (hasClearLine(from, p, walls)) return p;
+  }
+  return navCenter(path[1]);
+}
+
+function reconstruct(start: NavCell, goal: NavCell, cameFrom: Map<string, string>): NavCell[] {
+  const result: NavCell[] = [goal];
+  let cur = cellKey(goal.cx, goal.cy);
+  const startKey = cellKey(start.cx, start.cy);
+  while (cur !== startKey) {
+    const prev = cameFrom.get(cur);
+    if (!prev) break;
+    const comma = prev.indexOf(',');
+    result.push({ cx: Number(prev.slice(0, comma)), cy: Number(prev.slice(comma + 1)) });
+    cur = prev;
+  }
+  result.reverse();
+  return result;
+}
+
+function findBestBreachPoint(
+  state: GameState,
+  from: Vec2,
+  target: Vec2,
+  walls: WallRect[],
+  options: ShipPathOptions,
+): { pos: Vec2; worthIt: boolean } | null {
+  let best: { pos: Vec2; score: number; wallHp: number } | null = null;
+  for (const wall of walls) {
+    const lineDist = pointToSegmentDistance(wall.center, from, target);
+    if (lineDist > NAV_CELL * 4) continue;
+    const fire = localThreat(state, options.team, wall.center);
+    const distance = from.distanceTo(wall.center) + wall.center.distanceTo(target);
+    const score = distance + wall.hp * (options.preferBreach ? 16 : 34) + fire * 34;
+    if (!best || score < best.score) best = { pos: wall.center.clone(), score, wallHp: wall.hp };
+  }
+  if (!best) return null;
+  const around = scoreShipRouteNoBreach(state, from, target, options);
+  const breachScore = best.score + best.wallHp * 18;
+  return { pos: best.pos, worthIt: breachScore < around * 0.86 };
+}
+
+function scoreShipRouteNoBreach(state: GameState, from: Vec2, target: Vec2, options: ShipPathOptions): number {
+  const walls = collectWalls(state, options.radius + WALL_MARGIN);
+  const route = findRoute(state, from, target, walls, { ...options, intelligence: Math.max(0, options.intelligence) });
+  return route ? from.distanceTo(route) + route.distanceTo(target) : Infinity;
+}
+
+function routeThreat(state: GameState, team: Team, from: Vec2, to: Vec2): number {
+  const steps = Math.max(1, Math.ceil(from.distanceTo(to) / 120));
+  let total = 0;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    total += localThreat(state, team, from.lerp(to, t));
+  }
+  return total / (steps + 1);
+}
+
+function localThreat(state: GameState, team: Team, pos: Vec2): number {
+  let threat = 0;
+  for (const b of state.buildings) {
+    if (!b.alive || b.team === team || b.team === Team.Neutral) continue;
+    if (!(b instanceof TurretBase)) continue;
+    const d = b.position.distanceTo(pos);
+    if (d <= b.range * 1.2) threat += 1 - d / (b.range * 1.2);
+  }
+  for (const f of state.fighters) {
+    if (!f.alive || f.docked || f.team === team || f.team === Team.Neutral) continue;
+    const d = f.position.distanceTo(pos);
+    if (d <= 280) threat += 0.35 * (1 - d / 280);
+  }
+  return threat;
+}
+
+function threatWeight(intelligence: number): number {
+  return intelligence >= 3 ? 260 : intelligence >= 2 ? 120 : intelligence >= 1 ? 35 : 0;
+}
+
+function isBlocked(pos: Vec2, walls: WallRect[]): boolean {
+  return walls.some((w) => pointInRect(pos, w));
+}
+
+function toNavCell(pos: Vec2): NavCell {
+  return {
+    cx: Math.max(0, Math.min(Math.floor(WORLD_WIDTH / NAV_CELL), Math.floor(pos.x / NAV_CELL))),
+    cy: Math.max(0, Math.min(Math.floor(WORLD_HEIGHT / NAV_CELL), Math.floor(pos.y / NAV_CELL))),
+  };
+}
+
+function navCenter(c: NavCell): Vec2 {
+  return new Vec2((c.cx + 0.5) * NAV_CELL, (c.cy + 0.5) * NAV_CELL);
+}
+
+function heuristic(a: NavCell, b: NavCell): number {
+  return Math.hypot(a.cx - b.cx, a.cy - b.cy);
+}
+
+function neighbors(c: NavCell): NavCell[] {
+  return [
+    { cx: c.cx + 1, cy: c.cy },
+    { cx: c.cx - 1, cy: c.cy },
+    { cx: c.cx, cy: c.cy + 1 },
+    { cx: c.cx, cy: c.cy - 1 },
+    { cx: c.cx + 1, cy: c.cy + 1 },
+    { cx: c.cx + 1, cy: c.cy - 1 },
+    { cx: c.cx - 1, cy: c.cy + 1 },
+    { cx: c.cx - 1, cy: c.cy - 1 },
+  ];
+}

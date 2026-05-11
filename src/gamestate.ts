@@ -22,6 +22,7 @@ import { Colors, colorToCSS } from './colors.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
 import { type FactionType, type ConfluenceTerritoryCircle, CONFLUENCE_BASE_RADIUS, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_PARENT_EXPAND_DURATION, CONFLUENCE_NEW_CIRCLE_GROW_DURATION, CONFLUENCE_INCLUDE_MARGIN, isConfluenceFaction, isSynonymousFaction } from './confluence.js';
 import { SynonymousSwarmSystem, SYNONYMOUS_BASE_PRODUCTION, SYNONYMOUS_BUILD_COST, SYNONYMOUS_CURRENCY_SYMBOL, SYNONYMOUS_FACTORY_PRODUCTION } from './synonymous.js';
+import { resolveShipNavigationTarget, scoreShipRoute } from './shippath.js';
 
 export interface DestroyedBuildingRecord {
   type: EntityType;
@@ -259,7 +260,10 @@ export class GameState {
     this.applyFighterSeparation(dt);
 
     // Update fighters
-    for (const f of this.fighters) f.update(dt);
+    for (const f of this.fighters) {
+      this.updateFighterNavigation(f);
+      f.update(dt);
+    }
 
     // Update projectiles
     for (const p of this.projectiles) {
@@ -1415,6 +1419,40 @@ export class GameState {
     return this.fighters.filter(
       (f) => f.alive && f.team === team && f.group === group,
     );
+  }
+
+  resolveShipNavigationTarget(ship: Entity, target: Vec2, intelligence: number = 1): Vec2 {
+    return resolveShipNavigationTarget(this, ship.position, target, {
+      team: ship.team,
+      intelligence,
+      radius: ship.radius,
+      preferBreach: intelligence >= 3,
+    });
+  }
+
+  scoreShipRoute(from: Vec2, target: Vec2, team: Team, radius: number, intelligence: number = 1): number {
+    return scoreShipRoute(this, from, target, {
+      team,
+      intelligence,
+      radius,
+      preferBreach: intelligence >= 3,
+    });
+  }
+
+  private updateFighterNavigation(f: FighterShip): void {
+    if (!f.alive || f.docked) {
+      f.setNavigationTarget(null);
+      return;
+    }
+    const target = f.order === 'dock' && f.homeYard
+      ? f.homeYard.position
+      : f.targetPos;
+    if (!target) {
+      f.setNavigationTarget(null);
+      return;
+    }
+    const intelligence = f.team === Team.Enemy ? 2 : 1;
+    f.setNavigationTarget(this.resolveShipNavigationTarget(f, target, intelligence));
   }
 
   /** Count docked and total fighters for a group. */

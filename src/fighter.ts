@@ -39,6 +39,7 @@ export class FighterShip extends Entity {
   docked: boolean = true;
   order: FighterOrder = 'idle';
   targetPos: Vec2 | null = null;
+  navigationTarget: Vec2 | null = null;
   homeYard: Shipyard | null = null;
 
   protected turnRate: number;
@@ -142,9 +143,10 @@ export class FighterShip extends Entity {
       this.order = 'idle';
       return;
     }
+    const steerTarget = this.steeringTarget() ?? this.targetPos;
     const dist = this.position.distanceTo(this.targetPos);
     if (this.order === 'waypoint' || this.order === 'follow' || this.order === 'protect') {
-      const organicTarget = this.weaveTarget(this.targetPos, 18);
+      const organicTarget = this.weaveTarget(steerTarget, 18);
       this.steerTowards(organicTarget, dt);
       this.thrustForward(dt * (dist < 55 ? 0.35 : 0.85));
       return;
@@ -158,7 +160,7 @@ export class FighterShip extends Entity {
       this.thrustForward(dt * 0.45);
       return;
     }
-    this.steerTowards(this.weaveTarget(this.targetPos, 14), dt);
+    this.steerTowards(this.weaveTarget(steerTarget, 14), dt);
     this.thrustForward(dt);
   }
 
@@ -174,7 +176,7 @@ export class FighterShip extends Entity {
       this.position = this.homeYard.position.clone();
       return;
     }
-    this.steerTowards(this.homeYard.position, dt);
+    this.steerTowards(this.steeringTarget() ?? this.homeYard.position, dt);
     this.thrustForward(dt);
   }
 
@@ -215,6 +217,10 @@ export class FighterShip extends Entity {
 
   canFire(): boolean {
     return this.fireTimer <= 0 && !this.docked;
+  }
+
+  setNavigationTarget(target: Vec2 | null): void {
+    this.navigationTarget = target ? target.clone() : null;
   }
 
   consumeShot(cooldownTicks: number): void {
@@ -419,6 +425,10 @@ export class FighterShip extends Entity {
       base.x + Math.cos(waveA) * radius + Math.sin(waveB * 1.31) * amount * 0.35,
       base.y + Math.sin(waveA * 0.91) * radius + Math.cos(waveB) * amount * 0.35,
     );
+  }
+
+  private steeringTarget(): Vec2 | null {
+    return this.navigationTarget ?? this.targetPos;
   }
 }
 
