@@ -145,6 +145,8 @@ export class WorldGrid {
    * Draw traveling energy-pulse dots along energized conduits.
    * Only called in High graphics mode (conduitPulseEnabled).
    * Renders a hard-capped number of animated circles per frame.
+   * When `getFlowDir` is supplied, dots travel in BFS flow direction
+   * (source → leaf buildings) instead of appearing at random positions.
    */
   drawConduitPulses(
     ctx: CanvasRenderingContext2D,
@@ -153,6 +155,7 @@ export class WorldGrid {
     screenH: number,
     time: number,
     isEnergized?: (cx: number, cy: number, team: Team) => boolean,
+    getFlowDir?: (cx: number, cy: number, team: Team) => { dx: number; dy: number } | null,
   ): void {
     // Visible cell range
     const tl = camera.screenToWorld(new Vec2(0, 0));
@@ -181,21 +184,42 @@ export class WorldGrid {
 
       // Each conduit cell gets a unique offset so pulses don't all align.
       const cellOffset = hash01(cx, cy, 0xf5c4d8);
-      // Pulse phase: 0.0 → 1.0 cycling with time
-      const phase = ((time * 0.65 + cellOffset) % 1.0);
-      // Only draw dot when it's in the "active" portion of the cycle
-      if (phase > 0.15) continue;
-      const dotAlpha = Math.max(0, 0.55 - phase * 3.5) * (0.7 + cellOffset * 0.3);
-      if (dotAlpha < 0.02) continue;
 
-      const c = camera.worldToScreen(cellCenter(cx, cy));
-      const color = entry.team === Team.Player
-        ? `rgba(140,240,255,${dotAlpha})`
-        : `rgba(255,160,80,${dotAlpha})`;
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.arc(c.x, c.y, dotR, 0, Math.PI * 2);
-      ctx.fill();
+      const flowDir = getFlowDir ? getFlowDir(cx, cy, entry.team) : null;
+      if (flowDir) {
+        // Directional animation: dot travels FROM the upstream edge of the
+        // cell TOWARD the downstream edge (in the energy flow direction).
+        // phase: 0 → 1 cycling with time. Window = [0, 0.45).
+        const phase = ((time * 0.70 + cellOffset) % 1.0);
+        if (phase > 0.45) continue;
+        const tAcross = phase / 0.45; // 0 = entering cell, 1 = leaving cell
+        const dotAlpha = Math.sin(tAcross * Math.PI) * 0.55 * (0.7 + cellOffset * 0.3);
+        if (dotAlpha < 0.02) continue;
+        // Position: start at upstream edge (-0.45 cell width), exit at downstream (+0.45)
+        const offset = (tAcross - 0.5) * cellPx * 0.90;
+        const c = camera.worldToScreen(cellCenter(cx, cy));
+        const color = entry.team === Team.Player
+          ? `rgba(140,240,255,${dotAlpha})`
+          : `rgba(255,160,80,${dotAlpha})`;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(c.x + flowDir.dx * offset, c.y + flowDir.dy * offset, dotR, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Fallback: pulse appears at center of cell (source-adjacent / undirected)
+        const phase = ((time * 0.65 + cellOffset) % 1.0);
+        if (phase > 0.15) continue;
+        const dotAlpha = Math.max(0, 0.55 - phase * 3.5) * (0.7 + cellOffset * 0.3);
+        if (dotAlpha < 0.02) continue;
+        const c = camera.worldToScreen(cellCenter(cx, cy));
+        const color = entry.team === Team.Player
+          ? `rgba(140,240,255,${dotAlpha})`
+          : `rgba(255,160,80,${dotAlpha})`;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(c.x, c.y, dotR, 0, Math.PI * 2);
+        ctx.fill();
+      }
       dotsDrawn++;
     }
 

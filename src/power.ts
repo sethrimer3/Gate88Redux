@@ -45,6 +45,8 @@ export class PowerGraph {
     playerHasSource: false,
     playerEnergizedCount: 0,
   };
+  /** Per-team BFS flow direction per conduit cell (points FROM source TOWARD leaf). */
+  private flowDirs: Map<Team, Map<string, { dx: number; dy: number }>> = new Map();
 
   /** Mark the graph as needing a recompute. Called on any building/conduit change. */
   markDirty(): void {
@@ -60,6 +62,15 @@ export class PowerGraph {
   isCellEnergized(team: Team, cx: number, cy: number): boolean {
     const set = this.snapshot.energized.get(team);
     return set !== undefined && set.has(cellKey(cx, cy));
+  }
+
+  /**
+   * BFS flow direction at (cx, cy) for `team`: the unit step that energy
+   * travels along this conduit cell (FROM source TOWARD leaf buildings).
+   * Returns null for source-adjacent cells or cells not in the flow tree.
+   */
+  getFlowDir(team: Team, cx: number, cy: number): { dx: number; dy: number } | null {
+    return this.flowDirs.get(team)?.get(cellKey(cx, cy)) ?? null;
   }
 
   /**
@@ -123,10 +134,12 @@ export class PowerGraph {
 
     // 3. BFS per team.
     const energized = new Map<Team, Set<string>>();
+    const newFlowDirs = new Map<Team, Map<string, { dx: number; dy: number }>>();
     for (const [team, sources] of sourceCells) {
       const conduitMap = conduitCellsByTeam.get(team) ?? new Map();
       const visited = new Set<string>();
       const queue: Array<{ cx: number; cy: number }> = [];
+      const teamFlowDirs = new Map<string, { dx: number; dy: number }>();
 
       // Seed: source cells and their 4-neighbours (so an adjacent conduit
       // immediately bordering a generator gets energized even without the
@@ -146,7 +159,8 @@ export class PowerGraph {
         seed(s.cx, s.cy - 1);
       }
 
-      // Flood through team-owned conduits.
+      // Flood through team-owned conduits, recording BFS parent direction
+      // (points FROM source TOWARD the cell, i.e. energy flow direction).
       while (queue.length > 0) {
         const cur = queue.shift()!;
         const neighbours: Array<[number, number]> = [
@@ -160,13 +174,16 @@ export class PowerGraph {
           if (visited.has(nk)) continue;
           if (conduitMap.has(nk)) {
             visited.add(nk);
+            teamFlowDirs.set(nk, { dx: nx - cur.cx, dy: ny - cur.cy });
             queue.push({ cx: nx, cy: ny });
           }
         }
       }
 
       energized.set(team, visited);
+      newFlowDirs.set(team, teamFlowDirs);
     }
+    this.flowDirs = newFlowDirs;
 
     // 4. Snapshot stats for HUD.
     const playerSet = energized.get(Team.Player);
