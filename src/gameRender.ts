@@ -92,6 +92,8 @@ export function drawDebugOverlay(ctx: CanvasRenderingContext2D, args: {
   lanAiDirectorCount: number;
   /** Current prediction error magnitude (px) for the local player ship. */
   lanPredictionError?: number;
+  /** Number of crystal motes drawn last frame (0 if nebula disabled). */
+  crystalMoteCount?: number;
 }): void {
   const { state } = args;
   const playerBuildings = state.buildings.filter((b) => b.alive && b.team === Team.Player);
@@ -131,6 +133,9 @@ export function drawDebugOverlay(ctx: CanvasRenderingContext2D, args: {
   lines.push(`ship paths frame ${pathStats.mobilePathMsThisFrame.toFixed(2)}ms r ${pathStats.resolvesThisFrame} A* ${pathStats.fullAStarThisFrame} reuse ${pathStats.cachedReusesThisFrame} shared ${pathStats.sharedPathUsesThisFrame} skip ${pathStats.skippedThisFrame}`);
   lines.push(`ship paths ${pathStats.resolvesPerSecond}/s  avg ${pathStats.avgMsLast60.toFixed(2)}ms max ${pathStats.maxMsLast60.toFixed(2)}ms`);
   lines.push(`ship path target adjusted ${pathStats.adjustedTargetLastSecond ? 'yes' : 'no'}`);
+  if (args.crystalMoteCount !== undefined) {
+    lines.push(`crystal motes visible ${args.crystalMoteCount}`);
+  }
 
   const isLan = state.gameMode === 'lan_host' || state.gameMode === 'lan_client';
   if (isLan && args.lanClient) {

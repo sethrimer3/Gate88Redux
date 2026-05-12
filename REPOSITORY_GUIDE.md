@@ -157,6 +157,7 @@ This document maps the repository structure and gives a concise, broad summary o
 | `src/camera.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/colors.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/constants.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
+| `src/crystalnebula.ts` | Crystal Nebula Clouds visual layer. | Pooled angular crystal-mote particles organized in seeded cloud regions. Reacts to ships, projectiles, and explosions via disturbance/spring physics. Drawn additively between starfield and gameplay, quality-scaled via `VisualQualityPreset`. |
 | `src/decodeText.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/enemyai.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/enemybaseplanner.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |

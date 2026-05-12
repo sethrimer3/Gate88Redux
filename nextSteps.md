@@ -223,7 +223,21 @@ cells when locking the slot, not lazily per-dispatch.
 
 ---
 
-## Pre-existing Notes (Retained)
+## Crystal Nebula — Build 035 — Remaining / Deferred Work
+
+### Wire laser-kill explosions into CrystalNebula
+
+Kills via `damageLaserLine` and `damageLaserLineLimited` in `src/combatUtils.ts` do not yet call `crystalNebula.addExplosion()`.  Wiring them in requires adding an optional `crystalNebula?: CrystalNebula` parameter to both functions and updating their callers in:
+- `src/weaponFiring.ts` — update `WeaponFiringCtx` interface and the three call sites
+- `src/turretCombat.ts` — add optional parameter to `damageLaserLine` call
+- `src/fighterCombat.ts` — add optional parameter to `damageLaserLineLimited` call
+
+### Add more explosion hook sites in mine.ts and combatUtils.ts
+
+`src/mine.ts` calls `this.gameState.particles.emitExplosion(...)` on mine detonation without producing a `pendingCrystalExplosions` entry. Add a `pendingCrystalExplosions.push(...)` alongside the existing `emitExplosion` call.
+
+---
+
 
 ### Online Multiplayer — PR 19 Implementation Summary
 
