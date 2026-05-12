@@ -91,6 +91,7 @@ export abstract class BuildingBase extends Entity {
     }
     this.drawSquareHealthFrame(ctx, x, y, v.side);
     this.drawPowerStrip(ctx, x, y, v.side);
+    if (this.powered && this.buildProgress >= 1 && !v.simple) this.drawPoweredScanLine(ctx, x, y, v.side);
     if (this.buildProgress < 1) this.drawConstructionOverlay(ctx, x, y, v.side);
     if (this.deleting) this.drawDeletionOverlay(ctx, x, y, v.side);
     ctx.restore();
@@ -203,12 +204,115 @@ export abstract class BuildingBase extends Entity {
     ctx.strokeStyle = colorToCSS(Colors.alert1, 0.9); ctx.lineWidth = 2;
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + s * t, y); ctx.stroke();
   }
+  /** Subtle vertical scan-line that sweeps through a powered building on a ~4 s cycle. */
+  private drawPoweredScanLine(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
+    const CYCLE = 4.0;
+    const phase = (this.animationTime % CYCLE) / CYCLE;       // 0 → 1
+    const sy = y + s * (1 - phase);                           // sweeps bottom-to-top
+    const h = Math.max(2, s * 0.08);
+    const a = Math.sin(phase * Math.PI) * 0.09;               // fade in/out at edges
+    if (a < 0.005) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const grad = ctx.createLinearGradient(x, sy, x, sy + h);
+    grad.addColorStop(0, `rgba(255,255,255,0)`);
+    grad.addColorStop(0.5, `rgba(255,255,255,${a.toFixed(3)})`);
+    grad.addColorStop(1, `rgba(255,255,255,0)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, sy, s, h);
+    ctx.restore();
+  }
 }
 
-export class CommandPost extends BuildingBase { readonly buildRadius = COMMANDPOST_BUILD_RADIUS; constructor(position: Vec2, team: Team) { super(EntityType.CommandPost, team, position, HP_VALUES.commandPost, ENTITY_RADIUS.commandpost); this.powered = true; }
-  draw(ctx: CanvasRenderingContext2D, camera: Camera): void { const screen = camera.worldToScreen(this.position); const v = this.drawBuildingBase(ctx, screen, colorToCSS(Colors.general_building), camera); const x=screen.x-v.half,y=screen.y-v.half; const pulse=0.45+0.18*Math.sin(this.animationTime*2.4); ctx.strokeStyle=colorToCSS(Colors.friendly_status,0.55+pulse*0.25); ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(screen.x,y+v.side*0.18);ctx.lineTo(screen.x,y+v.side*0.82);ctx.moveTo(x+v.side*0.18,screen.y);ctx.lineTo(x+v.side*0.82,screen.y); ctx.stroke(); ctx.strokeStyle=colorToCSS(Colors.radar_gridlines,0.22); ctx.strokeRect(x+v.side*0.27,y+v.side*0.27,v.side*0.46,v.side*0.46); }}
+export class CommandPost extends BuildingBase {
+  readonly buildRadius = COMMANDPOST_BUILD_RADIUS;
+  constructor(position: Vec2, team: Team) {
+    super(EntityType.CommandPost, team, position, HP_VALUES.commandPost, ENTITY_RADIUS.commandpost);
+    this.powered = true;
+  }
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    const screen = camera.worldToScreen(this.position);
+    const v = this.drawBuildingBase(ctx, screen, colorToCSS(Colors.general_building), camera);
+    if (v.simple) return;
+    const x = screen.x - v.half;
+    const y = screen.y - v.half;
+    const pulse = 0.45 + 0.18 * Math.sin(this.animationTime * 2.4);
+    // Cross antenna
+    ctx.strokeStyle = colorToCSS(Colors.friendly_status, 0.55 + pulse * 0.25);
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(screen.x, y + v.side * 0.18); ctx.lineTo(screen.x, y + v.side * 0.82);
+    ctx.moveTo(x + v.side * 0.18, screen.y); ctx.lineTo(x + v.side * 0.82, screen.y);
+    ctx.stroke();
+    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.22);
+    ctx.strokeRect(x + v.side * 0.27, y + v.side * 0.27, v.side * 0.46, v.side * 0.46);
+    // Rotating radar sweep (arc + fading trail)
+    const sweepAngle = this.animationTime * 0.85;
+    const sweepR = v.side * 0.28;
+    ctx.save();
+    ctx.translate(screen.x, screen.y);
+    // Fading wedge behind the sweep
+    const trailSpan = Math.PI * 0.65;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.arc(0, 0, sweepR, sweepAngle - trailSpan, sweepAngle);
+    ctx.closePath();
+    ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.08 * (0.6 + pulse * 0.4));
+    ctx.fill();
+    // Leading sweep line
+    ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.52 + pulse * 0.28);
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(sweepAngle) * sweepR, Math.sin(sweepAngle) * sweepR);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
 
-export class PowerGenerator extends BuildingBase { readonly coverageRadius = POWERGENERATOR_COVERAGE_RADIUS; private pulsePhase=0; constructor(position: Vec2, team: Team){ super(EntityType.PowerGenerator,team,position,HP_VALUES.powerGenerator); this.powered=true;} update(dt:number):void{super.update(dt);this.pulsePhase+=dt*3;} draw(ctx:CanvasRenderingContext2D,camera:Camera):void{ const screen=camera.worldToScreen(this.position); const v=this.drawBuildingBase(ctx,screen,colorToCSS(Colors.powergenerator_detail),camera); const core=v.side*0.24*(0.9+0.1*Math.sin(this.pulsePhase)); ctx.fillStyle=colorToCSS(Colors.powergenerator_detail,0.65); ctx.fillRect(screen.x-core,screen.y-core,core*2,core*2); ctx.strokeStyle=colorToCSS(Colors.powergenerator_coverage,0.2); ctx.strokeRect(screen.x-v.half-2,screen.y-v.half-2,v.side+4,v.side+4); }}
+export class PowerGenerator extends BuildingBase {
+  readonly coverageRadius = POWERGENERATOR_COVERAGE_RADIUS;
+  private pulsePhase = 0;
+  constructor(position: Vec2, team: Team) {
+    super(EntityType.PowerGenerator, team, position, HP_VALUES.powerGenerator);
+    this.powered = true;
+  }
+  update(dt: number): void { super.update(dt); this.pulsePhase += dt * 3; }
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    const screen = camera.worldToScreen(this.position);
+    const v = this.drawBuildingBase(ctx, screen, colorToCSS(Colors.powergenerator_detail), camera);
+    if (v.simple) return;
+    const glowColor = Colors.building_glow_power;
+    const pulseA = 0.9 + 0.1 * Math.sin(this.pulsePhase);
+    const coreR = v.side * 0.16 * pulseA;
+    // Circular glowing orb core
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = colorToCSS(glowColor, this.powered ? 0.55 * v.powerAlpha : 0.15);
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, coreR, 0, Math.PI * 2);
+    ctx.fill();
+    // Energy spokes — 6 radiating arms
+    const spokeCount = 6;
+    const spokeLen = v.side * 0.26;
+    ctx.strokeStyle = colorToCSS(glowColor, this.powered ? 0.38 * v.powerAlpha : 0.10);
+    ctx.lineWidth = Math.max(1, v.side * 0.022);
+    ctx.beginPath();
+    for (let i = 0; i < spokeCount; i++) {
+      const a = this.pulsePhase * 0.4 + (Math.PI * 2 * i) / spokeCount;
+      const inner = coreR * 0.9;
+      const outer = inner + spokeLen * (0.8 + 0.2 * Math.sin(this.pulsePhase * 1.3 + i));
+      ctx.moveTo(screen.x + Math.cos(a) * inner, screen.y + Math.sin(a) * inner);
+      ctx.lineTo(screen.x + Math.cos(a) * outer, screen.y + Math.sin(a) * outer);
+    }
+    ctx.stroke();
+    ctx.restore();
+    // Outer coverage ring (subtle)
+    ctx.strokeStyle = colorToCSS(Colors.powergenerator_coverage, 0.15);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(screen.x - v.half - 2, screen.y - v.half - 2, v.side + 4, v.side + 4);
+  }
+}
 
 export class Wall extends BuildingBase { shield=0; maxShield=0; private shieldRegenDelay=0; poweredWallUpgrade=false; constructor(position: Vec2, team: Team){ super(EntityType.Wall, team, position, HP_VALUES.wall); this.powered=true; } enablePoweredWall():void{this.poweredWallUpgrade=true;this.maxShield=20;this.shield=this.maxShield;this.shieldRegenDelay=0;} override update(dt:number):void{super.update(dt); if(this.poweredWallUpgrade&&this.alive){this.shieldRegenDelay=Math.max(0,this.shieldRegenDelay-dt); if(this.shieldRegenDelay<=0&&this.shield<this.maxShield)this.shield=Math.min(this.maxShield,this.shield+5*dt);}} override takeDamage(amount:number,source?:Entity):void{if(amount>0&&this.poweredWallUpgrade&&this.shield>0){this.shieldRegenDelay=5;const absorbed=Math.min(this.shield,amount);this.shield-=absorbed;amount-=absorbed;if(amount<=0)return;}super.takeDamage(amount,source);} draw(ctx:CanvasRenderingContext2D,camera:Camera):void{ const screen=camera.worldToScreen(this.position); const v=this.drawBuildingBase(ctx,screen,colorToCSS(Colors.advanced_building),camera); const x=screen.x-v.half,y=screen.y-v.half; const pulse=0.55+0.35*Math.sin(this.animationTime*4); ctx.save(); if(this.poweredWallUpgrade){ctx.globalCompositeOperation='lighter';ctx.strokeStyle=colorToCSS(Colors.radar_friendly_status,0.22+0.28*(this.shield/Math.max(1,this.maxShield)));ctx.lineWidth=Math.max(2,v.side*0.06);ctx.strokeRect(x+2,y+2,v.side-4,v.side-4);} ctx.globalCompositeOperation='source-over'; ctx.strokeStyle=colorToCSS(Colors.powergenerator_detail,0.68+0.22*pulse); ctx.lineWidth=Math.max(2,v.side*0.05); ctx.beginPath(); ctx.moveTo(x+v.side*0.15,y+v.side*0.5); ctx.lineTo(x+v.side*0.85,y+v.side*0.5); ctx.moveTo(x+v.side*0.5,y+v.side*0.15); ctx.lineTo(x+v.side*0.5,y+v.side*0.85); ctx.stroke(); ctx.restore(); }}
 
@@ -217,6 +321,103 @@ constructor(type:EntityType.FighterYard|EntityType.BomberYard,position:Vec2,team
 if(this.team===Team.Player){ctx.fillStyle=colorToCSS(Colors.alert2,0.9);ctx.font=`bold ${Math.max(10,v.side*0.15)}px "Poiret One", sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(`${this.assignedGroup+1}`,screen.x+v.side*0.3,screen.y-v.side*0.32);} }
 private drawSynonymousShipyard(ctx:CanvasRenderingContext2D,camera:Camera,screen:Vec2):void{const v=this.getBaseVisual(camera);const color=teamColor(this.team);const nodeR=Math.max(2,v.side*0.055);const r=v.side*0.44;ctx.save();ctx.globalAlpha=Math.max(0.18,this.buildProgress);ctx.globalCompositeOperation='lighter';ctx.strokeStyle=colorToCSS(color,this.powered?0.42:0.18);ctx.lineWidth=Math.max(1,v.side*0.016);ctx.beginPath();const nodes:Array<{x:number;y:number}>=[];for(let i=0;i<11;i++){const a=-Math.PI*0.92+i*(Math.PI*1.84/10);const x=screen.x+Math.cos(a)*r;const y=screen.y+Math.sin(a)*r;nodes.push({x,y});if(i>0){ctx.moveTo(nodes[i-1].x,nodes[i-1].y);ctx.lineTo(x,y);}if(i%2===0){ctx.moveTo(screen.x,screen.y-v.side*0.05);ctx.lineTo(x,y);}}ctx.stroke();ctx.strokeStyle=colorToCSS(Colors.particles_switch,this.powered?0.22:0.10);ctx.beginPath();ctx.arc(screen.x,screen.y-v.side*0.02,r*0.62,Math.PI*1.08,Math.PI*1.92);ctx.stroke();ctx.fillStyle='rgba(4,8,10,0.88)';ctx.beginPath();ctx.ellipse(screen.x,screen.y+r*0.72,v.side*0.24,v.side*0.10,0,0,Math.PI*2);ctx.fill();for(const n of nodes){ctx.fillStyle=colorToCSS(color,this.powered?0.82:0.38);ctx.beginPath();ctx.arc(n.x,n.y,nodeR,0,Math.PI*2);ctx.fill();}const shown=Math.min(this.dockedShips,this.shipCapacity);for(let i=0;i<shown;i++){const x=screen.x-v.side*0.23+(i%5)*v.side*0.115;const y=screen.y+v.side*0.24+Math.floor(i/5)*v.side*0.10;ctx.strokeStyle=colorToCSS(color,0.72);ctx.beginPath();ctx.moveTo(x,y-v.side*0.028);ctx.lineTo(x-v.side*0.032,y+v.side*0.028);ctx.lineTo(x+v.side*0.032,y+v.side*0.028);ctx.closePath();ctx.stroke();}if(this.team===Team.Player){ctx.fillStyle=colorToCSS(Colors.alert2,0.9);ctx.font=`bold ${Math.max(10,v.side*0.15)}px "Poiret One", sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(`${this.assignedGroup+1}`,screen.x+v.side*0.3,screen.y-v.side*0.32);}ctx.restore();}}
 
-export class ResearchLab extends BuildingBase { private spinPhase=0; constructor(position:Vec2,team:Team){super(EntityType.ResearchLab,team,position,HP_VALUES.researchLab);} update(dt:number):void{super.update(dt);this.spinPhase+=this.powered?dt*2:dt*0.35;} draw(ctx:CanvasRenderingContext2D,camera:Camera):void{ const screen=camera.worldToScreen(this.position); const v=this.drawBuildingBase(ctx,screen,colorToCSS(Colors.researchlab_detail),camera); ctx.save(); ctx.translate(screen.x,screen.y); ctx.strokeStyle=colorToCSS(Colors.researchlab_detail,this.powered?0.85:0.45); for(let i=0;i<3;i++){ctx.save();ctx.rotate(this.spinPhase+i*2.094);ctx.scale(1,0.45);ctx.beginPath();ctx.arc(0,0,v.side*0.22,0,Math.PI*2);ctx.stroke();ctx.restore();}ctx.restore(); }}
+export class ResearchLab extends BuildingBase {
+  private spinPhase = 0;
+  constructor(position: Vec2, team: Team) {
+    super(EntityType.ResearchLab, team, position, HP_VALUES.researchLab);
+  }
+  update(dt: number): void { super.update(dt); this.spinPhase += this.powered ? dt * 2 : dt * 0.35; }
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    const screen = camera.worldToScreen(this.position);
+    const v = this.drawBuildingBase(ctx, screen, colorToCSS(Colors.researchlab_detail), camera);
+    if (v.simple) return;
+    const glowColor = Colors.building_glow_research;
+    const ringA = this.powered ? 0.85 : 0.45;
+    ctx.save();
+    ctx.translate(screen.x, screen.y);
+    // Three spinning elliptical rings
+    ctx.strokeStyle = colorToCSS(Colors.researchlab_detail, ringA);
+    ctx.lineWidth = Math.max(0.8, v.side * 0.018);
+    for (let i = 0; i < 3; i++) {
+      ctx.save();
+      ctx.rotate(this.spinPhase + i * 2.094);
+      ctx.scale(1, 0.45);
+      ctx.beginPath();
+      ctx.arc(0, 0, v.side * 0.22, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    // Orbiting node dots — 3 nodes at staggered radii and speeds
+    if (this.powered) {
+      ctx.globalCompositeOperation = 'lighter';
+      const nodeR = Math.max(1.2, v.side * 0.045);
+      const orbits: Array<{ radius: number; speed: number; phase: number }> = [
+        { radius: v.side * 0.18, speed: 1.0, phase: 0 },
+        { radius: v.side * 0.26, speed: -0.65, phase: 2.1 },
+        { radius: v.side * 0.22, speed: 0.82, phase: 4.2 },
+      ];
+      for (const orbit of orbits) {
+        const a = this.spinPhase * orbit.speed + orbit.phase;
+        const nx = Math.cos(a) * orbit.radius;
+        const ny = Math.sin(a) * orbit.radius * 0.55;
+        ctx.fillStyle = colorToCSS(glowColor, 0.72);
+        ctx.beginPath();
+        ctx.arc(nx, ny, nodeR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+}
 
-export class Factory extends BuildingBase { private gearPhase=0; constructor(position:Vec2,team:Team){super(EntityType.Factory,team,position,HP_VALUES.factory);} update(dt:number):void{super.update(dt);this.gearPhase+=this.powered?dt*1.5:dt*0.2;} draw(ctx:CanvasRenderingContext2D,camera:Camera):void{ const screen=camera.worldToScreen(this.position); const v=this.drawBuildingBase(ctx,screen,colorToCSS(Colors.factory_detail),camera); ctx.save(); ctx.translate(screen.x,screen.y); ctx.rotate(this.gearPhase); ctx.strokeStyle=colorToCSS(Colors.factory_detail,this.powered?0.8:0.45); const t=8,inner=v.side*0.12,outer=v.side*0.21; ctx.beginPath(); for(let i=0;i<t;i++){const a=(Math.PI*2*i)/t;ctx.lineTo(Math.cos(a)*inner,Math.sin(a)*inner);ctx.lineTo(Math.cos(a+0.2)*outer,Math.sin(a+0.2)*outer);} ctx.closePath(); ctx.stroke(); ctx.restore(); }}
+export class Factory extends BuildingBase {
+  private gearPhase = 0;
+  constructor(position: Vec2, team: Team) {
+    super(EntityType.Factory, team, position, HP_VALUES.factory);
+  }
+  update(dt: number): void { super.update(dt); this.gearPhase += this.powered ? dt * 1.5 : dt * 0.2; }
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    const screen = camera.worldToScreen(this.position);
+    const v = this.drawBuildingBase(ctx, screen, colorToCSS(Colors.factory_detail), camera);
+    if (v.simple) return;
+    const glowColor = Colors.building_glow_factory;
+    const gearA = this.powered ? 0.80 : 0.45;
+    ctx.save();
+    ctx.translate(screen.x, screen.y);
+    // Outer gear (8 teeth)
+    ctx.rotate(this.gearPhase);
+    ctx.strokeStyle = colorToCSS(Colors.factory_detail, gearA);
+    ctx.lineWidth = Math.max(1, v.side * 0.025);
+    const t = 8;
+    const inner = v.side * 0.12;
+    const outer = v.side * 0.21;
+    ctx.beginPath();
+    for (let i = 0; i < t; i++) {
+      const a = (Math.PI * 2 * i) / t;
+      ctx.lineTo(Math.cos(a) * inner, Math.sin(a) * inner);
+      ctx.lineTo(Math.cos(a + 0.2) * outer, Math.sin(a + 0.2) * outer);
+    }
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+    // Inner counter-rotating ring with 4 spokes
+    if (!v.simple) {
+      ctx.save();
+      ctx.translate(screen.x, screen.y);
+      ctx.rotate(-this.gearPhase * 1.5);
+      ctx.strokeStyle = colorToCSS(glowColor, this.powered ? 0.45 : 0.18);
+      ctx.lineWidth = Math.max(0.8, v.side * 0.016);
+      ctx.beginPath();
+      ctx.arc(0, 0, v.side * 0.08, 0, Math.PI * 2);
+      ctx.stroke();
+      for (let i = 0; i < 4; i++) {
+        const a = (Math.PI * 2 * i) / 4;
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * v.side * 0.085, Math.sin(a) * v.side * 0.085);
+        ctx.lineTo(Math.cos(a) * v.side * 0.14, Math.sin(a) * v.side * 0.14);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+}

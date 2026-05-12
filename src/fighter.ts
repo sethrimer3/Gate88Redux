@@ -347,13 +347,27 @@ export class FighterShip extends Entity {
     const coreColor = this.team === Team.Player ? Colors.mainguy : Colors.enemy_status;
     this.drawMotionTrail(ctx, camera, coreColor);
 
+    // Damage flicker: near-death fighters flicker their outline and twist slightly
+    const damageFrac = 1 - this.healthFraction;
+    const coreTime = performance.now() * 0.001 + this.orbitPhase;
+    let outlineAlpha = 0.72;
+    if (damageFrac > 0.55) {
+      // High-frequency flicker when critically damaged
+      const flicker = 0.5 + 0.5 * Math.sin(coreTime * (12 + this.id % 7));
+      outlineAlpha = 0.25 + flicker * 0.55 * (1 - (damageFrac - 0.55) / 0.45);
+    }
+    // Small random angle twist when near death (uses id+time for per-ship variation)
+    const twistOffset = damageFrac > 0.70
+      ? Math.sin(coreTime * 8.3 + this.id * 0.41) * 0.18 * ((damageFrac - 0.70) / 0.30)
+      : 0;
+
     ctx.save();
     ctx.translate(screen.x, screen.y);
-    ctx.rotate(this.angle);
+    ctx.rotate(this.angle + twistOffset);
 
     // Ship body: small triangle, team-colored outline
-    const friendlyOutline = colorToCSS(Colors.bullet_player_cannon, 0.72);
-    const enemyOutline = colorToCSS(Colors.bullet_enemy_turret, 0.72);
+    const friendlyOutline = colorToCSS(Colors.bullet_player_cannon, outlineAlpha);
+    const enemyOutline = colorToCSS(Colors.bullet_enemy_turret, outlineAlpha);
     ctx.strokeStyle = this.team === Team.Player ? friendlyOutline : enemyOutline;
     ctx.lineWidth = 1.2;
     ctx.beginPath();
@@ -366,7 +380,6 @@ export class FighterShip extends Entity {
 
     ctx.restore();
 
-    const coreTime = performance.now() * 0.001 + this.orbitPhase;
     const groupColor = GROUP_COLORS[this.group];
     const pulse = 0.5 + 0.5 * Math.sin(coreTime * 2.8);
     const glint = 0.5 + 0.5 * Math.sin(coreTime * 5.3 + 1.2);

@@ -226,11 +226,29 @@ export function drawCommandModeOverlay(
     const rw = Math.abs(commandDragStart.x - commandDragCurrent.x);
     const rh = Math.abs(commandDragStart.y - commandDragCurrent.y);
     ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.10);
-    ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.85);
-    ctx.lineWidth = 1;
+    // Semi-transparent fill
+    ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.07);
     ctx.fillRect(x, y, rw, rh);
+    // Corner brackets instead of a plain outline
+    const arm = Math.min(rw * 0.25, rh * 0.25, 18);
+    ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.90);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    // Top-left
+    ctx.moveTo(x + arm, y); ctx.lineTo(x, y); ctx.lineTo(x, y + arm);
+    // Top-right
+    ctx.moveTo(x + rw - arm, y); ctx.lineTo(x + rw, y); ctx.lineTo(x + rw, y + arm);
+    // Bottom-left
+    ctx.moveTo(x, y + rh - arm); ctx.lineTo(x, y + rh); ctx.lineTo(x + arm, y + rh);
+    // Bottom-right
+    ctx.moveTo(x + rw - arm, y + rh); ctx.lineTo(x + rw, y + rh); ctx.lineTo(x + rw, y + rh - arm);
+    ctx.stroke();
+    // Subtle dashed border connecting the brackets
+    ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.28);
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 5]);
     ctx.strokeRect(x + 0.5, y + 0.5, Math.max(0, rw - 1), Math.max(0, rh - 1));
+    ctx.setLineDash([]);
   }
   if (active) {
     ctx.globalCompositeOperation = 'source-over';

@@ -82,6 +82,8 @@ export class PlayerShip extends Entity {
   shieldRegenRate: number = SHIELD_REGEN_RATE;
   private shieldRegenDelay = 0;
   private healthRegenDelay = 0;
+  /** Countdown timer for the brief shield-hit flash ring (set when shield absorbs damage). */
+  private shieldHitFlashTimer = 0;
   faction: FactionType = 'terran';
   synonymousPierceMultiplier = 1;
   synonymousFireSpeedLevel = 0;
@@ -201,6 +203,7 @@ export class PlayerShip extends Entity {
     if (this.primaryFireTimer > 0) this.primaryFireTimer -= dt;
     if (this.specialFireTimer > 0) this.specialFireTimer -= dt;
     if (this.synonymousMuzzleFlash > 0) this.synonymousMuzzleFlash = Math.max(0, this.synonymousMuzzleFlash - dt);
+    if (this.shieldHitFlashTimer > 0) this.shieldHitFlashTimer = Math.max(0, this.shieldHitFlashTimer - dt);
     // Spawn invincibility — counts down to 0
     if (this.spawnInvincibilityTimer > 0) this.spawnInvincibilityTimer -= dt;
     // Weapon special cooldown (swarm / homing) — counts down to 0
@@ -468,6 +471,7 @@ export class PlayerShip extends Entity {
       this.shield -= blocked;
       amount -= blocked;
       this.shieldRegenDelay = SHIELD_REGEN_DELAY;
+      if (blocked > 0) this.shieldHitFlashTimer = 0.22;
     }
     this.healthRegenDelay = PASSIVE_HEALTH_REGEN_DELAY;
     if (amount > 0) super.takeDamage(amount, source);
@@ -649,6 +653,21 @@ export class PlayerShip extends Entity {
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(screen.x, screen.y, r * (1.45 + shieldFrac * 0.08), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // --- Shield hit flash ------------------------------------------------
+    // Brief bright expanding ring when the shield absorbs a hit
+    if (this.shieldHitFlashTimer > 0) {
+      const flashFrac = this.shieldHitFlashTimer / 0.22;          // 1 → 0
+      const expandR = r * (1.4 + (1 - flashFrac) * 0.9);         // expands outward
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = colorToCSS(Colors.particles_spark, flashFrac * 0.85);
+      ctx.lineWidth = 2 + flashFrac * 3;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, expandR, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
