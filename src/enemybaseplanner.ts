@@ -883,7 +883,8 @@ export class EnemyBasePlanner {
     const urgencyBonus = this.urgencyLevel; // +1 or +2 extra yards when stalling
     const gameTime = state.gameTime;
     // Time-based escalation: every 3 minutes (180 s) add 1 more desired yard at Hard+.
-    const timeBonus = idx >= 2 ? Math.floor(gameTime / 180) : 0;
+    // Capped at +4 to prevent runaway queue saturation in very long games.
+    const timeBonus = idx >= 2 ? Math.min(4, Math.floor(gameTime / 180)) : 0;
 
     const desired = [
       { key: 'fighteryard', count: [0, 2, 4, 6, 8][idx] + urgencyBonus + timeBonus },
@@ -1821,7 +1822,8 @@ export class EnemyBasePlanner {
   getTargetShipyardCount(state: GameState): number {
     const idx = difficultyIndex(this.config.difficulty);
     const urgencyBonus = this.urgencyLevel;
-    const timeBonus = idx >= 2 ? Math.floor(state.gameTime / 180) : 0;
+    // Cap at +4 to match the backfill timeBonus cap (prevents unreachable targets).
+    const timeBonus = idx >= 2 ? Math.min(4, Math.floor(state.gameTime / 180)) : 0;
     // Base: Easy=1, Normal=3, Hard=5, Expert=7, Nightmare=10 + time + urgency
     return [1, 3, 5, 7, 10][idx] + urgencyBonus + timeBonus;
   }

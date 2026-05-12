@@ -40,6 +40,17 @@ const STAGNATION_THRESHOLDS = [9999, 9999, 150, 100, 75];
  */
 const CRITICAL_STALL_EXTRA = 60;
 
+/**
+ * Window (seconds) after a wave launches within which we still check whether
+ * all attackers died — used to determine if the wave was repelled quickly.
+ */
+const WAVE_COMPLETION_WINDOW = 90;
+/**
+ * If all attacking fighters die within this many seconds of the wave launching,
+ * the wave is considered a quick failure (repelled without doing meaningful damage).
+ */
+const QUICK_FAILURE_THRESHOLD = 45;
+
 export interface PracticeScore {
   basesDestroyed: number;
   timeSurvived: number;
@@ -481,12 +492,12 @@ export class PracticeMode {
     this.secsSinceLastWave = 0;
     this.planner?.notifyAttackLaunched();
 
-    // Reset wave cooldown. After a failed wave, shorten the wait slightly to
-    // try again sooner (up to a minimum of 12 s) — we don't want a long idle
-    // after a failed attack. After success, use the full interval.
+    // Reset wave cooldown. After a failed wave, shorten the wait proportionally
+    // (minimum = 40% of base interval) so we don't idle too long after a failed
+    // attack. After success, use the full interval.
     const baseInterval = [0, 0, 34, 28, 22][idx];
     const failedPenalty = Math.max(0, this.consecutiveFailedWaves - 1) * 4;
-    this.enemyWaveTimer = Math.max(12, baseInterval - failedPenalty);
+    this.enemyWaveTimer = Math.max(Math.round(baseInterval * 0.4), baseInterval - failedPenalty);
   }
 
   /**
@@ -641,18 +652,19 @@ export class PracticeMode {
       this._waveJustLaunched = true;
     }
     // Falling edge: wave ended (all attackers gone within the recent-launch window).
-    if (this._waveJustLaunched && attackers === 0 && this.secsSinceLastWave < 90) {
-      // Wave ended. Check if anything was damaged — use state.recentlyDamaged as proxy.
-      // If the wave died very quickly (< 30 s) with no stage-waiter left, count as failed.
+    if (this._waveJustLaunched && attackers === 0 && this.secsSinceLastWave < WAVE_COMPLETION_WINDOW) {
+      // If the entire wave died quickly with no staged units left to replace them,
+      // treat this as a failed (repelled) wave.
       const stagedLeft = state.fighters.filter(
         (f) => f.alive && !f.docked && f.team === Team.Enemy && !isBuilderDrone(f) &&
                (f.order === 'waypoint' || f.order === 'follow' || f.order === 'protect'),
       ).length;
-      if (stagedLeft === 0 && this.secsSinceLastWave < 45) {
+      if (stagedLeft === 0 && this.secsSinceLastWave < QUICK_FAILURE_THRESHOLD) {
         this.consecutiveFailedWaves++;
       } else {
-        // Wave succeeded or we can't tell — reset counter.
-        this.consecutiveFailedWaves = Math.max(0, this.consecutiveFailedWaves - 1);
+        // Wave lasted a reasonable amount of time or there are already more staged
+        // fighters — consider it a success and reset the failure counter fully.
+        this.consecutiveFailedWaves = 0;
       }
       this._waveJustLaunched = false;
     }
