@@ -814,20 +814,12 @@ export class MassDriverBullet extends ProjectileBase {
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     if (!this.alive) return;
     const screen = camera.worldToScreen(this.position);
-    const travelProgress = this.maxLifetime > 0 ? Math.min(1, Math.max(0, 1 - this.lifetime / this.maxLifetime)) : 1;
-    const shrink = this.bursting ? Math.max(0, 1 - this.burstElapsed / this.burstDuration) : Math.max(0, 1 - travelProgress);
     const r = (this.bursting ? this.currentBlastRadius() : this.travelRadius) * camera.zoom;
     if (!this.bursting) this.drawTrail(ctx, camera, colorToCSS(Colors.alert2, 0.65), 0.18, 5);
 
     ctx.save();
-    ctx.globalCompositeOperation = this.bursting ? 'lighter' : 'source-over';
+    ctx.globalCompositeOperation = 'source-over';
     const crackle = 0.65 + 0.35 * Math.sin((this.burstElapsed + this.lifetime) * 34 + this.id);
-    if (this.bursting) {
-      ctx.fillStyle = colorToCSS(Colors.explosion, 0.11 * (0.35 + shrink * 0.65));
-      ctx.beginPath();
-      ctx.arc(screen.x, screen.y, r * 0.88, 0, Math.PI * 2);
-      ctx.fill();
-    }
     ctx.strokeStyle = colorToCSS(Colors.alert2, (this.bursting ? 0.35 : 0.55) * crackle);
     ctx.lineWidth = Math.max(1, camera.zoom * (this.bursting ? 3 : 5));
     ctx.beginPath();

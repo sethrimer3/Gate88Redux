@@ -1189,11 +1189,34 @@ class QuickBuildMenu {
       Input.consumeMouseButton(2);
       this.touchedThisDrag.clear();
       this.buildingDragCells.clear();
-      this.dragMode = null;
+      this.dragMode = 'erase';
       this.lastDragCell = null;
-      const worldPos = camera.screenToWorld(Input.mousePos);
-      const result = state.sellAtGridCell(worldPos, Team.Player);
-      if (result) Audio.playSound('menucursor');
+    }
+
+    if (Input.mouse2Down || this.dragMode === 'erase') {
+      if (Input.mouse2Down) {
+        this.dragMode = 'erase';
+        const worldPos = camera.screenToWorld(Input.mousePos);
+        const currentCell = worldToCell(worldPos);
+        const dragCells = this.lastDragCell ? gridLineCells(this.lastDragCell, currentCell) : [currentCell];
+        this.lastDragCell = currentCell;
+        let soldAny = false;
+        for (const dragCell of dragCells) {
+          const key = cellKey(dragCell.cx, dragCell.cy);
+          if (this.touchedThisDrag.has(key)) continue;
+          this.touchedThisDrag.add(key);
+          const cellWorld = new Vec2(
+            (dragCell.cx + 0.5) * GRID_CELL_SIZE,
+            (dragCell.cy + 0.5) * GRID_CELL_SIZE,
+          );
+          if (state.sellAtGridCell(cellWorld, Team.Player)) soldAny = true;
+        }
+        if (soldAny) Audio.playSound('menucursor', 0.22);
+      } else {
+        this.dragMode = null;
+        this.touchedThisDrag.clear();
+        this.lastDragCell = null;
+      }
       return { action: 'none' };
     }
 

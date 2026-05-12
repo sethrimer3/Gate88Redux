@@ -15,7 +15,7 @@ import type { GameState } from './gamestate.js';
 import { BuildingBase, Wall } from './building.js';
 import { TurretBase } from './turret.js';
 import { FighterShip, BomberShip, SynonymousNovaBomberShip } from './fighter.js';
-import { Laser, ChargedLaserBurst, GuidedMissile, BomberMissile, SwarmMissile } from './projectile.js';
+import { Laser, ChargedLaserBurst, GuidedMissile, BomberMissile, SwarmMissile, MassDriverBullet } from './projectile.js';
 import { GlowLayer } from './glowlayer.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
 import { SHIP_STATS, COMMANDPOST_BUILD_RADIUS, POWERGENERATOR_COVERAGE_RADIUS } from './constants.js';
@@ -415,6 +415,7 @@ export function drawGlowLayer(
     for (const p of state.projectiles) {
       if (!p.alive || !camera.isOnScreen(p.position, 26)) continue;
       if (p instanceof Laser || p instanceof ChargedLaserBurst) continue; // already handled above
+      if (p instanceof MassDriverBullet) continue; // Mass Driver burst radius should not inherit generic bullet bloom.
       if (p instanceof GuidedMissile || p instanceof BomberMissile || p instanceof SwarmMissile) continue; // handled above
       const lifeProgress = p.maxLifetime > 0 ? Math.min(1, Math.max(0, 1 - p.lifetime / p.maxLifetime)) : 1;
       if (lifeProgress <= 0.02) continue;

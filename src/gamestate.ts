@@ -1055,7 +1055,6 @@ export class GameState {
       this.recentlyDamaged.add(e.id);
       if (!e.alive) this.playEntityExplosionSound(e);
     }
-    this.particles.emitExplosion(proj.position, radius * 0.18);
     this.ringEffects.spawn('shockwave', proj.position.clone(), radius * 0.35, radius, 0.22, 1.1);
     Audio.playSoundAt('explode1', this.player.position.distanceTo(proj.position));
   }
