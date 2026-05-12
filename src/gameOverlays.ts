@@ -348,31 +348,37 @@ export function drawBuildingHoverHitpoints(
   }
 }
 
+/** Projectile count above which bullet glow begins to be decimated. */
+const BULLET_GLOW_DECIMATION_THRESHOLD = 80;
+
 export function drawGlowLayer(
   glow: GlowLayer,
   camera: Camera,
   state: GameState,
   visualPreset: VisualQualityPreset,
+  renderLoadScale: number = 1.0,
 ): void {
   if (!visualPreset.glowEnabled) return;
 
+  // Compute adaptive glow budget — reduce lower-priority effects first
+  // Max primitives scales with renderLoadScale (healthy=600, stressed=200)
+  const maxGlowPrimitives = Math.round(200 + renderLoadScale * 400);
+  glow.beginFrame(maxGlowPrimitives);
+
+  // Priority 1: Explosion glows — always draw (high visual importance)
   for (const fire of state.explosionGlows) {
     if (!camera.isOnScreen(fire.center, fire.radius * 1.7)) continue;
     const t = 1 - fire.lifeSeconds / fire.totalSeconds;
     const fade = Math.max(0, 1 - t);
     const bloom = fire.intensity * fade;
-    // Outer red halo
     glow.circleWorld(camera, fire.center, fire.radius * 1.45, Colors.alert1, 0.12 * bloom);
-    // Mid warm orange layer (new)
     glow.circleWorld(camera, fire.center, fire.radius * 1.12, Colors.particles_ember, 0.18 * bloom);
-    // Core bright amber
     glow.circleWorld(camera, fire.center, fire.radius * 1.08, Colors.explosion, 0.22 * bloom);
-    // Bright inner yellow
     glow.circleWorld(camera, fire.center, fire.radius * 0.48, Colors.alert2, 0.28 * bloom);
-    // Hot white center
     glow.circleWorld(camera, fire.center, Math.max(10, fire.radius * 0.18), Colors.particles_nova, 0.24 * bloom);
   }
 
+  // Priority 2: Lasers and other major projectile glows
   for (const p of state.projectiles) {
     if (!p.alive || !camera.isOnScreen(p.position, 180)) continue;
     if (p instanceof Laser || p instanceof ChargedLaserBurst) {
@@ -401,41 +407,7 @@ export function drawGlowLayer(
     }
   }
 
-  for (const b of state.buildings) {
-    if (!b.alive || b.buildProgress < 1 || !camera.isOnScreen(b.position, 180)) continue;
-    const powered = b.type === EntityType.CommandPost || b.type === EntityType.PowerGenerator || b.powered;
-    if (!powered) continue;
-    const friendly = b.team === Team.Player;
-    const color = friendly ? Colors.radar_friendly_status : Colors.enemyfire;
-    const pulse = 0.75 + 0.25 * Math.sin(state.gameTime * 2.2 + b.id * 0.37);
-    glow.circleWorld(camera, b.position, b.radius * 1.9, color, 0.035 * pulse);
-
-    // Per-type warm ambient glow
-    if (b.type === EntityType.PowerGenerator) {
-      glow.circleWorld(camera, b.position, b.radius * 2.4, Colors.building_glow_power, 0.055 * pulse);
-      glow.circleWorld(camera, b.position, b.radius * 1.2, Colors.building_glow_power, 0.10 * pulse);
-    } else if (b.type === EntityType.ResearchLab) {
-      glow.circleWorld(camera, b.position, b.radius * 2.0, Colors.building_glow_research, 0.042 * pulse);
-    } else if (b.type === EntityType.Factory) {
-      glow.circleWorld(camera, b.position, b.radius * 1.8, Colors.building_glow_factory, 0.048 * pulse);
-    } else if (b.type === EntityType.FighterYard || b.type === EntityType.BomberYard) {
-      glow.circleWorld(camera, b.position, b.radius * 2.1, Colors.building_glow_shipyard, 0.038 * pulse);
-    } else if (b.type === EntityType.CommandPost) {
-      glow.circleWorld(camera, b.position, b.radius * 2.8, color, 0.028 * pulse);
-    }
-
-    if (
-      b.type === EntityType.GatlingTurret ||
-      b.type === EntityType.MissileTurret ||
-      b.type === EntityType.TimeBomb ||
-      b.type === EntityType.ExciterTurret ||
-      b.type === EntityType.MassDriverTurret ||
-      b.type === EntityType.RegenTurret
-    ) {
-      glow.circleWorld(camera, b.position, b.radius * 1.25, color, 0.045 * pulse, false, 2);
-    }
-  }
-
+  // Priority 3: Player ship glows (always draw — player experience critical)
   for (const ship of state.playerShips.values()) {
     if (!ship.alive || !camera.isOnScreen(ship.position, 220)) continue;
     const r = ship.radius;
@@ -448,7 +420,6 @@ export function drawGlowLayer(
     if (ship.shieldUnlocked && ship.shield > 0) {
       glow.circleWorld(camera, ship.position, r * 1.8, Colors.radar_allied_status, 0.10, false, 5);
     }
-    // Engine exhaust glow: speed controls both size and opacity.
     if (visualPreset.engineGlow) {
       const speedFactor = speedGlowFactor(Math.hypot(ship.velocity.x, ship.velocity.y), ship.maxSpeed * 1.8);
       const exhaustColor = ship.team === Team.Player ? Colors.particles_friendly_exhaust : Colors.particles_enemy_exhaust;
@@ -458,29 +429,85 @@ export function drawGlowLayer(
     }
   }
 
-  // Fighter engine glow — a soft colored bloom behind each airborne fighter.
+  // Priority 4: Building glows — skip decorative glows when budget is stressed
+  // Under load (renderLoadScale < 0.7), skip per-type ambient glows; always draw status glows
+  const drawBuildingAmbient = renderLoadScale >= 0.65;
+  for (const b of state.buildings) {
+    if (!b.alive || b.buildProgress < 1 || !camera.isOnScreen(b.position, 180)) continue;
+    const powered = b.type === EntityType.CommandPost || b.type === EntityType.PowerGenerator || b.powered;
+    if (!powered) continue;
+    const friendly = b.team === Team.Player;
+    const color = friendly ? Colors.radar_friendly_status : Colors.enemyfire;
+    const pulse = 0.75 + 0.25 * Math.sin(state.gameTime * 2.2 + b.id * 0.37);
+    glow.circleWorld(camera, b.position, b.radius * 1.9, color, 0.035 * pulse);
+
+    if (drawBuildingAmbient) {
+      if (b.type === EntityType.PowerGenerator) {
+        glow.circleWorld(camera, b.position, b.radius * 2.4, Colors.building_glow_power, 0.055 * pulse);
+        glow.circleWorld(camera, b.position, b.radius * 1.2, Colors.building_glow_power, 0.10 * pulse);
+      } else if (b.type === EntityType.ResearchLab) {
+        glow.circleWorld(camera, b.position, b.radius * 2.0, Colors.building_glow_research, 0.042 * pulse);
+      } else if (b.type === EntityType.Factory) {
+        glow.circleWorld(camera, b.position, b.radius * 1.8, Colors.building_glow_factory, 0.048 * pulse);
+      } else if (b.type === EntityType.FighterYard || b.type === EntityType.BomberYard) {
+        glow.circleWorld(camera, b.position, b.radius * 2.1, Colors.building_glow_shipyard, 0.038 * pulse);
+      } else if (b.type === EntityType.CommandPost) {
+        glow.circleWorld(camera, b.position, b.radius * 2.8, color, 0.028 * pulse);
+      }
+
+      if (
+        b.type === EntityType.GatlingTurret ||
+        b.type === EntityType.MissileTurret ||
+        b.type === EntityType.TimeBomb ||
+        b.type === EntityType.ExciterTurret ||
+        b.type === EntityType.MassDriverTurret ||
+        b.type === EntityType.RegenTurret
+      ) {
+        glow.circleWorld(camera, b.position, b.radius * 1.25, color, 0.045 * pulse, false, 2);
+      }
+    }
+  }
+
+  // Priority 5: Fighter engine glow — cap per-frame count based on load
+  // Under load, skip far fighters; always draw near-screen fighters
   if (visualPreset.engineGlow) {
+    // Max fighter engine glow draws: 60 healthy, fewer under stress
+    const maxFighterGlow = Math.round(20 + renderLoadScale * 40);
+    let fighterGlowDrawn = 0;
     for (const f of state.fighters) {
       if (!f.alive || f.docked || !camera.isOnScreen(f.position, 60)) continue;
+      if (fighterGlowDrawn >= maxFighterGlow) break;
       const r = f.radius;
       const exhaustColor = f.team === Team.Player ? Colors.particles_friendly_exhaust : Colors.particles_enemy_exhaust;
       const speed = Math.hypot(f.velocity.x, f.velocity.y);
       const speedFactor = speedGlowFactor(speed, fighterMaxSpeed(f));
       glow.circleWorld(camera, f.position, r * 2.8 * speedFactor, exhaustColor, 0.14 * speedFactor);
+      fighterGlowDrawn++;
     }
   }
 
-  // Bullet glow — ramps up with projectile age and keeps screen conversion work low.
+  // Priority 6: Bullet glow — decimate based on projectile count and load
   if (visualPreset.bulletGlow) {
+    // Determine how many bullet glows to draw: full at low count, decimated at high count
+    const projectileCount = state.projectiles.length;
+    // At renderLoadScale=1 draw all; at 0.35 draw ~35%; also decimate for large bullet counts
+    const bulletLoadFactor = renderLoadScale * Math.min(1, BULLET_GLOW_DECIMATION_THRESHOLD / Math.max(1, projectileCount));
+    // Draw every Nth bullet based on load
+    const drawEveryN = bulletLoadFactor >= 0.9 ? 1 : bulletLoadFactor >= 0.5 ? 2 : 3;
+    let bulletIdx = 0;
+
     for (const p of state.projectiles) {
       if (!p.alive || !camera.isOnScreen(p.position, 26)) continue;
-      if (p instanceof Laser || p instanceof ChargedLaserBurst) continue; // already handled above
-      if (p instanceof MassDriverBullet) continue; // Mass Driver burst radius should not inherit generic bullet bloom.
-      if (p instanceof GuidedMissile || p instanceof BomberMissile || p instanceof SwarmMissile) continue; // handled above
+      if (p instanceof Laser || p instanceof ChargedLaserBurst) continue;
+      if (p instanceof MassDriverBullet) continue;
+      if (p instanceof GuidedMissile || p instanceof BomberMissile || p instanceof SwarmMissile) continue;
+
+      bulletIdx++;
+      if (bulletIdx % drawEveryN !== 0) continue;
+
       const lifeProgress = p.maxLifetime > 0 ? Math.min(1, Math.max(0, 1 - p.lifetime / p.maxLifetime)) : 1;
       if (lifeProgress <= 0.02) continue;
 
-      // Use weapon-type-specific glow color for visual identity
       let bulletColor: typeof Colors.friendlyfire;
       if (p instanceof GatlingBullet) {
         bulletColor = p.team === Team.Player ? Colors.bullet_player_gatling : Colors.bullet_enemy_gatling;
@@ -500,7 +527,6 @@ export function drawGlowLayer(
         screen.x - Math.cos(p.angle) * trailLen,
         screen.y - Math.sin(p.angle) * trailLen,
       );
-      // Additive line bloom acts like a tiny post-process streak without per-pixel shaders.
       glow.lineScreen(tail, screen, bulletColor, (0.045 + speedFactor * 0.06) * glowFactor, p.radius * (2.8 + speedFactor * 1.5) * zoom * glowFactor);
       glow.circleScreen(screen, p.radius * (5.2 + speedFactor * 1.6) * zoom * glowFactor, bulletColor, (0.055 + speedFactor * 0.03) * glowFactor);
       glow.circleScreen(screen, p.radius * (2.1 + speedFactor * 0.4) * zoom * glowFactor, Colors.particles_switch, 0.06 * glowFactor);

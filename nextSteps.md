@@ -2,6 +2,45 @@
 
 ---
 
+## Rendering Performance — Build 037 — Remaining / Deferred Work
+
+Build 037 implemented:
+- `src/renderBudget.ts`: adaptive EMA-smoothed performance budget; `renderLoadScale` 1.0→0.35 with fast degrade / slow recover hysteresis.
+- `src/particles.ts`: full active-list pool rewrite — `acquire()` O(1) via free stack, `update()` and `draw()` iterate only active particles, viewport culling with world-space bounds computed once per draw call.
+- `src/glowlayer.ts`: per-frame primitive budget via `beginFrame(maxPrimitives)`; `lineScreen`/`circleScreen` check and count against the budget; stats exposed to `renderBudget`.
+- `src/gameOverlays.ts`: `drawGlowLayer` accepts `renderLoadScale`; prioritized glow rendering (explosions → lasers → player ships → buildings → fighter engine → bullet trails); bullet glow decimation by projectile count; fighter engine glow cap.
+- `src/crystalnebula.ts`: replaced `new Array` allocation inside cloud update loop with fixed reusable `nearDistBuf`; adaptive draw decimation (every 1/2/3rd mote based on load scale).
+- `src/gameRender.ts`: debug overlay (F3) extended with smoothed perf stats, renderLoadScale, particle pool stats, glow drawn/skipped, crystal mote count, visual quality preset.
+- `src/game.ts`: fighter exhaust rate-limited to ~30 Hz with on-screen culling; `renderBudget.update()` called each frame; `setAdaptiveScale()` wired into particle system; `renderLoadScale` passed to `drawGlowLayer`.
+
+### Deferred items
+
+**1. Per-frame particle emission priority levels**
+
+The problem statement requested formal priority categories (Critical / Medium / Low) with a per-frame spawn budget that skips Low before Medium before Critical. Currently the adaptive scale reduces emission counts uniformly. A future pass could:
+- Add a `ParticlePriority` enum (critical=0, medium=1, low=2) to each emitter call.
+- Maintain a `frameBudget` counter reset each fixed update.
+- Skip lower-priority emitters once the budget is exhausted.
+- Files: `src/particles.ts`, all emitter call sites in `src/game.ts`, `src/gamestate.ts`, `src/weaponFiring.ts`, `src/fighterCombat.ts`.
+
+**2. fillRect / tiny-shape optimization for small particles at low zoom**
+
+The problem statement requested using `fillRect` or tiny diamond shapes for very small particles when zoomed out, reserving `ctx.arc` for larger or higher-priority particles. This would reduce arc/bezier overhead at low zoom. Files: `src/particles.ts` draw() method.
+
+**3. Crystal nebula mote draw budget cap**
+
+Current adaptive decimation is modular (every Nth mote). A hard cap on total motes drawn per frame (e.g. max 300) with prioritization toward disturbed/active motes would give more predictable frame cost. File: `src/crystalnebula.ts` draw().
+
+**4. GlowLayer: reduce colorToCSS string allocations inside tight loops**
+
+`circleScreen`/`lineScreen` call `colorToCSS` every time. A future pass could batch same-color primitives or cache the CSS string per Color object reference. File: `src/glowlayer.ts`, `src/colors.ts`.
+
+**5. Crystal nebula laser-kill disturbances**
+
+Kills via `damageLaserLine` and `damageLaserLineLimited` do not yet inject crystal disturbances. See the Build 035 section below for wiring instructions.
+
+---
+
 ## Visual Overhaul Pass 2 — Build 030 — Remaining Work
 
 Build 030 implemented the highest-impact parts of the second-pass visual overhaul. The following items were deferred because they are either complex, require deeper architectural changes, or need more content art direction before implementation.

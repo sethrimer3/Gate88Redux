@@ -6,6 +6,8 @@ import type { LanClient } from './lan/lanClient.js';
 import { Vec2 } from './math.js';
 import { recentCombatAimSamples } from './targeting.js';
 import { getShipPathDebugStats } from './shippath.js';
+import { renderBudget } from './renderBudget.js';
+import type { VisualQuality } from './visualquality.js';
 
 export type ShipCommandGroup = ShipGroup | 'all';
 export type WaypointMarker = { pos: Vec2; issuedAt: number };
@@ -94,6 +96,8 @@ export function drawDebugOverlay(ctx: CanvasRenderingContext2D, args: {
   lanPredictionError?: number;
   /** Number of crystal motes drawn last frame (0 if nebula disabled). */
   crystalMoteCount?: number;
+  /** Current visual quality setting */
+  visualQuality?: VisualQuality;
 }): void {
   const { state } = args;
   const playerBuildings = state.buildings.filter((b) => b.alive && b.team === Team.Player);
@@ -111,6 +115,10 @@ export function drawDebugOverlay(ctx: CanvasRenderingContext2D, args: {
 
   const lines = [
     `mode ${state.gameMode}  frame ${args.lastFrameMs.toFixed(1)}ms fixed ${args.fixedUpdateMs.toFixed(1)}ms render ${args.renderMs.toFixed(1)}ms`,
+    `smoothed frame ${renderBudget.frameMs.toFixed(1)}ms render ${renderBudget.renderMs.toFixed(1)}ms | adaptScale ${renderBudget.renderLoadScale.toFixed(2)} quality ${args.visualQuality ?? '?'}`,
+    `particles active ${renderBudget.activeParticles}/${renderBudget.particleCapacity} drawn ${renderBudget.drawnParticles} culled ${renderBudget.culledParticles} emitted ${renderBudget.emittedThisFrame}`,
+    `glow drawn ${renderBudget.glowDrawn} skipped ${renderBudget.glowSkipped} | crystal motes ${renderBudget.crystalVisible}`,
+    `projectiles ${state.projectiles.length}  fighters ${state.fighters.filter((f) => f.alive && !f.docked).length}/${state.fighters.length}  buildings ${state.buildings.filter((b) => b.alive).length}`,
     `resources ${Math.floor(state.resources)}  build ${state.selectedBuildType ?? 'none'}`,
     `ship hp ${Math.ceil(state.player.health)}/${state.player.maxHealth}  battery ${Math.floor(state.player.battery)}/${state.player.maxBattery}`,
     `buildings player ${playerBuildings.length} enemy ${enemyBuildings.length}`,
@@ -134,7 +142,7 @@ export function drawDebugOverlay(ctx: CanvasRenderingContext2D, args: {
   lines.push(`ship paths ${pathStats.resolvesPerSecond}/s  avg ${pathStats.avgMsLast60.toFixed(2)}ms max ${pathStats.maxMsLast60.toFixed(2)}ms`);
   lines.push(`ship path target adjusted ${pathStats.adjustedTargetLastSecond ? 'yes' : 'no'}`);
   if (args.crystalMoteCount !== undefined) {
-    lines.push(`crystal motes visible ${args.crystalMoteCount}`);
+    // Crystal motes also shown in the perf stats line above; no duplicate needed
   }
 
   const isLan = state.gameMode === 'lan_host' || state.gameMode === 'lan_client';
@@ -160,7 +168,7 @@ export function drawDebugOverlay(ctx: CanvasRenderingContext2D, args: {
   ctx.font = '11px "Poiret One", sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  const width = 330;
+  const width = 440;
   const height = lines.length * 15 + 12;
   const x = args.screenW - width - 10;
   const y = 10;

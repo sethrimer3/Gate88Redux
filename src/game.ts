@@ -39,6 +39,7 @@ import { cloneDefaultVsAIConfig, rankedDifficultyName, VSAI_RANKED_SCORE_KEY } f
 import { GlowLayer } from './glowlayer.js';
 import { DEFAULT_VISUAL_QUALITY, VISUAL_QUALITY_PRESETS, type VisualQuality, type VisualQualityPreset, loadVisualQuality, saveVisualQuality } from './visualquality.js';
 import { drawCombatTargetingDebug, drawConfluenceTerritory, drawDebugOverlay, drawWaypointMarkers, type ShipCommandGroup, type WaypointMarker } from './gameRender.js';
+import { renderBudget } from './renderBudget.js';
 import type { NetInputSnapshot, NetGameSnapshot } from './net/protocol.js';
 import type { WebRtcTransport } from './online/webrtcTransport.js';
 import { findClosestEnemy } from './combatUtils.js';
@@ -98,6 +99,11 @@ export class Game {
   private commandSelectedTurrets: Set<number> = new Set();
   private commandDragStart: Vec2 | null = null;
   private commandDragCurrent: Vec2 | null = null;
+  /**
+   * Accumulates total dt between fighter exhaust emissions.
+   * Fighter exhaust is rate-limited (not every tick) to reduce particle count at scale.
+   */
+  private fighterExhaustAccum: number = 0;
   private lastGroupTap: { key: string; count: number; at: number } | null = null;
   private activeGuidedMissile: GuidedMissile | null = null;
   private spaceFluid: SpaceFluid;
@@ -123,6 +129,8 @@ export class Game {
   private ghostSpectatorVel: Vec2 = new Vec2(0, 0);
   /** Delay (seconds) before the player ship respawns. */
   private static readonly RESPAWN_DELAY = 3;
+  /** Interval (seconds) between fighter exhaust particle emissions (~30 Hz). */
+  private static readonly FIGHTER_EXHAUST_EMIT_INTERVAL = 1 / 30;
 
   // LAN multiplayer
   private lanClient: LanClient | null = null;
@@ -312,6 +320,11 @@ export class Game {
     const renderStart = performance.now();
     this.render();
     this.lastRenderMs = performance.now() - renderStart;
+
+    // Update adaptive performance budget with raw frame timings
+    renderBudget.update(this.lastFrameMs, this.lastFixedUpdateMs, this.lastRenderMs);
+    // Wire adaptive scale into particle system
+    this.state.particles.setAdaptiveScale(renderBudget.renderLoadScale);
 
     requestAnimationFrame((t) => this.loop(t));
   }
@@ -566,18 +579,28 @@ export class Game {
       }
     }
 
-    for (const f of this.state.fighters) {
-      if (!f.alive || f.docked) continue;
-      const speed = Math.hypot(f.velocity.x, f.velocity.y);
-      const maxSpeed = this.fighterMaxSpeed(f);
-      const speedFraction = maxSpeed > 0 ? Math.min(1, speed / maxSpeed) : 0;
-      if (speedFraction <= 0.05) continue;
-      this.state.particles.emitExhaust(
-        f.position,
-        f.angle,
-        f.team,
-        { speedFraction, scaleSizeWithSpeed: true },
-      );
+    // Rate-limited fighter exhaust — emit for on-screen fighters only, at ~30 Hz
+    // instead of 60 Hz to halve particle emission when many fighters are active.
+    // Off-screen fighters skip emission entirely.
+    this.fighterExhaustAccum += DT;
+    const exhaustInterval = Game.FIGHTER_EXHAUST_EMIT_INTERVAL;
+    if (this.fighterExhaustAccum >= exhaustInterval) {
+      this.fighterExhaustAccum -= exhaustInterval;
+      for (const f of this.state.fighters) {
+        if (!f.alive || f.docked) continue;
+        // Skip off-screen fighters entirely
+        if (!this.camera.isOnScreen(f.position, 120)) continue;
+        const speed = Math.hypot(f.velocity.x, f.velocity.y);
+        const maxSpeed = this.fighterMaxSpeed(f);
+        const speedFraction = maxSpeed > 0 ? Math.min(1, speed / maxSpeed) : 0;
+        if (speedFraction <= 0.05) continue;
+        this.state.particles.emitExhaust(
+          f.position,
+          f.angle,
+          f.team,
+          { speedFraction, scaleSizeWithSpeed: true },
+        );
+      }
     }
 
     // Skip song with N key
@@ -2347,7 +2370,7 @@ export class Game {
     drawGhostSpectator(ctx, this.camera, this.state, this.ghostSpectatorPos);
     drawWaypointMarkers(ctx, this.camera, this.state, this.waypointMarkers);
     drawCommandModeOverlay(ctx, w, this.camera, this.state, this.commandSelectedFighters, this.commandSelectedTurrets, this.commandDragStart, this.commandDragCurrent);
-    drawGlowLayer(this.glowLayer, this.camera, this.state, this.visualPreset);
+    drawGlowLayer(this.glowLayer, this.camera, this.state, this.visualPreset, renderBudget.renderLoadScale);
     this.glowLayer.compositeTo(ctx);
 
     // Edge indicators (always)
@@ -2433,6 +2456,7 @@ export class Game {
           ? Math.hypot(this.lanPredictionOffset.x, this.lanPredictionOffset.y)
           : 0,
         crystalMoteCount: this.crystalNebula.visibleMoteCount,
+        visualQuality: this.visualQuality,
       });
     }
 

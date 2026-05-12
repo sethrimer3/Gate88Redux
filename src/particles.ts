@@ -4,6 +4,7 @@ import { Vec2, randomRange } from './math.js';
 import { Camera } from './camera.js';
 import { Team } from './entities.js';
 import { Colors, colorToCSS, Color } from './colors.js';
+import { renderBudget } from './renderBudget.js';
 
 // ---------------------------------------------------------------------------
 // Effect budget constants
@@ -39,7 +40,7 @@ interface Particle {
 }
 
 // ---------------------------------------------------------------------------
-// Object pool
+// Object pool — active-list design
 // ---------------------------------------------------------------------------
 
 const POOL_SIZE = 4096;
@@ -74,15 +75,51 @@ function lightenColor(color: Color, amount: number): Color {
 
 export class ParticleSystem {
   private pool: Particle[];
-  private nextIndex: number = 0;
+
+  /**
+   * Indices of active particles.  Maintained by acquire() and update().
+   * Drawing and updating iterate this list instead of the full pool.
+   */
+  private activeIndices: number[];
+
+  /**
+   * Stack of free (inactive) pool indices.  acquire() pops O(1);
+   * update() pushes dead indices back.
+   */
+  private freeStack: number[];
+
   /**
    * Fraction (0–1) of the full particle budget to emit.  Controlled by the
    * active visual-quality preset via {@link setParticleScale}.
    */
   private _particleScale: number = 1;
 
+  /**
+   * Additional performance-based scale applied on top of _particleScale.
+   * Set via {@link setAdaptiveScale}; default 1 (no reduction).
+   */
+  private _performanceScale: number = 1;
+
+  // --- Per-frame stats (reset at the start of each draw call) ---
+
+  /** Number of currently active (live) particles. */
+  activeCount: number = 0;
+  /** Number of particles drawn last frame. */
+  drawnCount: number = 0;
+  /** Number of particles culled (viewport) last frame. */
+  culledCount: number = 0;
+  /** Number of particles emitted since the last update(). */
+  emittedThisFrame: number = 0;
+  /** Number of active particles that were recycled this frame. */
+  recycledCount: number = 0;
+  /** Total pool capacity. */
+  readonly poolCapacity: number = POOL_SIZE;
+
   constructor() {
     this.pool = Array.from({ length: POOL_SIZE }, createParticle);
+    // Pre-fill the free stack (reversed so index 0 is popped first)
+    this.freeStack = Array.from({ length: POOL_SIZE }, (_, i) => POOL_SIZE - 1 - i);
+    this.activeIndices = [];
   }
 
   /**
@@ -93,19 +130,35 @@ export class ParticleSystem {
     this._particleScale = Math.max(0.1, Math.min(1, scale));
   }
 
+  /**
+   * Set the adaptive performance scale (0.35–1.0).  Combined multiplicatively
+   * with the quality particleScale.  Call this from the render budget update.
+   */
+  setAdaptiveScale(scale: number): void {
+    this._performanceScale = Math.max(0.2, Math.min(1, scale));
+  }
+
+  /** Combined emission scale = quality × adaptive. */
+  private get _effectiveScale(): number {
+    return this._particleScale * this._performanceScale;
+  }
+
+  /**
+   * Acquire one particle from the pool in O(1).
+   * If the pool is full, recycles an existing active particle (oldest-ish).
+   */
   private acquire(): Particle {
-    // Find next inactive or reuse oldest
-    for (let i = 0; i < POOL_SIZE; i++) {
-      const idx = (this.nextIndex + i) % POOL_SIZE;
-      if (!this.pool[idx].active) {
-        this.nextIndex = (idx + 1) % POOL_SIZE;
-        return this.pool[idx];
-      }
+    if (this.freeStack.length > 0) {
+      const idx = this.freeStack.pop()!;
+      this.activeIndices.push(idx);
+      this.emittedThisFrame++;
+      return this.pool[idx];
     }
-    // All active – recycle the oldest
-    const p = this.pool[this.nextIndex];
-    this.nextIndex = (this.nextIndex + 1) % POOL_SIZE;
-    return p;
+    // Pool full — recycle the first active particle (arbitrary position in the active list, not guaranteed oldest)
+    const idx = this.activeIndices[0];
+    this.recycledCount++;
+    this.emittedThisFrame++;
+    return this.pool[idx];
   }
 
   // --- Emitters ---
@@ -180,9 +233,7 @@ export class ParticleSystem {
     const speedFraction = Math.min(1, Math.max(0, options.speedFraction ?? 0));
     const spreadRange = 0.06 + 0.24 * (1 - speedFraction);
     // Thruster is on the opposite side from the strafe direction.
-    // offsetAngle puts the spawn point on the thruster side.
-    // exhaustAngle is opposite to the strafe, matching Newton's 3rd law.
-    const thrusterSide = -sideSign; // opposite side from motion
+    const thrusterSide = -sideSign;
     const offsetAngle = angle + (thrusterSide * Math.PI / 2);
     const exhaustAngle = angle + (thrusterSide * Math.PI / 2);
     for (let i = 0; i < count; i++) {
@@ -205,10 +256,9 @@ export class ParticleSystem {
   }
 
   emitExplosion(pos: Vec2, size: number): void {
-    const scale = this._particleScale;
+    const scale = this._effectiveScale;
 
-    // Central nova flash — warm ivory burst that fades almost instantly.
-    // Always emit at least one nova flash regardless of quality.
+    // Central nova flash — always emit at least one regardless of quality.
     {
       const p = this.acquire();
       p.active = true;
@@ -224,8 +274,7 @@ export class ParticleSystem {
       p.additive = true;
     }
 
-    // Primary fireball — large additive particles that bloom together.
-    // Warm palette: red → orange → amber → bright yellow → warm white.
+    // Primary fireball
     const primaryCount = Math.max(2, Math.floor((18 + size * 2.5) * scale));
     const fireballColors: Color[] = [
       Colors.particles_explosion1,
@@ -252,12 +301,10 @@ export class ParticleSystem {
       p.additive = true;
     }
 
-    // Secondary debris — mix of normal-blend particles and warm additive embers.
-    // Additive embers (60 %) give a glowing warm haze; normal debris (40 %) adds
-    // solid scattered chunks so the explosion reads clearly at any zoom level.
+    // Secondary debris — 60 % additive embers + 40 % normal debris
     const debrisCount = Math.max(1, Math.floor((8 + size * 1.2) * scale));
     for (let i = 0; i < debrisCount; i++) {
-      const useEmber = i % 5 < 3; // 60 % additive embers
+      const useEmber = i % 5 < 3;
       const p = this.acquire();
       p.active = true;
       p.x = pos.x + randomRange(-size * 0.4, size * 0.4);
@@ -274,7 +321,7 @@ export class ParticleSystem {
       p.additive = useEmber;
     }
 
-    // High-velocity sparks — warm orange/ivory and bright yellow streaks.
+    // High-velocity sparks
     const sparkColors: Color[] = [Colors.alert2, Colors.particles_ember, Colors.particles_nova];
     const sparkCount = Math.max(1, Math.min(10, Math.floor((3 + size * 0.22) * scale)));
     for (let i = 0; i < sparkCount; i++) {
@@ -296,7 +343,7 @@ export class ParticleSystem {
   }
 
   emitSpark(pos: Vec2): void {
-    const count = Math.max(1, Math.round(5 * this._particleScale));
+    const count = Math.max(1, Math.round(5 * this._effectiveScale));
     for (let i = 0; i < count; i++) {
       const p = this.acquire();
       p.active = true;
@@ -323,7 +370,7 @@ export class ParticleSystem {
       p.x = pos.x + randomRange(-8, 8);
       p.y = pos.y + randomRange(-8, 8);
       p.vx = randomRange(-10, 10);
-      p.vy = randomRange(-30, -10); // float upward
+      p.vy = randomRange(-30, -10);
       p.color = Colors.particles_healing;
       p.alpha = 1;
       p.life = randomRange(0.4, 0.8);
@@ -356,18 +403,14 @@ export class ParticleSystem {
   /**
    * Emit a small burst of directional impact sparks when a non-lethal
    * projectile hit occurs.  Scaled by the quality budget.
-   * @param pos   World position of the impact
-   * @param angle Angle of the incoming projectile (radians) — sparks scatter
-   *              around the reverse (impact-normal) direction.
    */
   emitImpact(pos: Vec2, angle: number): void {
-    const count = Math.max(1, Math.round(IMPACT_SPARK_COUNT * this._particleScale));
+    const count = Math.max(1, Math.round(IMPACT_SPARK_COUNT * this._effectiveScale));
     for (let i = 0; i < count; i++) {
       const p = this.acquire();
       p.active = true;
       p.x = pos.x;
       p.y = pos.y;
-      // Scatter sparks roughly away from the projectile direction
       const scatter = (Math.random() - 0.5) * Math.PI * 1.4;
       const backAngle = angle + Math.PI + scatter;
       const spd = randomRange(80, 200);
@@ -384,11 +427,8 @@ export class ParticleSystem {
 
   /**
    * Emit a brief bright muzzle flash when a weapon fires.
-   * @param pos   World position of the muzzle tip
-   * @param angle Firing angle (radians)
    */
   emitMuzzleFlash(pos: Vec2, angle: number): void {
-    // Central flash particle
     {
       const p = this.acquire();
       p.active = true;
@@ -403,8 +443,7 @@ export class ParticleSystem {
       p.size = randomRange(2.5, 4.5);
       p.additive = true;
     }
-    // A few rapid sparks in the forward cone
-    const sparkCount = Math.max(1, Math.round(MUZZLE_SPARK_COUNT * this._particleScale));
+    const sparkCount = Math.max(1, Math.round(MUZZLE_SPARK_COUNT * this._effectiveScale));
     for (let i = 0; i < sparkCount; i++) {
       const p = this.acquire();
       p.active = true;
@@ -425,68 +464,116 @@ export class ParticleSystem {
 
   // --- Simulation ---
 
+  /**
+   * Advance all active particles.
+   * Iterates only the active list — O(active count), not O(pool size).
+   */
   update(dt: number): void {
-    for (let i = 0; i < POOL_SIZE; i++) {
-      const p = this.pool[i];
-      if (!p.active) continue;
+    this.emittedThisFrame = 0;
+    this.recycledCount = 0;
+    const active = this.activeIndices;
+    let len = active.length;
+    let i = 0;
+    while (i < len) {
+      const idx = active[i];
+      const p = this.pool[idx];
       p.x += p.vx * dt;
       p.y += p.vy * dt;
       p.life -= dt;
-      p.alpha = Math.max(0, p.life / p.maxLife);
       if (p.life <= 0) {
         p.active = false;
+        p.alpha = 0;
+        // Swap-remove: move the last element to this slot, shrink list
+        this.freeStack.push(idx);
+        active[i] = active[--len];
+        active.length = len;
+        // Do not increment i — we need to process the swapped-in element
+      } else {
+        p.alpha = p.life / p.maxLife;
+        i++;
       }
     }
+    this.activeCount = len;
+
+    // Push stats to the shared budget
+    renderBudget.activeParticles = this.activeCount;
+    renderBudget.emittedThisFrame = this.emittedThisFrame;
+    renderBudget.recycledParticles = this.recycledCount;
   }
 
   // --- Rendering ---
 
+  /**
+   * Draw all active particles with viewport culling.
+   * Computes world-space viewport bounds once; iterates only the active list.
+   */
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
-    // Two passes: first normal-blend particles, then additive-blend particles.
-    // This avoids repeated composite-mode switches on every particle.
+    const active = this.activeIndices;
+    const len = active.length;
+    if (len === 0) return;
 
+    const zoom = camera.zoom;
+    const camX = camera.position.x;
+    const camY = camera.position.y;
     const sw = camera.screenW;
     const sh = camera.screenH;
-    /** Small margin so particles right at the edge don't pop. */
-    const margin = 10;
+    const hw = sw * 0.5;
+    const hh = sh * 0.5;
 
-    // Pass 1 — normal blend
-    for (let i = 0; i < POOL_SIZE; i++) {
-      const p = this.pool[i];
-      if (!p.active || p.alpha <= 0 || p.additive) continue;
+    // World-space viewport bounds with margin (avoids per-particle isOnScreen call)
+    const margin = 30; // world units at zoom=1 → 30px screen margin
+    const marginW = margin / zoom;
+    const vpMinX = camX - hw / zoom - marginW;
+    const vpMaxX = camX + hw / zoom + marginW;
+    const vpMinY = camY - hh / zoom - marginW;
+    const vpMaxY = camY + hh / zoom + marginW;
 
-      const sx = camera.screenX(p.x);
-      if (sx < -margin || sx > sw + margin) continue;
-      const sy = camera.screenY(p.y);
-      if (sy < -margin || sy > sh + margin) continue;
+    let drawn = 0;
+    let culled = 0;
 
-      const r = p.size * camera.zoom;
+    // Pass 1 — normal blend (non-additive particles)
+    for (let i = 0; i < len; i++) {
+      const p = this.pool[active[i]];
+      if (p.additive || p.alpha <= 0) continue;
+      if (p.x < vpMinX || p.x > vpMaxX || p.y < vpMinY || p.y > vpMaxY) { culled++; continue; }
+
+      const sx = (p.x - camX) * zoom + hw;
+      const sy = (p.y - camY) * zoom + hh;
+      const r = Math.max(0.4, p.size * zoom);
 
       ctx.fillStyle = colorToCSS(p.color, p.alpha);
       ctx.beginPath();
-      ctx.arc(sx, sy, Math.max(0.4, r), 0, Math.PI * 2);
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
       ctx.fill();
+      drawn++;
     }
 
-    // Pass 2 — additive blend (hot glowing particles)
+    // Pass 2 — additive blend
     ctx.globalCompositeOperation = 'lighter';
-    for (let i = 0; i < POOL_SIZE; i++) {
-      const p = this.pool[i];
-      if (!p.active || p.alpha <= 0 || !p.additive) continue;
+    for (let i = 0; i < len; i++) {
+      const p = this.pool[active[i]];
+      if (!p.additive || p.alpha <= 0) continue;
+      if (p.x < vpMinX || p.x > vpMaxX || p.y < vpMinY || p.y > vpMaxY) { culled++; continue; }
 
-      const sx = camera.screenX(p.x);
-      if (sx < -margin || sx > sw + margin) continue;
-      const sy = camera.screenY(p.y);
-      if (sy < -margin || sy > sh + margin) continue;
-
-      const r = p.size * camera.zoom;
+      const sx = (p.x - camX) * zoom + hw;
+      const sy = (p.y - camY) * zoom + hh;
+      const r = Math.max(0.4, p.size * zoom);
 
       ctx.fillStyle = colorToCSS(p.color, p.alpha);
       ctx.beginPath();
-      ctx.arc(sx, sy, Math.max(0.4, r), 0, Math.PI * 2);
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
       ctx.fill();
+      drawn++;
     }
     ctx.globalCompositeOperation = 'source-over';
+
+    this.drawnCount = drawn;
+    this.culledCount = culled;
+
+    // Update shared budget stats
+    renderBudget.drawnParticles = drawn;
+    renderBudget.culledParticles = culled;
+    renderBudget.particleCapacity = POOL_SIZE;
   }
 }
 

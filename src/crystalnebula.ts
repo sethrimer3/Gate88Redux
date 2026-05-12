@@ -23,6 +23,7 @@ import { Camera } from './camera.js';
 import { GlowLayer } from './glowlayer.js';
 import { WORLD_WIDTH, WORLD_HEIGHT } from './constants.js';
 import type { VisualQualityPreset } from './visualquality.js';
+import { renderBudget } from './renderBudget.js';
 
 // ---------------------------------------------------------------------------
 // Seeded PRNG — mulberry32 for stable, deterministic cloud layout
@@ -152,6 +153,12 @@ export class CrystalNebula {
   }));
   private pendingDistCount = 0;
 
+  /** Fixed reusable buffer for per-cloud near-disturbance filtering. Avoids per-frame allocation. */
+  private nearDistBuf: Disturbance[] = new Array(MAX_DISTURBANCES).fill(null).map(() => ({
+    x: 0, y: 0, vx: 0, vy: 0, radius: 1, strength: 0, isExplosion: false,
+  }));
+  private nearDistCount = 0;
+
   private enabled = true;
   private glowEnabled = false;
   private interactionScale = 1.0;
@@ -243,17 +250,18 @@ export class CrystalNebula {
       const ccy = cloud.def.cy;
 
       // Identify which disturbances are close enough to affect this cloud.
-      // This avoids the inner per-particle loop for far-away disturbances.
+      // Re-use the pre-allocated nearDistBuf to avoid per-frame garbage.
       let nearDistCount = 0;
-      const nearDist: Disturbance[] = [];
       for (let di = 0; di < dc; di++) {
         const dist = dists[di];
         const ddx = dist.x - ccx;
         const ddy = dist.y - ccy;
         if (ddx * ddx + ddy * ddy <= cloudRTest2) {
-          nearDist[nearDistCount++] = dist;
+          CrystalNebula.copyDisturbance(this.nearDistBuf[nearDistCount], dist);
+          nearDistCount++;
         }
       }
+      this.nearDistCount = nearDistCount;
 
       for (const p of cloud.particles) {
         // Spring force toward home position
@@ -264,7 +272,7 @@ export class CrystalNebula {
 
         // Apply nearby disturbances
         for (let di = 0; di < nearDistCount; di++) {
-          const dist = nearDist[di];
+          const dist = this.nearDistBuf[di];
           const dpx = p.x - dist.x;
           const dpy = p.y - dist.y;
           const distR = dist.radius;
@@ -342,6 +350,11 @@ export class CrystalNebula {
     const useGlow = this.glowEnabled && glowLayer !== null && glowLayer.enabled;
     const glowCtx = useGlow ? glowLayer!.ctx : null;
 
+    // Adaptive draw decimation: under load, draw every Nth mote to reduce fill cost.
+    // renderLoadScale=1.0 → drawEveryN=1; renderLoadScale=0.35 → drawEveryN=3
+    const loadScale = renderBudget.renderLoadScale;
+    const drawEveryN = loadScale >= 0.85 ? 1 : loadScale >= 0.6 ? 2 : 3;
+
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
 
@@ -355,9 +368,14 @@ export class CrystalNebula {
         cd.cy + cd.radius < vpMinY || cd.cy - cd.radius > vpMaxY
       ) continue;
 
+      let moteIdx = 0;
       for (const p of cloud.particles) {
         // Particle-level viewport cull
-        if (p.x < vpMinX || p.x > vpMaxX || p.y < vpMinY || p.y > vpMaxY) continue;
+        if (p.x < vpMinX || p.x > vpMaxX || p.y < vpMinY || p.y > vpMaxY) { moteIdx++; continue; }
+
+        // Adaptive draw decimation — skip every Nth mote under load
+        if (drawEveryN > 1 && (moteIdx % drawEveryN) !== 0) { moteIdx++; continue; }
+        moteIdx++;
 
         const sx = (p.x - camX) * zoom + hw;
         const sy = (p.y - camY) * zoom + hh;
@@ -422,11 +440,20 @@ export class CrystalNebula {
 
     ctx.restore();
     this.visibleMoteCount = visCount;
+    renderBudget.crystalVisible = visCount;
   }
 
   // --------------------------------------------------------------------------
   // Private
   // --------------------------------------------------------------------------
+
+  /** Copy all fields from src into dest (avoids object allocation). */
+  private static copyDisturbance(dest: Disturbance, src: Disturbance): void {
+    dest.x = src.x; dest.y = src.y;
+    dest.vx = src.vx; dest.vy = src.vy;
+    dest.radius = src.radius; dest.strength = src.strength;
+    dest.isExplosion = src.isExplosion;
+  }
 
   private buildClouds(densityScale: number): void {
     // Use a fixed seed so the cloud layout is identical between sessions.

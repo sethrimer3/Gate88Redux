@@ -1,6 +1,7 @@
 import { Vec2 } from './math.js';
 import { Camera } from './camera.js';
 import { type Color, colorToCSS } from './colors.js';
+import { renderBudget } from './renderBudget.js';
 
 /**
  * Low-resolution additive glow target.
@@ -9,6 +10,11 @@ import { type Color, colorToCSS } from './colors.js';
  * into this smaller buffer and upscaled with image smoothing. That gives a
  * shader-like bloom read while keeping fill cost proportional to the reduced
  * buffer size.
+ *
+ * Glow primitive budgeting: call beginFrame(maxPrimitives) before drawing to
+ * cap the number of glow calls accepted this frame.  Higher-priority calls
+ * should be made first.  After the budget is exhausted, lineScreen/circleScreen
+ * return early and the skipped counter is incremented.
  */
 export class GlowLayer {
   readonly canvas: HTMLCanvasElement;
@@ -18,11 +24,26 @@ export class GlowLayer {
   private scale = 0.25;
   enabled = true;
 
+  // --- Glow primitive budget ---
+  private _glowMax = 100_000;
+  private _glowCount = 0;
+  /** Number of glow primitives drawn this frame (after beginFrame). */
+  get drawnGlowCount(): number { return this._glowCount; }
+  /** Number of glow primitives skipped this frame (budget exceeded). */
+  skippedGlowCount = 0;
+
   constructor() {
     this.canvas = document.createElement('canvas');
     const ctx = this.canvas.getContext('2d');
     if (!ctx) throw new Error('Failed to create glow layer');
     this.ctx = ctx;
+  }
+
+  /** Reset per-frame glow primitive counters. Call at the start of the glow pass. */
+  beginFrame(maxGlowPrimitives: number): void {
+    this._glowMax = maxGlowPrimitives;
+    this._glowCount = 0;
+    this.skippedGlowCount = 0;
   }
 
   configure(enabled: boolean, scale: number): void {
@@ -53,6 +74,9 @@ export class GlowLayer {
 
   compositeTo(ctx: CanvasRenderingContext2D): void {
     if (!this.enabled) return;
+    // Push glow stats to the shared budget before compositing
+    renderBudget.glowDrawn = this._glowCount;
+    renderBudget.glowSkipped = this.skippedGlowCount;
     ctx.save();
     // Composite in viewport coordinates from a known transform. Previously the
     // glow pass inherited the main context transform, which could leave a
@@ -78,6 +102,8 @@ export class GlowLayer {
 
   lineScreen(from: Vec2, to: Vec2, color: Color, alpha: number, width: number): void {
     if (!this.enabled || alpha <= 0 || width <= 0) return;
+    if (this._glowCount >= this._glowMax) { this.skippedGlowCount++; return; }
+    this._glowCount++;
     const ctx = this.ctx;
     ctx.strokeStyle = colorToCSS(color, alpha);
     ctx.lineWidth = width;
@@ -93,6 +119,8 @@ export class GlowLayer {
 
   circleScreen(center: Vec2, radius: number, color: Color, alpha: number, fill = true, lineWidth = 1): void {
     if (!this.enabled || alpha <= 0 || radius <= 0) return;
+    if (this._glowCount >= this._glowMax) { this.skippedGlowCount++; return; }
+    this._glowCount++;
     const ctx = this.ctx;
     if (fill) {
       ctx.fillStyle = colorToCSS(color, alpha);
