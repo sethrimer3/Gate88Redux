@@ -257,9 +257,7 @@ export class CrystalNebula {
         const ddx = dist.x - ccx;
         const ddy = dist.y - ccy;
         if (ddx * ddx + ddy * ddy <= cloudRTest2) {
-          const slot = this.nearDistBuf[nearDistCount];
-          slot.x = dist.x; slot.y = dist.y; slot.vx = dist.vx; slot.vy = dist.vy;
-          slot.radius = dist.radius; slot.strength = dist.strength; slot.isExplosion = dist.isExplosion;
+          CrystalNebula.copyDisturbance(this.nearDistBuf[nearDistCount], dist);
           nearDistCount++;
         }
       }
@@ -448,6 +446,14 @@ export class CrystalNebula {
   // --------------------------------------------------------------------------
   // Private
   // --------------------------------------------------------------------------
+
+  /** Copy all fields from src into dest (avoids object allocation). */
+  private static copyDisturbance(dest: Disturbance, src: Disturbance): void {
+    dest.x = src.x; dest.y = src.y;
+    dest.vx = src.vx; dest.vy = src.vy;
+    dest.radius = src.radius; dest.strength = src.strength;
+    dest.isExplosion = src.isExplosion;
+  }
 
   private buildClouds(densityScale: number): void {
     // Use a fixed seed so the cloud layout is identical between sessions.

@@ -98,7 +98,7 @@ export class ParticleSystem {
    * Additional performance-based scale applied on top of _particleScale.
    * Set via {@link setAdaptiveScale}; default 1 (no reduction).
    */
-  private _adaptiveScale: number = 1;
+  private _performanceScale: number = 1;
 
   // --- Per-frame stats (reset at the start of each draw call) ---
 
@@ -135,12 +135,12 @@ export class ParticleSystem {
    * with the quality particleScale.  Call this from the render budget update.
    */
   setAdaptiveScale(scale: number): void {
-    this._adaptiveScale = Math.max(0.2, Math.min(1, scale));
+    this._performanceScale = Math.max(0.2, Math.min(1, scale));
   }
 
   /** Combined emission scale = quality × adaptive. */
   private get _effectiveScale(): number {
-    return this._particleScale * this._adaptiveScale;
+    return this._particleScale * this._performanceScale;
   }
 
   /**
@@ -154,7 +154,7 @@ export class ParticleSystem {
       this.emittedThisFrame++;
       return this.pool[idx];
     }
-    // Pool full — recycle first active particle (roughly the oldest)
+    // Pool full — recycle the first active particle (arbitrary position in the active list, not guaranteed oldest)
     const idx = this.activeIndices[0];
     this.recycledCount++;
     this.emittedThisFrame++;

@@ -348,6 +348,9 @@ export function drawBuildingHoverHitpoints(
   }
 }
 
+/** Projectile count above which bullet glow begins to be decimated. */
+const BULLET_GLOW_DECIMATION_THRESHOLD = 80;
+
 export function drawGlowLayer(
   glow: GlowLayer,
   camera: Camera,
@@ -488,7 +491,7 @@ export function drawGlowLayer(
     // Determine how many bullet glows to draw: full at low count, decimated at high count
     const projectileCount = state.projectiles.length;
     // At renderLoadScale=1 draw all; at 0.35 draw ~35%; also decimate for large bullet counts
-    const bulletLoadFactor = renderLoadScale * Math.min(1, 80 / Math.max(1, projectileCount));
+    const bulletLoadFactor = renderLoadScale * Math.min(1, BULLET_GLOW_DECIMATION_THRESHOLD / Math.max(1, projectileCount));
     // Draw every Nth bullet based on load
     const drawEveryN = bulletLoadFactor >= 0.9 ? 1 : bulletLoadFactor >= 0.5 ? 2 : 3;
     let bulletIdx = 0;

@@ -129,6 +129,8 @@ export class Game {
   private ghostSpectatorVel: Vec2 = new Vec2(0, 0);
   /** Delay (seconds) before the player ship respawns. */
   private static readonly RESPAWN_DELAY = 3;
+  /** Interval (seconds) between fighter exhaust particle emissions (~30 Hz). */
+  private static readonly FIGHTER_EXHAUST_EMIT_INTERVAL = 1 / 30;
 
   // LAN multiplayer
   private lanClient: LanClient | null = null;
@@ -581,7 +583,7 @@ export class Game {
     // instead of 60 Hz to halve particle emission when many fighters are active.
     // Off-screen fighters skip emission entirely.
     this.fighterExhaustAccum += DT;
-    const exhaustInterval = 0.033; // ~30 Hz
+    const exhaustInterval = Game.FIGHTER_EXHAUST_EMIT_INTERVAL;
     if (this.fighterExhaustAccum >= exhaustInterval) {
       this.fighterExhaustAccum -= exhaustInterval;
       for (const f of this.state.fighters) {
