@@ -96,6 +96,7 @@ export class Starfield {
   private stars: Star[] = [];
   private shootingStar: ShootingStar;
   private time: number = 0;
+  private _shootingStarsEnabled = true;
 
   constructor() {
     this.generate();
@@ -106,6 +107,15 @@ export class Starfield {
       life: 0, maxLife: 0,
       cooldown: randomRange(SHOOT_COOLDOWN_MIN, SHOOT_COOLDOWN_MAX),
     };
+  }
+
+  /**
+   * Enable or disable animated shooting-star streaks.  When disabled (Low
+   * quality) the cooldown timer still runs so a streak can appear immediately
+   * if quality is raised mid-session.
+   */
+  setShootingStarsEnabled(enabled: boolean): void {
+    this._shootingStarsEnabled = enabled;
   }
 
   // --------------------------------------------------------------------------
@@ -205,7 +215,9 @@ export class Starfield {
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera, screenW: number, screenH: number): void {
     this.drawStars(ctx, camera, screenW, screenH);
-    this.drawShootingStar(ctx, camera, screenW, screenH);
+    if (this._shootingStarsEnabled) {
+      this.drawShootingStar(ctx, camera, screenW, screenH);
+    }
   }
 
   private drawStars(

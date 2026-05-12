@@ -13,6 +13,13 @@ export interface VisualQualityPreset {
   readonly engineGlow: boolean;
   /** Renders a subtle color-fringe gradient on screen edges (CRT lens effect). */
   readonly colorFringe: boolean;
+  /**
+   * Fraction (0–1) of the full particle budget to emit for explosions and
+   * sparks.  Low mode emits roughly 35 %, medium 65 %, high 100 %.
+   */
+  readonly particleScale: number;
+  /** Enable animated shooting-star streaks in the background starfield. */
+  readonly shootingStarsEnabled: boolean;
 }
 
 export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> = {
@@ -26,6 +33,8 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     bulletGlow: false,
     engineGlow: false,
     colorFringe: false,
+    particleScale: 0.35,
+    shootingStarsEnabled: false,
   },
   medium: {
     glowEnabled: true,
@@ -37,6 +46,8 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     bulletGlow: true,
     engineGlow: true,
     colorFringe: true,
+    particleScale: 0.65,
+    shootingStarsEnabled: true,
   },
   high: {
     glowEnabled: true,
@@ -48,6 +59,8 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     bulletGlow: true,
     engineGlow: true,
     colorFringe: true,
+    particleScale: 1.0,
+    shootingStarsEnabled: true,
   },
 };
 

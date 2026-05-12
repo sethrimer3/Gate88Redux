@@ -247,6 +247,8 @@ export class Game {
     this.spaceFluid.setLowGraphicsMode(this.visualPreset.fluidLowGraphics);
     this.glowLayer.configure(this.visualPreset.glowEnabled, this.visualPreset.glowScale);
     this.state?.ringEffects.setMaxLive(quality === 'low' ? 32 : quality === 'medium' ? 64 : 96);
+    this.state?.particles.setParticleScale(this.visualPreset.particleScale);
+    this.starfield.setShootingStarsEnabled(this.visualPreset.shootingStarsEnabled);
     this.mainMenu.visualQuality = quality;
     saveVisualQuality(quality);
   }
@@ -448,6 +450,16 @@ export class Game {
     while (this.state.completedResearchNotifications.length > 0) {
       const item = this.state.completedResearchNotifications.shift()!;
       this.hud.showMessage(`Research complete: ${researchDisplayName(item)}`, Colors.researchlab_detail, 4);
+    }
+
+    // Emit build-completion particle effect for any building that just finished
+    // constructing this tick.  The flag is set by Building.update() and cleared
+    // here so the burst fires exactly once.
+    for (const b of this.state.buildings) {
+      if (b.completionEffectPending) {
+        b.completionEffectPending = false;
+        this.state.particles.emitBuildEffect(b.position);
+      }
     }
 
     // Detect player damage events to trigger the screen damage flash.

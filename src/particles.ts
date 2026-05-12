@@ -66,9 +66,22 @@ function lightenColor(color: Color, amount: number): Color {
 export class ParticleSystem {
   private pool: Particle[];
   private nextIndex: number = 0;
+  /**
+   * Fraction (0–1) of the full particle budget to emit.  Controlled by the
+   * active visual-quality preset via {@link setParticleScale}.
+   */
+  private _particleScale: number = 1;
 
   constructor() {
     this.pool = Array.from({ length: POOL_SIZE }, createParticle);
+  }
+
+  /**
+   * Set the quality scale that governs how many particles are spawned for
+   * expensive emitters (explosions, sparks).  1 = full quality; 0.35 = low.
+   */
+  setParticleScale(scale: number): void {
+    this._particleScale = Math.max(0.1, Math.min(1, scale));
   }
 
   private acquire(): Particle {
@@ -183,7 +196,10 @@ export class ParticleSystem {
   }
 
   emitExplosion(pos: Vec2, size: number): void {
+    const scale = this._particleScale;
+
     // Central nova flash — warm ivory burst that fades almost instantly.
+    // Always emit at least one nova flash regardless of quality.
     {
       const p = this.acquire();
       p.active = true;
@@ -201,7 +217,7 @@ export class ParticleSystem {
 
     // Primary fireball — large additive particles that bloom together.
     // Warm palette: red → orange → amber → bright yellow → warm white.
-    const primaryCount = Math.floor(18 + size * 2.5);
+    const primaryCount = Math.max(2, Math.floor((18 + size * 2.5) * scale));
     const fireballColors: Color[] = [
       Colors.particles_explosion1,
       Colors.particles_explosion2,
@@ -230,7 +246,7 @@ export class ParticleSystem {
     // Secondary debris — mix of normal-blend particles and warm additive embers.
     // Additive embers (60 %) give a glowing warm haze; normal debris (40 %) adds
     // solid scattered chunks so the explosion reads clearly at any zoom level.
-    const debrisCount = Math.floor(8 + size * 1.2);
+    const debrisCount = Math.max(1, Math.floor((8 + size * 1.2) * scale));
     for (let i = 0; i < debrisCount; i++) {
       const useEmber = i % 5 < 3; // 60 % additive embers
       const p = this.acquire();
@@ -251,7 +267,7 @@ export class ParticleSystem {
 
     // High-velocity sparks — warm orange/ivory and bright yellow streaks.
     const sparkColors: Color[] = [Colors.alert2, Colors.particles_ember, Colors.particles_nova];
-    const sparkCount = Math.min(10, Math.floor(3 + size * 0.22));
+    const sparkCount = Math.max(1, Math.min(10, Math.floor((3 + size * 0.22) * scale)));
     for (let i = 0; i < sparkCount; i++) {
       const p = this.acquire();
       p.active = true;
@@ -271,7 +287,7 @@ export class ParticleSystem {
   }
 
   emitSpark(pos: Vec2): void {
-    const count = 5;
+    const count = Math.max(1, Math.round(5 * this._particleScale));
     for (let i = 0; i < count; i++) {
       const p = this.acquire();
       p.active = true;
