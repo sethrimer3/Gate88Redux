@@ -237,8 +237,9 @@ export class RaidPlanner {
     difficulty: DifficultyName,
   ): FighterShip[] {
     const idx = difficultyIndex(difficulty);
-    // On higher difficulty, gather more fighters per raid.
-    const maxRaidSize = [2, 3, 4, 6, 8][idx];
+    // Increased raid sizes at higher difficulty — the AI now fields more fighters
+    // per raid so it doesn't only trickle units one at a time.
+    const maxRaidSize = [3, 5, 7, 10, 14][idx];
     const fighters: FighterShip[] = [];
     for (const f of state.fighters) {
       if (!f.alive || f.docked || f.team !== Team.Enemy) continue;

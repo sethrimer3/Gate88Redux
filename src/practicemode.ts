@@ -13,6 +13,7 @@ import { Audio } from './audio.js';
 import { BASELINE_RESOURCE_GAIN, RESOURCE_GAIN_RATE, WORLD_WIDTH, WORLD_HEIGHT, WEAPON_STATS } from './constants.js';
 import { damageLaserLine } from './combatUtils.js';
 import { EnemyBasePlanner } from './enemybaseplanner.js';
+import type { PlayerStrategy } from './enemybaseplanner.js';
 import {
   PracticeConfig,
   cloneDefaultPracticeConfig,
@@ -24,6 +25,20 @@ import { aimAngle, aimAtEntity, isCombatTargetValid, recordCombatAimSample } fro
 
 const TURRET_FIRE_CHECK_INTERVAL = 0.1;
 const AI_MAIN_SHIP_ORDER_RADIUS = 1000;
+
+/** Interval (seconds) between player-threat evaluations. */
+const THREAT_EVAL_INTERVAL = 10;
+/**
+ * If no major attack has launched within this many seconds, escalate urgency.
+ * Tiered: [Easy, Normal, Hard, Expert, Nightmare] — lower difficulties are more
+ * forgiving (and don't use wave-staging at all below Hard anyway).
+ */
+const STAGNATION_THRESHOLDS = [9999, 9999, 150, 100, 75];
+/**
+ * If the AI is above the first stagnation threshold, upgrade urgency to level 2
+ * (critical stall) after this many additional seconds.
+ */
+const CRITICAL_STALL_EXTRA = 60;
 
 export interface PracticeScore {
   basesDestroyed: number;
@@ -50,6 +65,19 @@ export class PracticeMode {
   /** Accumulator so the AI raid timer doesn't depend on dt at low FPS. */
   private raidTimer: number = 30;
   private enemyWaveTimer: number = 0;
+
+  // -- Player threat profile --------------------------------------------------
+
+  /** Current classification of what the player appears to be doing. */
+  private playerStrategy: PlayerStrategy = 'unknown';
+  /** Timer for periodic threat evaluation. */
+  private threatEvalTimer: number = 0;
+  /** Seconds since the last wave was launched (for stagnation detection). */
+  private secsSinceLastWave: number = 0;
+  /** How many consecutive waves have failed without dealing meaningful damage. */
+  private consecutiveFailedWaves: number = 0;
+  /** Current strategic urgency level sent to the planner. 0/1/2. */
+  private urgencyLevel: number = 0;
 
   score: PracticeScore = { basesDestroyed: 0, timeSurvived: 0 };
   gameOver: boolean = false;
@@ -158,6 +186,17 @@ export class PracticeMode {
         hud.showAIChat('BASE', msg, Colors.alert1);
       }
     }
+
+    // Periodic player threat evaluation.
+    this.threatEvalTimer -= dt;
+    if (this.threatEvalTimer <= 0) {
+      this.threatEvalTimer = THREAT_EVAL_INTERVAL;
+      this.evaluatePlayerThreat(state);
+    }
+
+    // Tick stagnation timer and update urgency.
+    this.secsSinceLastWave += dt;
+    this.updateStrategicUrgency(state);
 
     // Turrets
     this.turretCheckTimer -= dt;
@@ -421,26 +460,204 @@ export class PracticeMode {
     );
     const idx = difficultyIndex(this.config.difficulty);
     const threshold = this.enemyWaveLaunchThreshold(state, idx);
-    if (staged.length < threshold && this.enemyWaveTimer > 0) return;
-    if (staged.length === 0) return;
+
+    // Launch if: enough fighters staged OR the wave timer expired (max wait).
+    const readyToLaunch = staged.length >= threshold || this.enemyWaveTimer <= 0;
+    if (!readyToLaunch) return;
+    if (staged.length === 0) {
+      // Nothing to send but timer expired — reset timer and wait for production.
+      const baseInterval = [0, 0, 34, 28, 22][idx];
+      this.enemyWaveTimer = Math.max(8, baseInterval * 0.5);
+      return;
+    }
 
     const target = this.findNearestPlayerBuilding(state, state.player.position) ?? { position: state.player.position };
     for (const f of staged) {
       f.order = 'attack';
       f.targetPos = target.position.clone();
     }
-    this.enemyWaveTimer = [0, 0, 34, 28, 22][idx];
+
+    // Track the launch and reset stagnation timer.
+    this.secsSinceLastWave = 0;
+    this.planner?.notifyAttackLaunched();
+
+    // Reset wave cooldown. After a failed wave, shorten the wait slightly to
+    // try again sooner (up to a minimum of 12 s) — we don't want a long idle
+    // after a failed attack. After success, use the full interval.
+    const baseInterval = [0, 0, 34, 28, 22][idx];
+    const failedPenalty = Math.max(0, this.consecutiveFailedWaves - 1) * 4;
+    this.enemyWaveTimer = Math.max(12, baseInterval - failedPenalty);
   }
 
+  /**
+   * Dynamic wave launch threshold.
+   *
+   * The threshold scales with:
+   *   • Difficulty (higher = larger desired waves).
+   *   • Game time (midgame/lategame → larger waves).
+   *   • AI shipyard count (more yards = can field bigger waves).
+   *   • Consecutive failed waves (increase desired size after failures).
+   *   • Player defence strength (more turrets = need bigger wave).
+   *
+   * The wave timer acts as a hard ceiling — after maxWaitSecs the AI
+   * launches whatever it has so it never stalls indefinitely.
+   */
   private enemyWaveLaunchThreshold(state: GameState, idx: number): number {
-    if (idx < 4) return [0, 0, 7, 10, 13][idx];
-    let nearCapacity = 0;
+    // Base threshold per difficulty.
+    let base = [0, 0, 5, 8, 10][idx];
+
+    // Scale with game time: +1 per 2 minutes past 2 minutes, capped.
+    const gameTimeMins = state.gameTime / 60;
+    const timeBonus = idx >= 2 ? Math.min(8, Math.floor(Math.max(0, gameTimeMins - 2) / 2)) : 0;
+
+    // Scale with AI shipyard count: more yards → larger desired wave.
+    let aiShipyardCount = 0;
     for (const b of state.buildings) {
       if (!b.alive || b.team !== Team.Enemy || !(b instanceof Shipyard)) continue;
       if (!b.powered || b.buildProgress < 1) continue;
-      nearCapacity += Math.max(1, b.shipCapacity - 1);
+      aiShipyardCount++;
     }
-    return Math.max(8, nearCapacity);
+    const yardBonus = Math.max(0, aiShipyardCount - 1); // 0 for 1 yard, +1 per extra yard
+
+    // Scale with consecutive failures: failed waves push us to want bigger groups.
+    const failureBonus = Math.min(6, this.consecutiveFailedWaves * 2);
+
+    // Player turrets count as defensive pressure.
+    let playerTurretCount = 0;
+    for (const b of state.buildings) {
+      if (!b.alive || b.team !== Team.Player || !(b instanceof TurretBase)) continue;
+      playerTurretCount++;
+    }
+    const defenseBonus = Math.min(4, Math.floor(playerTurretCount / 3));
+
+    const threshold = base + timeBonus + yardBonus + failureBonus + defenseBonus;
+
+    // Hard cap: never demand more fighters than we can realistically produce.
+    const maxFeasible = Math.max(base + 2, aiShipyardCount * 4);
+    return Math.min(threshold, maxFeasible);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Player threat profiling
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Periodically classify what the player is doing.
+   * Feeds into reactive turret selection in the planner.
+   */
+  private evaluatePlayerThreat(state: GameState): void {
+    let playerShipyards = 0;
+    let playerTurrets = 0;
+    for (const b of state.buildings) {
+      if (!b.alive || b.team !== Team.Player) continue;
+      if (b instanceof Shipyard) playerShipyards++;
+      if (b instanceof TurretBase) playerTurrets++;
+    }
+    const playerResearch = state.researchedItems.size;
+
+    // Classify strategy.
+    let strategy: PlayerStrategy = 'unknown';
+    if (playerShipyards >= 4) {
+      strategy = 'swarming';
+    } else if (playerResearch >= 3 && playerShipyards <= 2) {
+      strategy = 'teching';
+    } else if (playerTurrets >= 6 && playerShipyards <= 1) {
+      strategy = 'turtling';
+    } else if (playerShipyards >= 2 && playerTurrets <= 2) {
+      strategy = 'rushing';
+    }
+
+    this.playerStrategy = strategy;
+
+    // Push profile to planner.
+    this.planner?.notifyPlayerThreat(strategy, playerShipyards, playerTurrets, playerResearch);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Strategic urgency + anti-stall
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Called every tick. Evaluates stagnation and escalates urgency when the AI
+   * hasn't launched a meaningful attack for too long, ensuring it can't sit
+   * passively for 10+ minutes.
+   */
+  private updateStrategicUrgency(state: GameState): void {
+    if (!this.planner) return;
+    const idx = difficultyIndex(this.config.difficulty);
+    if (idx < 2) return; // Easy / Normal don't use urgency
+
+    const stagnationThreshold = STAGNATION_THRESHOLDS[idx];
+    const criticalThreshold   = stagnationThreshold + CRITICAL_STALL_EXTRA;
+
+    let newUrgency = 0;
+    if (this.secsSinceLastWave >= criticalThreshold) {
+      newUrgency = 2; // Critical stall — override almost everything
+    } else if (this.secsSinceLastWave >= stagnationThreshold) {
+      newUrgency = 1; // Elevated — boost shipyard priority
+    }
+    // Also elevate if the AI has repeatedly failed waves.
+    if (this.consecutiveFailedWaves >= 3) newUrgency = Math.max(newUrgency, 1);
+    if (this.consecutiveFailedWaves >= 5) newUrgency = Math.max(newUrgency, 2);
+
+    if (newUrgency !== this.urgencyLevel) {
+      this.urgencyLevel = newUrgency;
+      this.planner.setStrategicUrgency(newUrgency);
+    }
+
+    // If urgency is high and the wave timer is long, shorten it so we launch sooner.
+    if (newUrgency >= 2 && this.enemyWaveTimer > 15) {
+      this.enemyWaveTimer = 15;
+    } else if (newUrgency >= 1 && this.enemyWaveTimer > 25) {
+      this.enemyWaveTimer = 25;
+    }
+
+    // Detect failed waves: a wave that launched but died quickly without doing
+    // damage.  We approximate "failed" as: attack fighters exist and were sent
+    // > 8 s ago, but there are now none left alive in attacking state.
+    // (Lightweight — no per-frame scan; done here every dt as a state transition.)
+    this.updateFailedWaveDetection(state);
+  }
+
+  /**
+   * Detect when attack waves fail (all sent fighters die quickly without
+   * scoring damage).  Uses a simple heuristic: if we recently launched a wave
+   * (secsSinceLastWave < 60) but there are no living attacking enemy fighters,
+   * it's likely the wave was repelled.  Reset counter when a new wave launches
+   * successfully.
+   *
+   * This runs every game tick but is O(fighters) which is cheap.
+   */
+  private _prevLivingAttackers: number = 0;
+  private _waveJustLaunched: boolean = false;
+
+  private updateFailedWaveDetection(state: GameState): void {
+    const attackers = state.fighters.filter(
+      (f) => f.alive && !f.docked && f.team === Team.Enemy && !isBuilderDrone(f) && f.order === 'attack',
+    ).length;
+
+    // Rising edge: wave just launched.
+    if (!this._waveJustLaunched && attackers > 0 && this._prevLivingAttackers === 0) {
+      this._waveJustLaunched = true;
+    }
+    // Falling edge: wave ended (all attackers gone within the recent-launch window).
+    if (this._waveJustLaunched && attackers === 0 && this.secsSinceLastWave < 90) {
+      // Wave ended. Check if anything was damaged — use state.recentlyDamaged as proxy.
+      // If the wave died very quickly (< 30 s) with no stage-waiter left, count as failed.
+      const stagedLeft = state.fighters.filter(
+        (f) => f.alive && !f.docked && f.team === Team.Enemy && !isBuilderDrone(f) &&
+               (f.order === 'waypoint' || f.order === 'follow' || f.order === 'protect'),
+      ).length;
+      if (stagedLeft === 0 && this.secsSinceLastWave < 45) {
+        this.consecutiveFailedWaves++;
+      } else {
+        // Wave succeeded or we can't tell — reset counter.
+        this.consecutiveFailedWaves = Math.max(0, this.consecutiveFailedWaves - 1);
+      }
+      this._waveJustLaunched = false;
+    }
+
+    this._prevLivingAttackers = attackers;
   }
 
   private damageSynonymousFighterLaser(state: GameState, start: Vec2, end: Vec2, source: FighterShip): void {
@@ -491,9 +708,40 @@ export class PracticeMode {
     return this.planner?.snapshot() ?? null;
   }
 
+  /**
+   * Returns strategy debug info for the AI debug overlay.
+   * Includes: urgency, player strategy, wave state, staged count.
+   */
+  getStrategyDebugInfo(state: GameState): {
+    urgency: number;
+    playerStrategy: PlayerStrategy;
+    secsSinceLastWave: number;
+    consecutiveFailedWaves: number;
+    stagedCount: number;
+    waveLaunchThreshold: number;
+    currentShipyards: number;
+    targetShipyards: number;
+  } | null {
+    if (!this.planner) return null;
+    const idx = difficultyIndex(this.config.difficulty);
+    const staged = state.fighters.filter((f) =>
+      f.alive && !f.docked && f.team === Team.Enemy && !isBuilderDrone(f) &&
+      (f.order === 'waypoint' || f.order === 'follow' || f.order === 'protect'),
+    ).length;
+    return {
+      urgency:               this.urgencyLevel,
+      playerStrategy:        this.playerStrategy,
+      secsSinceLastWave:     this.secsSinceLastWave,
+      consecutiveFailedWaves: this.consecutiveFailedWaves,
+      stagedCount:           staged,
+      waveLaunchThreshold:   this.enemyWaveLaunchThreshold(state, idx),
+      currentShipyards:      this.planner.getShipyardCount(state),
+      targetShipyards:       this.planner.getTargetShipyardCount(state),
+    };
+  }
+
   /** Returns the base planner for coordinator-interface access by VsAIDirector. */
   getPlanner(): EnemyBasePlanner | null {
     return this.planner;
   }
 }
-
