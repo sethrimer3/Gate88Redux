@@ -30,6 +30,26 @@ export interface VisualQualityPreset {
    * Too CPU-intensive for Low; partial in Medium; full in High.
    */
   readonly conduitPulseEnabled: boolean;
+  /**
+   * Enable the Crystal Nebula Clouds overlay — tiny angular crystal motes
+   * scattered across the world that react to ships, bullets, and explosions.
+   */
+  readonly crystalNebulaEnabled: boolean;
+  /**
+   * Fraction (0–1) of the base mote count to spawn per cloud.
+   * 0 = no particles; 1 = full density.
+   */
+  readonly crystalNebulaDensityScale: number;
+  /**
+   * Route the brightest glints and disturbed motes into the GlowLayer for
+   * a subtle halo effect.
+   */
+  readonly crystalNebulaGlow: boolean;
+  /**
+   * Multiplier (0–1) for how strongly ships, bullets, and explosions push
+   * crystal motes.  0 = no interaction; 1 = full.
+   */
+  readonly crystalNebulaInteractionScale: number;
 }
 
 export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> = {
@@ -47,6 +67,10 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     shootingStarsEnabled: false,
     cameraShakeEnabled: false,
     conduitPulseEnabled: false,
+    crystalNebulaEnabled: false,
+    crystalNebulaDensityScale: 0,
+    crystalNebulaGlow: false,
+    crystalNebulaInteractionScale: 0,
   },
   medium: {
     glowEnabled: true,
@@ -62,6 +86,10 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     shootingStarsEnabled: true,
     cameraShakeEnabled: true,
     conduitPulseEnabled: false,
+    crystalNebulaEnabled: true,
+    crystalNebulaDensityScale: 0.40,
+    crystalNebulaGlow: false,
+    crystalNebulaInteractionScale: 0.7,
   },
   high: {
     glowEnabled: true,
@@ -77,6 +105,10 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     shootingStarsEnabled: true,
     cameraShakeEnabled: true,
     conduitPulseEnabled: true,
+    crystalNebulaEnabled: true,
+    crystalNebulaDensityScale: 1.0,
+    crystalNebulaGlow: true,
+    crystalNebulaInteractionScale: 1.0,
   },
 };
 

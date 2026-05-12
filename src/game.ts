@@ -43,6 +43,8 @@ import type { NetInputSnapshot, NetGameSnapshot } from './net/protocol.js';
 import type { WebRtcTransport } from './online/webrtcTransport.js';
 import { findClosestEnemy } from './combatUtils.js';
 import { injectFluidForces } from './fluidForces.js';
+import { injectCrystalDisturbances } from './fluidForces.js';
+import { CrystalNebula } from './crystalnebula.js';
 import { fireTurretShots } from './turretCombat.js';
 import { updateFighterWeaponFire } from './fighterCombat.js';
 import { updatePlayerFiring, updateGuidedMissileControl } from './weaponFiring.js';
@@ -99,6 +101,7 @@ export class Game {
   private activeGuidedMissile: GuidedMissile | null = null;
   private spaceFluid: SpaceFluid;
   private glowLayer: GlowLayer;
+  private crystalNebula: CrystalNebula;
   private visualQuality: VisualQuality = DEFAULT_VISUAL_QUALITY;
   private visualPreset: VisualQualityPreset = VISUAL_QUALITY_PRESETS[DEFAULT_VISUAL_QUALITY];
   private overlayCache: OverlayCache = createOverlayCache();
@@ -222,6 +225,7 @@ export class Game {
 
     this.spaceFluid = createSpaceFluid();
     this.glowLayer = new GlowLayer();
+    this.crystalNebula = new CrystalNebula();
     this.spaceFluid.resize(window.innerWidth, window.innerHeight);
     this.applyVisualQuality(loadVisualQuality());
 
@@ -237,6 +241,7 @@ export class Game {
     this.camera.setScreenSize(window.innerWidth, window.innerHeight);
     this.spaceFluid.resize(window.innerWidth, window.innerHeight);
     this.glowLayer.resize(window.innerWidth, window.innerHeight);
+    this.crystalNebula.resize(window.innerWidth, window.innerHeight);
     // Invalidate overlay gradient cache so drawScreenOverlays rebuilds it at the new size.
     this.overlayCache = createOverlayCache();
   }
@@ -246,6 +251,7 @@ export class Game {
     this.visualPreset = VISUAL_QUALITY_PRESETS[quality];
     this.spaceFluid.setLowGraphicsMode(this.visualPreset.fluidLowGraphics);
     this.glowLayer.configure(this.visualPreset.glowEnabled, this.visualPreset.glowScale);
+    this.crystalNebula.configure(this.visualPreset);
     this.state?.ringEffects.setMaxLive(quality === 'low' ? 32 : quality === 'medium' ? 64 : 96);
     this.state?.particles.setParticleScale(this.visualPreset.particleScale);
     this.starfield.setShootingStarsEnabled(this.visualPreset.shootingStarsEnabled);
@@ -496,6 +502,14 @@ export class Game {
       this.state.pendingShakeMagnitude = 0;
     }
 
+    // Drain explosion events into the crystal nebula (quality-gated).
+    if (this.state.pendingCrystalExplosions.length > 0) {
+      for (const exp of this.state.pendingCrystalExplosions) {
+        this.crystalNebula.addExplosion(exp.x, exp.y, 1.0, exp.radius);
+      }
+      this.state.pendingCrystalExplosions.length = 0;
+    }
+
     // Emit exhaust particles when the player is thrusting (any WASD key).
     // Exhaust trails opposite the actual thrust direction, which under the new
     // mouse-aim controls is decoupled from the ship's facing. When boosting
@@ -592,6 +606,9 @@ export class Game {
     // Inject fluid forces from all active entities.
     this.spaceFluid.setView(this.camera.position.x, this.camera.position.y, this.camera.zoom);
     injectFluidForces(this.state, this.spaceFluid);
+    // Inject crystal-nebula disturbances and advance physics.
+    injectCrystalDisturbances(this.state, this.crystalNebula);
+    this.crystalNebula.update(DT);
 
     // HUD
     this.hud.update(DT);
@@ -2291,6 +2308,8 @@ export class Game {
     // Draw game world
     this.nebula.draw(ctx, this.camera, w, h);
     this.starfield.draw(ctx, this.camera, w, h);
+    // Crystal nebula clouds — behind gameplay entities, in front of starfield.
+    this.crystalNebula.draw(ctx, this.camera, this.glowLayer, this.visualPreset);
     // Advance the fluid simulation by the frame delta and draw it under the game world.
     this.spaceFluid.step(this.lastFrameMs);
     this.spaceFluid.render(ctx);
@@ -2405,6 +2424,7 @@ export class Game {
         lanPredictionError: this.lanPredictionOffsetAlpha > 0
           ? Math.hypot(this.lanPredictionOffset.x, this.lanPredictionOffset.y)
           : 0,
+        crystalMoteCount: this.crystalNebula.visibleMoteCount,
       });
     }
 

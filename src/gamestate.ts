@@ -104,6 +104,12 @@ export class GameState {
    * Quality-gated: game.ts only passes it through if cameraShakeEnabled.
    */
   pendingShakeMagnitude: number = 0;
+  /**
+   * Explosion events pending delivery to the CrystalNebula system.
+   * Each entry records the world position and effective blast radius.
+   * Drained and cleared by game.ts each tick after physics injection.
+   */
+  pendingCrystalExplosions: Array<{ x: number; y: number; radius: number }> = [];
   /** PR3: universal world grid storing painted conduits. */
   grid: WorldGrid = new WorldGrid();
   /** PR5: graph-based power network (lazy, dirty-flag cached). */
@@ -466,6 +472,7 @@ export class GameState {
       this.recentlyDamaged.add(target.id);
       if (!target.alive) {
         this.particles.emitExplosion(target.position, target.radius);
+        this.pendingCrystalExplosions.push({ x: target.position.x, y: target.position.y, radius: Math.max(60, target.radius * 4) });
         // Larger targets add screen shake
         this.pendingShakeMagnitude = Math.min(Camera.MAX_SHAKE, this.pendingShakeMagnitude + Math.min(4, target.radius * 0.12));
         // Explosion sound — size depends on entity type
@@ -820,6 +827,7 @@ export class GameState {
     this.recentlyDamaged.add(target.id);
     if (!target.alive) {
       this.particles.emitExplosion(target.position, target.radius);
+      this.pendingCrystalExplosions.push({ x: target.position.x, y: target.position.y, radius: Math.max(60, target.radius * 4) });
       this.pendingShakeMagnitude = Math.min(Camera.MAX_SHAKE, this.pendingShakeMagnitude + Math.min(4, target.radius * 0.12));
       this.playEntityExplosionSound(target);
     } else {
@@ -853,6 +861,8 @@ export class GameState {
     this.spawnExplosionGlow(pos, blastRadius);
     this.ringEffects.spawn('shockwave', pos, blastRadius * 0.08, blastRadius * 1.08, 0.55, 1.35);
     this.ringEffects.spawn('blackout_wave', pos, blastRadius * 0.2, blastRadius * 0.78, 0.36, 0.5);
+    // Crystal nebula shockwave ring
+    this.pendingCrystalExplosions.push({ x: pos.x, y: pos.y, radius: blastRadius * 1.6 });
     // Larger blasts contribute more shake
     this.pendingShakeMagnitude = Math.min(Camera.MAX_SHAKE, this.pendingShakeMagnitude + Math.min(7, blastRadius * 0.07));
     const playerDist = this.player.position.distanceTo(pos);

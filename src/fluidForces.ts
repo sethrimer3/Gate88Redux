@@ -13,6 +13,7 @@ import { Bullet } from './projectile.js';
 import { BomberMissile, GuidedMissile } from './projectile.js';
 import { GatlingBullet, Laser } from './projectile.js';
 import { SpaceFluid } from './spacefluid.js';
+import { CrystalNebula } from './crystalnebula.js';
 
 /**
  * Inject per-entity exhaust / impact forces into `spaceFluid` based on the
@@ -87,5 +88,57 @@ export function injectFluidForces(state: GameState, spaceFluid: SpaceFluid): voi
       b: isEnemy ? 33 : 66,
       strength: 0.5,
     });
+  }
+}
+
+/**
+ * Inject disturbances into `crystalNebula` from all active ships, fighters,
+ * and projectiles so the crystal-mote clouds react to movement and combat.
+ *
+ * Disturbance sizing / strength rules:
+ *  - Player/AI main ships:   radius 90, strength 0.8
+ *  - Fighters:               radius 55, strength 0.55
+ *  - Cannon/turret bullets:  radius 22, strength 0.45 (thin fast wake)
+ *  - Gatling rounds:         radius 16, strength 0.35 (very narrow)
+ *  - Guided/bomber missiles: radius 65, strength 0.75 (turbulent)
+ *  - Lasers:                 radius 28, strength 0.40 (energizes along beam)
+ */
+export function injectCrystalDisturbances(state: GameState, crystalNebula: CrystalNebula): void {
+  // ── Player ship ──────────────────────────────────────────────────────────
+  if (state.player.alive) {
+    const pv = state.player.velocity;
+    crystalNebula.addDisturbance(
+      state.player.position.x, state.player.position.y,
+      pv.x, pv.y, 90, 0.8,
+    );
+  }
+
+  // ── AI player ship (Vs. AI mode) ────────────────────────────────────────
+  if (state.aiPlayerShip?.alive) {
+    const ais = state.aiPlayerShip;
+    const sv = ais.velocity;
+    crystalNebula.addDisturbance(ais.position.x, ais.position.y, sv.x, sv.y, 90, 0.8);
+  }
+
+  // ── All live fighters ────────────────────────────────────────────────────
+  for (const f of state.fighters) {
+    if (!f.alive || f.docked) continue;
+    const fv = f.velocity;
+    crystalNebula.addDisturbance(f.position.x, f.position.y, fv.x, fv.y, 55, 0.55);
+  }
+
+  // ── Projectiles ──────────────────────────────────────────────────────────
+  for (const e of state.allEntities()) {
+    if (!e.alive) continue;
+    const ev = e.velocity;
+    if (e instanceof GuidedMissile || e instanceof BomberMissile) {
+      crystalNebula.addDisturbance(e.position.x, e.position.y, ev.x, ev.y, 65, 0.75);
+    } else if (e instanceof GatlingBullet) {
+      crystalNebula.addDisturbance(e.position.x, e.position.y, ev.x, ev.y, 16, 0.35);
+    } else if (e instanceof Bullet) {
+      crystalNebula.addDisturbance(e.position.x, e.position.y, ev.x, ev.y, 22, 0.45);
+    } else if (e instanceof Laser) {
+      crystalNebula.addDisturbance(e.position.x, e.position.y, ev.x, ev.y, 28, 0.40);
+    }
   }
 }
