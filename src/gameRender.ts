@@ -83,6 +83,8 @@ export function drawDebugOverlay(ctx: CanvasRenderingContext2D, args: {
   screenW: number;
   state: GameState;
   lastFrameMs: number;
+  fixedUpdateMs: number;
+  renderMs: number;
   lanClient: LanClient | null;
   lanMySlot: number;
   lanLastSnapshotSeq: number;
@@ -106,7 +108,7 @@ export function drawDebugOverlay(ctx: CanvasRenderingContext2D, args: {
     .join(' / ');
 
   const lines = [
-    `mode ${state.gameMode}  frame ${args.lastFrameMs.toFixed(1)}ms`,
+    `mode ${state.gameMode}  frame ${args.lastFrameMs.toFixed(1)}ms fixed ${args.fixedUpdateMs.toFixed(1)}ms render ${args.renderMs.toFixed(1)}ms`,
     `resources ${Math.floor(state.resources)}  build ${state.selectedBuildType ?? 'none'}`,
     `ship hp ${Math.ceil(state.player.health)}/${state.player.maxHealth}  battery ${Math.floor(state.player.battery)}/${state.player.maxBattery}`,
     `buildings player ${playerBuildings.length} enemy ${enemyBuildings.length}`,
@@ -125,6 +127,8 @@ export function drawDebugOverlay(ctx: CanvasRenderingContext2D, args: {
     lines.push(`AI retreat ${retreat}  adjusted ${ai.retreatTargetAdjusted ? 'yes' : 'no'}`);
     lines.push(`AI nav cache ${cached}`);
   }
+  lines.push(`entities f ${state.fighters.filter((f) => f.alive && !f.docked).length}/${state.fighters.length} b ${enemyBuildings.length + playerBuildings.length} blockers ${pathStats.blockerCount} p ${state.projectiles.length}`);
+  lines.push(`ship paths frame ${pathStats.mobilePathMsThisFrame.toFixed(2)}ms r ${pathStats.resolvesThisFrame} A* ${pathStats.fullAStarThisFrame} reuse ${pathStats.cachedReusesThisFrame} shared ${pathStats.sharedPathUsesThisFrame} skip ${pathStats.skippedThisFrame}`);
   lines.push(`ship paths ${pathStats.resolvesPerSecond}/s  avg ${pathStats.avgMsLast60.toFixed(2)}ms max ${pathStats.maxMsLast60.toFixed(2)}ms`);
   lines.push(`ship path target adjusted ${pathStats.adjustedTargetLastSecond ? 'yes' : 'no'}`);
 

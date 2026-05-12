@@ -29,6 +29,13 @@ interface WallRect {
 
 export interface ShipPathDebugStats {
   resolvesPerSecond: number;
+  resolvesThisFrame: number;
+  fullAStarThisFrame: number;
+  cachedReusesThisFrame: number;
+  skippedThisFrame: number;
+  sharedPathUsesThisFrame: number;
+  blockerCount: number;
+  mobilePathMsThisFrame: number;
   avgMsLast60: number;
   maxMsLast60: number;
   adjustedTargetLastSecond: boolean;
@@ -38,10 +45,49 @@ const NAV_CELL = GRID_CELL_SIZE * 4;
 const MAX_EXPANSIONS = 900;
 const WALL_MARGIN = GRID_CELL_SIZE * 1.35;
 const pathTimings: number[] = [];
+let frameTimings: number[] = [];
 let resolveCountThisSecond = 0;
 let resolvesPerSecond = 0;
 let secondBucket = Math.floor(performance.now() * 0.001);
 let adjustedTargetUntil = 0;
+let lastFrameToken = -1;
+let resolvesThisFrame = 0;
+let fullAStarThisFrame = 0;
+let cachedReusesThisFrame = 0;
+let skippedThisFrame = 0;
+let sharedPathUsesThisFrame = 0;
+let lastBlockerCount = 0;
+let wallCacheFrameToken = -1;
+let wallCacheInflate = -1;
+let wallCache: WallRect[] = [];
+
+export function beginShipPathFrame(frameToken: number): void {
+  if (frameToken === lastFrameToken) return;
+  lastFrameToken = frameToken;
+  resolvesThisFrame = 0;
+  fullAStarThisFrame = 0;
+  cachedReusesThisFrame = 0;
+  skippedThisFrame = 0;
+  sharedPathUsesThisFrame = 0;
+  frameTimings = [];
+}
+
+export function noteShipPathCacheReuse(shared = false): void {
+  cachedReusesThisFrame++;
+  if (shared) sharedPathUsesThisFrame++;
+}
+
+export function noteShipPathSkipped(): void {
+  skippedThisFrame++;
+}
+
+export function isNavigationTargetBlocked(state: GameState, target: Vec2, radius: number): boolean {
+  return collectWalls(state, radius + WALL_MARGIN).some((wall) => pointInRect(target, wall));
+}
+
+export function adjustNavigationTargetOutOfBlockers(state: GameState, target: Vec2, radius: number): Vec2 {
+  return nudgeOutsideBlockingRect(target, collectWalls(state, radius + WALL_MARGIN), radius + GRID_CELL_SIZE * 0.35).pos;
+}
 
 export function resolveShipNavigationTarget(
   state: GameState,
@@ -57,6 +103,7 @@ export function resolveShipNavigationTarget(
     secondBucket = nowSecond;
   }
   resolveCountThisSecond++;
+  resolvesThisFrame++;
 
   const walls = collectWalls(state, options.radius + WALL_MARGIN);
   const adjustedTarget = nudgeOutsideBlockingRect(target, walls, options.radius + GRID_CELL_SIZE * 0.35);
@@ -70,6 +117,8 @@ export function resolveShipNavigationTarget(
       : null;
     const routeTarget = breach?.worthIt ? breach.pos : finalTarget;
     if (hasClearLine(from, routeTarget, walls)) return routeTarget.clone();
+    const cheap = findCheapDetour(from, routeTarget, walls, options.radius);
+    if (cheap) return cheap;
     const route = findRoute(state, from, routeTarget, walls, options);
     if (route) return route;
     if (breach) return breach.pos;
@@ -99,8 +148,16 @@ export function scoreShipRoute(
 export function getShipPathDebugStats(): ShipPathDebugStats {
   const count = pathTimings.length;
   const total = pathTimings.reduce((sum, ms) => sum + ms, 0);
+  const frameTotal = frameTimings.reduce((sum, ms) => sum + ms, 0);
   return {
     resolvesPerSecond,
+    resolvesThisFrame,
+    fullAStarThisFrame,
+    cachedReusesThisFrame,
+    skippedThisFrame,
+    sharedPathUsesThisFrame,
+    blockerCount: lastBlockerCount,
+    mobilePathMsThisFrame: frameTotal,
     avgMsLast60: count > 0 ? total / count : 0,
     maxMsLast60: count > 0 ? Math.max(...pathTimings) : 0,
     adjustedTargetLastSecond: performance.now() < adjustedTargetUntil,
@@ -108,6 +165,11 @@ export function getShipPathDebugStats(): ShipPathDebugStats {
 }
 
 function collectWalls(state: GameState, inflate: number): WallRect[] {
+  const frameToken = Math.floor(state.gameTime * 60);
+  if (wallCacheFrameToken === frameToken && Math.abs(wallCacheInflate - inflate) < 0.001) {
+    lastBlockerCount = wallCache.length;
+    return wallCache;
+  }
   const walls: WallRect[] = [];
   for (const b of state.buildings) {
     if (!b.alive || b.buildProgress < 1 || !buildingBlocksShips(b)) continue;
@@ -121,6 +183,10 @@ function collectWalls(state: GameState, inflate: number): WallRect[] {
       hp: Math.max(1, b.health + ('shield' in b ? Number(b.shield) || 0 : 0)),
     });
   }
+  wallCacheFrameToken = frameToken;
+  wallCacheInflate = inflate;
+  wallCache = walls;
+  lastBlockerCount = walls.length;
   return walls;
 }
 
@@ -181,7 +247,49 @@ function nudgeOutsideBlockingRect(target: Vec2, walls: WallRect[], margin: numbe
 
 function recordPathTiming(ms: number): void {
   pathTimings.push(ms);
+  frameTimings.push(ms);
   if (pathTimings.length > 60) pathTimings.splice(0, pathTimings.length - 60);
+}
+
+function findCheapDetour(from: Vec2, target: Vec2, walls: WallRect[], radius: number): Vec2 | null {
+  let nearest: WallRect | null = null;
+  let nearestDist = Infinity;
+  for (const wall of walls) {
+    if (!segmentIntersectsRect(from, target, wall)) continue;
+    const d = pointToSegmentDistance(wall.center, from, target);
+    if (d < nearestDist) {
+      nearest = wall;
+      nearestDist = d;
+    }
+  }
+  if (!nearest) return null;
+  const margin = radius + GRID_CELL_SIZE * 1.4;
+  const candidates = [
+    new Vec2(nearest.left - margin, nearest.top - margin),
+    new Vec2(nearest.right + margin, nearest.top - margin),
+    new Vec2(nearest.right + margin, nearest.bottom + margin),
+    new Vec2(nearest.left - margin, nearest.bottom + margin),
+    new Vec2(nearest.left - margin, nearest.center.y),
+    new Vec2(nearest.right + margin, nearest.center.y),
+    new Vec2(nearest.center.x, nearest.top - margin),
+    new Vec2(nearest.center.x, nearest.bottom + margin),
+  ];
+  let best: Vec2 | null = null;
+  let bestScore = Infinity;
+  for (const raw of candidates) {
+    const candidate = new Vec2(
+      Math.max(0, Math.min(WORLD_WIDTH, raw.x)),
+      Math.max(0, Math.min(WORLD_HEIGHT, raw.y)),
+    );
+    if (isBlocked(candidate, walls)) continue;
+    if (!hasClearLine(from, candidate, walls)) continue;
+    const score = from.distanceTo(candidate) + candidate.distanceTo(target);
+    if (score < bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+  return best;
 }
 
 function segmentsIntersect(a: Vec2, b: Vec2, c: Vec2, d: Vec2): boolean {
@@ -202,14 +310,15 @@ function findRoute(
   const maxCx = Math.min(Math.floor(WORLD_WIDTH / NAV_CELL), Math.max(start.cx, goal.cx) + 28);
   const minCy = Math.max(0, Math.min(start.cy, goal.cy) - 28);
   const maxCy = Math.min(Math.floor(WORLD_HEIGHT / NAV_CELL), Math.max(start.cy, goal.cy) + 28);
-  const open: Array<NavCell & { g: number; f: number }> = [{ ...start, g: 0, f: heuristic(start, goal) }];
+  fullAStarThisFrame++;
+  const open = new MinHeap<NavCell & { g: number; f: number }>((a, b) => a.f - b.f);
+  open.push({ ...start, g: 0, f: heuristic(start, goal) });
   const cameFrom = new Map<string, string>();
   const costSoFar = new Map<string, number>([[cellKey(start.cx, start.cy), 0]]);
   let expansions = 0;
 
-  while (open.length > 0 && expansions++ < MAX_EXPANSIONS) {
-    open.sort((a, b) => a.f - b.f);
-    const cur = open.shift()!;
+  while (open.size > 0 && expansions++ < MAX_EXPANSIONS) {
+    const cur = open.pop()!;
     if (cur.cx === goal.cx && cur.cy === goal.cy) {
       return firstUsefulWaypoint(reconstruct(start, goal, cameFrom), from, target, walls);
     }
@@ -218,7 +327,9 @@ function findRoute(
       const pos = navCenter(n);
       if (isBlocked(pos, walls)) continue;
       const step = cur.cx !== n.cx && cur.cy !== n.cy ? 1.414 : 1;
-      const threat = routeThreat(state, options.team, navCenter(cur), pos) * threatWeight(options.intelligence);
+      const threat = options.intelligence >= 3
+        ? routeThreat(state, options.team, navCenter(cur), pos) * threatWeight(options.intelligence)
+        : 0;
       const newCost = cur.g + step * NAV_CELL + threat;
       const nk = cellKey(n.cx, n.cy);
       if (newCost >= (costSoFar.get(nk) ?? Infinity)) continue;
@@ -228,6 +339,54 @@ function findRoute(
     }
   }
   return null;
+}
+
+class MinHeap<T> {
+  private items: T[] = [];
+
+  constructor(private readonly compare: (a: T, b: T) => number) {}
+
+  get size(): number {
+    return this.items.length;
+  }
+
+  push(item: T): void {
+    this.items.push(item);
+    this.bubbleUp(this.items.length - 1);
+  }
+
+  pop(): T | undefined {
+    if (this.items.length === 0) return undefined;
+    const top = this.items[0];
+    const last = this.items.pop()!;
+    if (this.items.length > 0) {
+      this.items[0] = last;
+      this.sinkDown(0);
+    }
+    return top;
+  }
+
+  private bubbleUp(index: number): void {
+    while (index > 0) {
+      const parent = Math.floor((index - 1) / 2);
+      if (this.compare(this.items[index], this.items[parent]) >= 0) break;
+      [this.items[index], this.items[parent]] = [this.items[parent], this.items[index]];
+      index = parent;
+    }
+  }
+
+  private sinkDown(index: number): void {
+    while (true) {
+      const left = index * 2 + 1;
+      const right = left + 1;
+      let smallest = index;
+      if (left < this.items.length && this.compare(this.items[left], this.items[smallest]) < 0) smallest = left;
+      if (right < this.items.length && this.compare(this.items[right], this.items[smallest]) < 0) smallest = right;
+      if (smallest === index) break;
+      [this.items[index], this.items[smallest]] = [this.items[smallest], this.items[index]];
+      index = smallest;
+    }
+  }
 }
 
 function firstUsefulWaypoint(path: NavCell[], from: Vec2, target: Vec2, walls: WallRect[]): Vec2 | null {

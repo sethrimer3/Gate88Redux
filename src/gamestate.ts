@@ -22,7 +22,15 @@ import { Colors, colorToCSS } from './colors.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
 import { type FactionType, type ConfluenceTerritoryCircle, CONFLUENCE_BASE_RADIUS, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_PARENT_EXPAND_DURATION, CONFLUENCE_NEW_CIRCLE_GROW_DURATION, CONFLUENCE_INCLUDE_MARGIN, isConfluenceFaction, isSynonymousFaction } from './confluence.js';
 import { SynonymousSwarmSystem, SYNONYMOUS_BASE_PRODUCTION, SYNONYMOUS_BUILD_COST, SYNONYMOUS_CURRENCY_SYMBOL, SYNONYMOUS_FACTORY_PRODUCTION } from './synonymous.js';
-import { resolveShipNavigationTarget, scoreShipRoute } from './shippath.js';
+import {
+  adjustNavigationTargetOutOfBlockers,
+  beginShipPathFrame,
+  isNavigationTargetBlocked,
+  noteShipPathCacheReuse,
+  noteShipPathSkipped,
+  resolveShipNavigationTarget,
+  scoreShipRoute,
+} from './shippath.js';
 import { buildingBlocksShips, buildingShipCollisionRect } from './buildingCollision.js';
 
 export interface DestroyedBuildingRecord {
@@ -104,7 +112,17 @@ export class GameState {
     fromY: number;
     nextUpdateAt: number;
     navTarget: Vec2;
+    lastDistanceToTarget: number;
+    stuckSince: number;
   }> = new Map();
+  private sharedFighterPathCache: Map<string, {
+    navTarget: Vec2;
+    targetX: number;
+    targetY: number;
+    expiresAt: number;
+  }> = new Map();
+  private pathBudgetRemaining = 0;
+  private pathBudgetFrameToken = -1;
 
   /**
    * Countdown until the next pending conduit is promoted to the active grid.
@@ -248,6 +266,7 @@ export class GameState {
     if (this.gameMode === 'menu') return;
 
     this.gameTime += dt;
+    this.beginNavigationFrame();
     for (const circles of this.territoryCirclesByTeam.values()) {
       for (const c of circles) {
         if (c.radius === c.targetRadius) continue;
@@ -1368,7 +1387,8 @@ export class GameState {
   }
 
   resolveShipNavigationTarget(ship: Entity, target: Vec2, intelligence: number = 1): Vec2 {
-    return resolveShipNavigationTarget(this, ship.position, target, {
+    const adjustedTarget = adjustNavigationTargetOutOfBlockers(this, target, ship.radius);
+    return resolveShipNavigationTarget(this, ship.position, adjustedTarget, {
       team: ship.team,
       intelligence,
       radius: ship.radius,
@@ -1399,9 +1419,10 @@ export class GameState {
       this.fighterNavCache.delete(f.id);
       return;
     }
+    const adjustedTarget = adjustNavigationTargetOutOfBlockers(this, target, f.radius);
     const cached = this.fighterNavCache.get(f.id);
     const targetMovedSq = cached
-      ? (target.x - cached.targetX) ** 2 + (target.y - cached.targetY) ** 2
+      ? (adjustedTarget.x - cached.targetX) ** 2 + (adjustedTarget.y - cached.targetY) ** 2
       : Infinity;
     const shipMovedSq = cached
       ? (f.position.x - cached.fromX) ** 2 + (f.position.y - cached.fromY) ** 2
@@ -1409,30 +1430,118 @@ export class GameState {
     const reachedCachedWaypointSq = cached
       ? (f.position.x - cached.navTarget.x) ** 2 + (f.position.y - cached.navTarget.y) ** 2
       : Infinity;
-    const targetRefreshDistanceSq = (GRID_CELL_SIZE * 2) ** 2;
-    const shipRefreshDistanceSq = (GRID_CELL_SIZE * 5) ** 2;
+    const cachedBlocked = cached ? isNavigationTargetBlocked(this, cached.navTarget, f.radius) : true;
+    const distanceToTarget = f.position.distanceTo(adjustedTarget);
+    const progressDelta = cached ? cached.lastDistanceToTarget - distanceToTarget : Infinity;
+    const stuckSince = cached && progressDelta < GRID_CELL_SIZE * 0.25
+      ? cached.stuckSince
+      : this.gameTime;
+    const stuck = cached ? this.gameTime - stuckSince > 1.1 : false;
+    const targetRefreshDistanceSq = (GRID_CELL_SIZE * 2.5) ** 2;
+    const shipRefreshDistanceSq = (GRID_CELL_SIZE * (stuck ? 3 : 7)) ** 2;
     const waypointRefreshDistanceSq = (GRID_CELL_SIZE * 1.5) ** 2;
     if (
       cached &&
       this.gameTime < cached.nextUpdateAt &&
       targetMovedSq < targetRefreshDistanceSq &&
       shipMovedSq < shipRefreshDistanceSq &&
-      reachedCachedWaypointSq > waypointRefreshDistanceSq
+      reachedCachedWaypointSq > waypointRefreshDistanceSq &&
+      !cachedBlocked
     ) {
       f.setNavigationTarget(cached.navTarget);
+      noteShipPathCacheReuse();
       return;
     }
     const intelligence = f.team === Team.Enemy ? 2 : 1;
-    const navTarget = this.resolveShipNavigationTarget(f, target, intelligence);
+    const sharedKey = this.sharedFighterPathKey(f, adjustedTarget);
+    const shared = this.sharedFighterPathCache.get(sharedKey);
+    if (shared && this.gameTime < shared.expiresAt && !isNavigationTargetBlocked(this, shared.navTarget, f.radius)) {
+      const navTarget = this.offsetSharedFighterWaypoint(shared.navTarget, f.id);
+      this.storeFighterNavCache(f, adjustedTarget, navTarget, distanceToTarget, stuckSince, stuck);
+      f.setNavigationTarget(navTarget);
+      noteShipPathCacheReuse(true);
+      return;
+    }
+
+    if (!this.consumePathBudget()) {
+      if (cached && !cachedBlocked) {
+        f.setNavigationTarget(cached.navTarget);
+        noteShipPathCacheReuse();
+      } else {
+        f.setNavigationTarget(adjustedTarget);
+      }
+      noteShipPathSkipped();
+      return;
+    }
+
+    const navTarget = this.resolveShipNavigationTarget(f, adjustedTarget, intelligence);
+    this.sharedFighterPathCache.set(sharedKey, {
+      navTarget: navTarget.clone(),
+      targetX: adjustedTarget.x,
+      targetY: adjustedTarget.y,
+      expiresAt: this.gameTime + (f.team === Team.Player ? 0.55 : 0.38),
+    });
+    this.storeFighterNavCache(f, adjustedTarget, navTarget, distanceToTarget, stuckSince, stuck);
+    f.setNavigationTarget(navTarget);
+  }
+
+  private beginNavigationFrame(): void {
+    const token = Math.floor(this.gameTime * 60);
+    beginShipPathFrame(token);
+    if (token === this.pathBudgetFrameToken) return;
+    this.pathBudgetFrameToken = token;
+    this.pathBudgetRemaining = 4;
+    if (this.sharedFighterPathCache.size > 96) this.sharedFighterPathCache.clear();
+  }
+
+  private consumePathBudget(): boolean {
+    if (this.pathBudgetRemaining <= 0) return false;
+    this.pathBudgetRemaining--;
+    return true;
+  }
+
+  private storeFighterNavCache(
+    f: FighterShip,
+    target: Vec2,
+    navTarget: Vec2,
+    distanceToTarget: number,
+    stuckSince: number,
+    stuck: boolean,
+  ): void {
     this.fighterNavCache.set(f.id, {
       targetX: target.x,
       targetY: target.y,
       fromX: f.position.x,
       fromY: f.position.y,
-      nextUpdateAt: this.gameTime + (f.team === Team.Enemy ? 0.32 : 0.22),
+      nextUpdateAt: this.gameTime + this.fighterNavRefreshSeconds(f, stuck),
       navTarget,
+      lastDistanceToTarget: distanceToTarget,
+      stuckSince,
     });
-    f.setNavigationTarget(navTarget);
+  }
+
+  private fighterNavRefreshSeconds(f: FighterShip, stuck: boolean): number {
+    const jitter = ((f.id * 37) % 17) * 0.011;
+    if (stuck) return 0.24 + jitter;
+    return (f.team === Team.Enemy ? 0.55 : 0.72) + jitter;
+  }
+
+  private sharedFighterPathKey(f: FighterShip, target: Vec2): string {
+    const sourceBucket = GRID_CELL_SIZE * 8;
+    const targetBucket = GRID_CELL_SIZE * 4;
+    return [
+      f.team,
+      Math.floor(f.position.x / sourceBucket),
+      Math.floor(f.position.y / sourceBucket),
+      Math.floor(target.x / targetBucket),
+      Math.floor(target.y / targetBucket),
+    ].join(':');
+  }
+
+  private offsetSharedFighterWaypoint(navTarget: Vec2, id: number): Vec2 {
+    const angle = (id * 2.399963229728653) % (Math.PI * 2);
+    const radius = 8 + (id % 5) * 3;
+    return new Vec2(navTarget.x + Math.cos(angle) * radius, navTarget.y + Math.sin(angle) * radius);
   }
 
   /** Count docked and total fighters for a group. */

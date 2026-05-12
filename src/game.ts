@@ -88,6 +88,8 @@ export class Game {
   private running: boolean = false;
   private debugOverlay = false;
   private lastFrameMs = 0;
+  private lastFixedUpdateMs = 0;
+  private lastRenderMs = 0;
   private waypointMarkers = new Map<ShipCommandGroup, WaypointMarker>();
   private commandSelectedFighters: Set<number> = new Set();
   private commandSelectedTurrets: Set<number> = new Set();
@@ -281,17 +283,21 @@ export class Game {
     // (wasPressed, doubleTapped, etc.) are never dropped at high frame rates
     // and are never processed more than once.
     let fixedUpdates = 0;
+    const fixedStart = performance.now();
     while (this.accumulator >= DT && fixedUpdates < MAX_FIXED_UPDATES_PER_FRAME) {
       this.fixedUpdate();
       Input.update();
       this.accumulator -= DT;
       fixedUpdates++;
     }
+    this.lastFixedUpdateMs = performance.now() - fixedStart;
     if (fixedUpdates === MAX_FIXED_UPDATES_PER_FRAME && this.accumulator >= DT) {
       this.accumulator = 0;
     }
 
+    const renderStart = performance.now();
     this.render();
+    this.lastRenderMs = performance.now() - renderStart;
 
     requestAnimationFrame((t) => this.loop(t));
   }
@@ -2349,6 +2355,8 @@ export class Game {
         screenW: w,
         state: this.state,
         lastFrameMs: this.lastFrameMs,
+        fixedUpdateMs: this.lastFixedUpdateMs,
+        renderMs: this.lastRenderMs,
         lanClient: this.lanClient,
         lanMySlot: this.lanMySlot,
         lanLastSnapshotSeq: this.lanLastSnapshotSeq,

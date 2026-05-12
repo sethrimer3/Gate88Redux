@@ -177,6 +177,6 @@ cells when locking the slot, not lazily per-dispatch.
 
 ### Ship Pathfinding Follow-up
 
-- The retreat lag fix now rate-limits AI retreat navigation and adjusts blocking targets before A* runs. If F3 path metrics still show high max pathfinding times during dense-base playtests, replace the per-expansion `open.sort(...)` in `src/shippath.ts` with a small binary heap priority queue and consider caching `collectWalls()` per frame.
+- Mobile-unit navigation now budgets fighter path resolves, shares nearby fighter route results, caches blocking rects per frame, tries cheap detours before full A*, and uses a heap-backed A* open set. If F3 still shows high mobile pathfinding time in dense-base playtests, add a true building-collision version counter so blocker caches can persist across frames until a collision-enabled structure is added, completed, destroyed, moved, or removed.
 
 
