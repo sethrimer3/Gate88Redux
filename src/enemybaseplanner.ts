@@ -91,7 +91,6 @@ const AI_INNER_RING_RADIUS_CELLS = 7;
 const AI_RING_STEP_CELLS = AI_RING_THICKNESS_CONDUITS + AI_RING_SPACING_CONDUITS;
 /** Grid-cell radius within which a player approaching the Command Post triggers a rush alert. */
 const CP_RUSH_DETECTION_CELLS = 12;
-const AI_BUILD_RADIUS = 1000;
 const AUTO_CONDUIT_BUILD_SECONDS = 0.45;
 const AUTO_STRUCTURE_PLACEMENT_SECONDS = 1.6;
 
@@ -1380,7 +1379,7 @@ export class EnemyBasePlanner {
     const maxActive = [1, 1, 2, 3, 4][idx];
     let spent = 0;
     while (this.activeAutoBuilds.length < maxActive) {
-      const orderIndex = this.pickAffordableAutoOrderIndex(state, cp, enemyResources - spent);
+      const orderIndex = this.pickAffordableAutoOrderIndex(enemyResources - spent);
       if (orderIndex < 0) break;
       const [order] = this.queue.splice(orderIndex, 1);
       spent += this.orderCost(order);
@@ -1392,13 +1391,12 @@ export class EnemyBasePlanner {
     return spent;
   }
 
-  private pickAffordableAutoOrderIndex(state: GameState, cp: CommandPost, enemyResources: number): number {
+  private pickAffordableAutoOrderIndex(enemyResources: number): number {
     const affordable: Array<{ index: number; order: BuildOrder; priority: number; cost: number }> = [];
     for (let i = 0; i < this.queue.length; i++) {
       const order = this.queue[i];
       const cost = this.orderCost(order);
       if (cost > enemyResources) continue;
-      if (!this.isOrderWithinBuildRadius(state, cp, order)) continue;
       affordable.push({ index: i, order, priority: this.orderStrategicPriority(order), cost });
     }
     if (affordable.length === 0) return -1;
@@ -1409,11 +1407,6 @@ export class EnemyBasePlanner {
       return a.index - b.index;
     });
     return affordable[0].index;
-  }
-
-  private isOrderWithinBuildRadius(state: GameState, cp: CommandPost, order: BuildOrder): boolean {
-    const hero = state.aiPlayerShip?.alive ? state.aiPlayerShip.position : cp.position;
-    return cellCenter(order.cx, order.cy).distanceTo(hero) <= AI_BUILD_RADIUS;
   }
 
   private pickAffordableOrderIndex(enemyResources: number): number {

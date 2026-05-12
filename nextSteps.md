@@ -175,4 +175,8 @@ cells when locking the slot, not lazily per-dispatch.
 - LAN snapshot reconciliation still reconstructs remote fighters as generic `FighterShip`/`BomberShip`; extend the network snapshot with faction/unit-variant metadata before relying on Synonymous fighter visuals in multiplayer clients.
 - Nova Bomber sub-drone damage is currently assigned by a conservative adapter in `src/fighter.ts`: incoming damage is applied to one living drone at a time, biased by source angle when available. Future hitbox work could target the nearest visible drone offset directly.
 
+### Ship Pathfinding Follow-up
+
+- The retreat lag fix now rate-limits AI retreat navigation and adjusts blocking targets before A* runs. If F3 path metrics still show high max pathfinding times during dense-base playtests, replace the per-expansion `open.sort(...)` in `src/shippath.ts` with a small binary heap priority queue and consider caching `collectWalls()` per frame.
+
 

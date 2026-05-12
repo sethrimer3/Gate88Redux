@@ -62,7 +62,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 
 ## Enemy AI
 
-- Enemy structures are queued by the base planner and then build visibly like player structures; in Vs. AI, the enemy main ship must be within 1000 world units of a queued structure before placement can start.
+- Enemy structures are queued by the base planner and then build visibly like player structures; the enemy main ship does not need to be nearby for queued structures to start placement.
 - Enemy fighter rally waypoints stay within 1000 world units of the enemy main ship when that ship exists.
 - Higher difficulty enemies stage produced fighters near base before attacking. Nightmare timing waits for near-full shipyard output so ship production is not left capped and idle.
 - Medium and higher enemies periodically audit power connectivity. Hard and Nightmare enemies prioritize reconnecting unpowered production, research, and turret areas before normal expansion, and add bounded redundant conduit links after repeated outages.

@@ -54,6 +54,14 @@ export interface ExplosionGlow {
   intensity: number;
 }
 
+export interface AIDebugSnapshot {
+  goal: string;
+  healthFraction: number;
+  retreatTarget: Vec2 | null;
+  cachedNavigationTarget: Vec2 | null;
+  retreatTargetAdjusted: boolean;
+}
+
 export type GameMode = 'menu' | 'tutorial' | 'practice' | 'vs_ai' | 'playing' | 'lan_host' | 'lan_client' | 'online_host' | 'online_client';
 
 export class GameState {
@@ -135,6 +143,7 @@ export class GameState {
    * Displayed in the HUD near the energy bar.
    */
   selectedBuildType: string | null = null;
+  aiDebug: AIDebugSnapshot | null = null;
 
   gameMode: GameMode = 'menu';
 

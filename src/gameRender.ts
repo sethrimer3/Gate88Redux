@@ -5,6 +5,7 @@ import type { GameState } from './gamestate.js';
 import type { LanClient } from './lan/lanClient.js';
 import { Vec2 } from './math.js';
 import { recentCombatAimSamples } from './targeting.js';
+import { getShipPathDebugStats } from './shippath.js';
 
 export type ShipCommandGroup = ShipGroup | 'all';
 export type WaypointMarker = { pos: Vec2; issuedAt: number };
@@ -114,6 +115,18 @@ export function drawDebugOverlay(ctx: CanvasRenderingContext2D, args: {
     `research ${research}`,
     `fighters ${groups}`,
   ];
+
+  const pathStats = getShipPathDebugStats();
+  const ai = state.aiDebug;
+  if (ai) {
+    const retreat = ai.retreatTarget ? `${Math.round(ai.retreatTarget.x)},${Math.round(ai.retreatTarget.y)}` : 'none';
+    const cached = ai.cachedNavigationTarget ? `${Math.round(ai.cachedNavigationTarget.x)},${Math.round(ai.cachedNavigationTarget.y)}` : 'none';
+    lines.push(`AI goal ${ai.goal}  hp ${(ai.healthFraction * 100).toFixed(0)}%`);
+    lines.push(`AI retreat ${retreat}  adjusted ${ai.retreatTargetAdjusted ? 'yes' : 'no'}`);
+    lines.push(`AI nav cache ${cached}`);
+  }
+  lines.push(`ship paths ${pathStats.resolvesPerSecond}/s  avg ${pathStats.avgMsLast60.toFixed(2)}ms max ${pathStats.maxMsLast60.toFixed(2)}ms`);
+  lines.push(`ship path target adjusted ${pathStats.adjustedTargetLastSecond ? 'yes' : 'no'}`);
 
   const isLan = state.gameMode === 'lan_host' || state.gameMode === 'lan_client';
   if (isLan && args.lanClient) {

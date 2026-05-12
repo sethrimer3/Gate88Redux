@@ -38,12 +38,16 @@ import { tryFireSpecial } from './special.js';
 import type { EnemyBasePlanner } from './enemybaseplanner.js';
 import { aimAngle, aimAtEntity, recordCombatAimSample } from './targeting.js';
 import { WEAPON_STATS } from './constants.js';
+import { buildingBlocksShips, buildingShipCollisionRect } from './buildingCollision.js';
+import { GRID_CELL_SIZE } from './grid.js';
 
 const VISION_RADIUS = 900;
 const RETREAT_HEALTH_FRACTION = 0.35;
 /** Health fraction at which the AI rallies back to aggression after retreating. */
 const RALLY_HEALTH_FRACTION = 0.65;
 const PRIMARY_FIRE_COOLDOWN = 0.18;
+const RETREAT_NAV_REFRESH_SECONDS = 0.35;
+const RETREAT_NAV_REFRESH_DISTANCE = 100;
 
 /** AI chat badge and color for the rival ship in Vs AI mode. */
 export const AI_CHAT_PREFIX = 'RIVAL';
@@ -207,6 +211,14 @@ export class VsAIDirector {
   private strafeDirTimer: number = 0;
   /** Current strafe direction sign (+1 or -1). */
   private strafeDirSign: number = 1;
+  private retreatRallyPoint: Vec2 | null = null;
+  private retreatTargetAdjusted = false;
+  private retreatNavCache: {
+    target: Vec2;
+    from: Vec2;
+    navTarget: Vec2;
+    nextUpdateAt: number;
+  } | null = null;
   /**
    * Optional reference to the base planner for coordination.
    * When set, the director can escort construction sites, defend damaged
@@ -261,6 +273,8 @@ export class VsAIDirector {
     if (this.goal === 'retreat' && this.ship.healthFraction >= RALLY_HEALTH_FRACTION) {
       this.goal = 'attack';
       this.goalTarget = this.findAttackTarget(state)?.lastSeenPos.clone() ?? null;
+      this.retreatRallyPoint = null;
+      this.retreatNavCache = null;
       this.emitChat('attack');
     }
 
@@ -368,7 +382,7 @@ export class VsAIDirector {
     if (this.ship.healthFraction < RETREAT_HEALTH_FRACTION) {
       this.setGoal('retreat', state);
       const cp = this.findOwnCP(state);
-      this.goalTarget = cp ? cp.position.clone() : null;
+      this.goalTarget = cp ? this.findRetreatRallyPoint(state, cp, this.ship) : null;
       this.reactionTimer = this.reactionDelay();
       return;
     }
@@ -496,6 +510,11 @@ export class VsAIDirector {
   private setGoal(goal: Goal, _state: GameState): void {
     if (this.goal !== goal) {
       this.goal = goal;
+      if (goal !== 'retreat') {
+        this.retreatRallyPoint = null;
+        this.retreatNavCache = null;
+        this.retreatTargetAdjusted = false;
+      }
       this.emitChat(goal);
     }
   }
@@ -570,6 +589,107 @@ export class VsAIDirector {
     return best;
   }
 
+  private findRetreatRallyPoint(state: GameState, cp: CommandPost, ship: AIShip): Vec2 {
+    if (this.retreatRallyPoint && !this.pointBlocksShip(state, this.retreatRallyPoint, ship.radius)) {
+      return this.retreatRallyPoint.clone();
+    }
+
+    const angles = [
+      ship.position.angleTo(cp.position) + Math.PI,
+      0,
+      Math.PI * 0.5,
+      Math.PI,
+      Math.PI * 1.5,
+      Math.PI * 0.25,
+      Math.PI * 0.75,
+      Math.PI * 1.25,
+      Math.PI * 1.75,
+    ];
+    const distances = [160, 220, 260, 120];
+    let best: Vec2 | null = null;
+    let bestScore = Infinity;
+
+    for (const distance of distances) {
+      for (const angle of angles) {
+        const candidate = new Vec2(
+          cp.position.x + Math.cos(angle) * distance,
+          cp.position.y + Math.sin(angle) * distance,
+        );
+        if (this.pointBlocksShip(state, candidate, ship.radius)) continue;
+        const directPenalty = this.lineHitsBlockingBuilding(state, ship.position, candidate, ship.radius) ? 650 : 0;
+        const threatPenalty = this.localRetreatThreat(state, candidate) * 320;
+        const baseDistancePenalty = Math.abs(distance - 190);
+        const shipDistancePenalty = ship.position.distanceTo(candidate) * 0.08;
+        const score = directPenalty + threatPenalty + baseDistancePenalty + shipDistancePenalty;
+        if (score < bestScore) {
+          best = candidate;
+          bestScore = score;
+        }
+      }
+    }
+
+    if (!best) {
+      const away = ship.position.sub(cp.position).normalize();
+      const dir = away.length() > 0 ? away : new Vec2(1, 0);
+      best = cp.position.add(dir.scale(220));
+    }
+
+    this.retreatTargetAdjusted = best.distanceTo(cp.position) > 1;
+    this.retreatRallyPoint = best.clone();
+    this.retreatNavCache = null;
+    return best.clone();
+  }
+
+  private pointBlocksShip(state: GameState, point: Vec2, radius: number): boolean {
+    for (const b of state.buildings) {
+      if (!b.alive || b.buildProgress < 1 || !buildingBlocksShips(b)) continue;
+      const rect = buildingShipCollisionRect(b, radius + 6);
+      if (point.x >= rect.left && point.x <= rect.right && point.y >= rect.top && point.y <= rect.bottom) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private lineHitsBlockingBuilding(state: GameState, from: Vec2, to: Vec2, radius: number): boolean {
+    for (const b of state.buildings) {
+      if (!b.alive || b.buildProgress < 1 || !buildingBlocksShips(b)) continue;
+      const rect = buildingShipCollisionRect(b, radius + 8);
+      if (from.x >= rect.left && from.x <= rect.right && from.y >= rect.top && from.y <= rect.bottom) return true;
+      if (to.x >= rect.left && to.x <= rect.right && to.y >= rect.top && to.y <= rect.bottom) return true;
+      const corners = [
+        new Vec2(rect.left, rect.top),
+        new Vec2(rect.right, rect.top),
+        new Vec2(rect.right, rect.bottom),
+        new Vec2(rect.left, rect.bottom),
+      ];
+      for (let i = 0; i < 4; i++) {
+        if (this.segmentsIntersect(from, to, corners[i], corners[(i + 1) % 4])) return true;
+      }
+    }
+    return false;
+  }
+
+  private segmentsIntersect(a: Vec2, b: Vec2, c: Vec2, d: Vec2): boolean {
+    const ccw = (p1: Vec2, p2: Vec2, p3: Vec2) => (p3.y - p1.y) * (p2.x - p1.x) > (p2.y - p1.y) * (p3.x - p1.x);
+    return ccw(a, c, d) !== ccw(b, c, d) && ccw(a, b, c) !== ccw(a, b, d);
+  }
+
+  private localRetreatThreat(state: GameState, pos: Vec2): number {
+    let threat = 0;
+    for (const b of state.buildings) {
+      if (!b.alive || b.team === this.ship.team || !(b instanceof TurretBase)) continue;
+      const d = b.position.distanceTo(pos);
+      if (d <= b.range * 1.15) threat += 1 - d / (b.range * 1.15);
+    }
+    for (const f of state.fighters) {
+      if (!f.alive || f.docked || f.team === this.ship.team) continue;
+      const d = f.position.distanceTo(pos);
+      if (d <= 280) threat += 0.35 * (1 - d / 280);
+    }
+    return threat;
+  }
+
   // -------------------------------------------------------------------
   // Ship micro
   // -------------------------------------------------------------------
@@ -582,6 +702,14 @@ export class VsAIDirector {
       this.strafeDirTimer = 2.0; // flip direction every 2 s
     }
 
+    state.aiDebug = {
+      goal: this.goal,
+      healthFraction: this.ship.healthFraction,
+      retreatTarget: this.goal === 'retreat' ? this.goalTarget?.clone() ?? null : null,
+      cachedNavigationTarget: this.retreatNavCache?.navTarget.clone() ?? null,
+      retreatTargetAdjusted: this.retreatTargetAdjusted,
+    };
+
     if (this.reactionTimer > 0 || !this.goalTarget) {
       // While reaction delay is ticking, coast (no thrust, no aim change).
       this.ship.desiredMove.set(0, 0);
@@ -591,7 +719,16 @@ export class VsAIDirector {
 
     const target = this.goalTarget;
     const intelligence = Math.floor(effectiveDifficultyScalar(this.config));
-    const moveTarget = state.resolveShipNavigationTarget(this.ship, target, intelligence);
+    const moveTarget = this.goal === 'retreat'
+      ? this.resolveRetreatMoveTarget(state, target, intelligence)
+      : state.resolveShipNavigationTarget(this.ship, target, intelligence);
+    state.aiDebug = {
+      goal: this.goal,
+      healthFraction: this.ship.healthFraction,
+      retreatTarget: this.goal === 'retreat' ? target.clone() : null,
+      cachedNavigationTarget: this.retreatNavCache?.navTarget.clone() ?? null,
+      retreatTargetAdjusted: this.retreatTargetAdjusted,
+    };
     const toTarget = new Vec2(moveTarget.x - this.ship.position.x,
                               moveTarget.y - this.ship.position.y);
     const dist = toTarget.length();
@@ -683,6 +820,31 @@ export class VsAIDirector {
       return;
     }
     this.ship.desiredMove = new Vec2((v.x / len) * scale, (v.y / len) * scale);
+  }
+
+  private resolveRetreatMoveTarget(state: GameState, target: Vec2, intelligence: number): Vec2 {
+    const cached = this.retreatNavCache;
+    const targetMovedSq = cached ? (target.x - cached.target.x) ** 2 + (target.y - cached.target.y) ** 2 : Infinity;
+    const shipMovedSq = cached ? (this.ship.position.x - cached.from.x) ** 2 + (this.ship.position.y - cached.from.y) ** 2 : Infinity;
+    const cachedBlocked = cached ? this.pointBlocksShip(state, cached.navTarget, this.ship.radius) : true;
+    if (
+      cached &&
+      state.gameTime < cached.nextUpdateAt &&
+      targetMovedSq < GRID_CELL_SIZE ** 2 &&
+      shipMovedSq < RETREAT_NAV_REFRESH_DISTANCE ** 2 &&
+      !cachedBlocked
+    ) {
+      return cached.navTarget.clone();
+    }
+
+    const navTarget = state.resolveShipNavigationTarget(this.ship, target, intelligence);
+    this.retreatNavCache = {
+      target: target.clone(),
+      from: this.ship.position.clone(),
+      navTarget: navTarget.clone(),
+      nextUpdateAt: state.gameTime + RETREAT_NAV_REFRESH_SECONDS,
+    };
+    return navTarget;
   }
 
   private findLiveGoalEntity(): Entity | null {

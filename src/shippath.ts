@@ -27,9 +27,21 @@ interface WallRect {
   hp: number;
 }
 
+export interface ShipPathDebugStats {
+  resolvesPerSecond: number;
+  avgMsLast60: number;
+  maxMsLast60: number;
+  adjustedTargetLastSecond: boolean;
+}
+
 const NAV_CELL = GRID_CELL_SIZE * 4;
 const MAX_EXPANSIONS = 900;
 const WALL_MARGIN = GRID_CELL_SIZE * 1.35;
+const pathTimings: number[] = [];
+let resolveCountThisSecond = 0;
+let resolvesPerSecond = 0;
+let secondBucket = Math.floor(performance.now() * 0.001);
+let adjustedTargetUntil = 0;
 
 export function resolveShipNavigationTarget(
   state: GameState,
@@ -37,17 +49,34 @@ export function resolveShipNavigationTarget(
   target: Vec2,
   options: ShipPathOptions,
 ): Vec2 {
-  const walls = collectWalls(state, options.radius + WALL_MARGIN);
-  if (walls.length === 0 || hasClearLine(from, target, walls)) return target.clone();
+  const startedAt = performance.now();
+  const nowSecond = Math.floor(startedAt * 0.001);
+  if (nowSecond !== secondBucket) {
+    resolvesPerSecond = resolveCountThisSecond;
+    resolveCountThisSecond = 0;
+    secondBucket = nowSecond;
+  }
+  resolveCountThisSecond++;
 
-  const breach = options.intelligence >= 2
-    ? findBestBreachPoint(state, from, target, walls, options)
-    : null;
-  const routeTarget = breach?.worthIt ? breach.pos : target;
-  const route = findRoute(state, from, routeTarget, walls, options);
-  if (route) return route;
-  if (breach) return breach.pos;
-  return target.clone();
+  const walls = collectWalls(state, options.radius + WALL_MARGIN);
+  const adjustedTarget = nudgeOutsideBlockingRect(target, walls, options.radius + GRID_CELL_SIZE * 0.35);
+  if (adjustedTarget.adjusted) adjustedTargetUntil = performance.now() + 1000;
+  const finalTarget = adjustedTarget.pos;
+  try {
+    if (walls.length === 0 || hasClearLine(from, finalTarget, walls)) return finalTarget.clone();
+
+    const breach = options.intelligence >= 2
+      ? findBestBreachPoint(state, from, finalTarget, walls, options)
+      : null;
+    const routeTarget = breach?.worthIt ? breach.pos : finalTarget;
+    if (hasClearLine(from, routeTarget, walls)) return routeTarget.clone();
+    const route = findRoute(state, from, routeTarget, walls, options);
+    if (route) return route;
+    if (breach) return breach.pos;
+    return finalTarget.clone();
+  } finally {
+    recordPathTiming(performance.now() - startedAt);
+  }
 }
 
 export function scoreShipRoute(
@@ -57,13 +86,25 @@ export function scoreShipRoute(
   options: ShipPathOptions,
 ): number {
   const walls = collectWalls(state, options.radius + WALL_MARGIN);
-  if (walls.length === 0 || hasClearLine(from, target, walls)) {
-    return from.distanceTo(target) + routeThreat(state, options.team, from, target) * threatWeight(options.intelligence);
+  const adjustedTarget = nudgeOutsideBlockingRect(target, walls, options.radius + GRID_CELL_SIZE * 0.35).pos;
+  if (walls.length === 0 || hasClearLine(from, adjustedTarget, walls)) {
+    return from.distanceTo(adjustedTarget) + routeThreat(state, options.team, from, adjustedTarget) * threatWeight(options.intelligence);
   }
-  const waypoint = resolveShipNavigationTarget(state, from, target, options);
-  const direct = from.distanceTo(waypoint) + waypoint.distanceTo(target);
-  const blockedPenalty = waypoint.distanceTo(target) < GRID_CELL_SIZE * 8 ? 0 : GRID_CELL_SIZE * 80;
+  const waypoint = resolveShipNavigationTarget(state, from, adjustedTarget, options);
+  const direct = from.distanceTo(waypoint) + waypoint.distanceTo(adjustedTarget);
+  const blockedPenalty = waypoint.distanceTo(adjustedTarget) < GRID_CELL_SIZE * 8 ? 0 : GRID_CELL_SIZE * 80;
   return direct + blockedPenalty + routeThreat(state, options.team, from, waypoint) * threatWeight(options.intelligence);
+}
+
+export function getShipPathDebugStats(): ShipPathDebugStats {
+  const count = pathTimings.length;
+  const total = pathTimings.reduce((sum, ms) => sum + ms, 0);
+  return {
+    resolvesPerSecond,
+    avgMsLast60: count > 0 ? total / count : 0,
+    maxMsLast60: count > 0 ? Math.max(...pathTimings) : 0,
+    adjustedTargetLastSecond: performance.now() < adjustedTargetUntil,
+  };
 }
 
 function collectWalls(state: GameState, inflate: number): WallRect[] {
@@ -106,6 +147,41 @@ function segmentIntersectsRect(a: Vec2, b: Vec2, r: WallRect): boolean {
 
 function pointInRect(p: Vec2, r: WallRect): boolean {
   return p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom;
+}
+
+function nudgeOutsideBlockingRect(target: Vec2, walls: WallRect[], margin: number): { pos: Vec2; adjusted: boolean } {
+  let pos = target.clone();
+  let adjusted = false;
+  for (let i = 0; i < 4; i++) {
+    const wall = walls.find((w) => pointInRect(pos, w));
+    if (!wall) break;
+    const candidates = [
+      new Vec2(wall.left - margin, pos.y),
+      new Vec2(wall.right + margin, pos.y),
+      new Vec2(pos.x, wall.top - margin),
+      new Vec2(pos.x, wall.bottom + margin),
+    ];
+    let best = candidates[0];
+    let bestDist = best.distanceTo(target);
+    for (const candidate of candidates) {
+      const d = candidate.distanceTo(target);
+      if (d < bestDist) {
+        best = candidate;
+        bestDist = d;
+      }
+    }
+    pos = new Vec2(
+      Math.max(0, Math.min(WORLD_WIDTH, best.x)),
+      Math.max(0, Math.min(WORLD_HEIGHT, best.y)),
+    );
+    adjusted = true;
+  }
+  return { pos, adjusted };
+}
+
+function recordPathTiming(ms: number): void {
+  pathTimings.push(ms);
+  if (pathTimings.length > 60) pathTimings.splice(0, pathTimings.length - 60);
 }
 
 function segmentsIntersect(a: Vec2, b: Vec2, c: Vec2, d: Vec2): boolean {
