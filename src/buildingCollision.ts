@@ -12,6 +12,9 @@ export interface BuildingShipCollisionRect {
 
 export function buildingBlocksShips(building: BuildingBase): boolean {
   if (building.type === EntityType.FighterYard) return false;
+  if (building.type === EntityType.BomberYard) return false;
+  if (building.type === EntityType.Factory) return false;
+  if (building.type === EntityType.ResearchLab) return false;
   if (building.type === EntityType.CommandPost && building.team === Team.Player) return false;
   return true;
 }

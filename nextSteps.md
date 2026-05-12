@@ -180,3 +180,10 @@ cells when locking the slot, not lazily per-dispatch.
 - Mobile-unit navigation now budgets fighter path resolves, shares nearby fighter route results, caches blocking rects per frame, tries cheap detours before full A*, and uses a heap-backed A* open set. If F3 still shows high mobile pathfinding time in dense-base playtests, add a true building-collision version counter so blocker caches can persist across frames until a collision-enabled structure is added, completed, destroyed, moved, or removed.
 
 
+## Ship Pathfinding Follow-up
+
+- Manual playtest still recommended: build a wall loop with a bottom opening, command fighters from inside/right side to the left outside target, and confirm they route through the opening without pushing into the left wall.
+- Dynamic obstacle handling remains intentionally lightweight: ship routes are cached and throttled, then refreshed on target movement, waypoint progress, stuck detection, or blocked cached waypoints rather than fully replanned every frame.
+- Squad path sharing currently shares the next navigation waypoint by nearby start/target buckets. If very large groups still bunch at narrow openings, add a small corridor-slot offset around successive A* waypoints rather than increasing the per-frame path budget.
+
+---

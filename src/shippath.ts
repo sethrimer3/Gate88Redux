@@ -304,8 +304,9 @@ function findRoute(
   walls: WallRect[],
   options: ShipPathOptions,
 ): Vec2 | null {
-  const start = toNavCell(from);
-  const goal = toNavCell(target);
+  const start = nearestOpenCell(toNavCell(from), walls, 5);
+  const goal = nearestOpenCell(toNavCell(target), walls, 10);
+  if (!start || !goal) return null;
   const minCx = Math.max(0, Math.min(start.cx, goal.cx) - 28);
   const maxCx = Math.min(Math.floor(WORLD_WIDTH / NAV_CELL), Math.max(start.cx, goal.cx) + 28);
   const minCy = Math.max(0, Math.min(start.cy, goal.cy) - 28);
@@ -324,8 +325,13 @@ function findRoute(
     }
     for (const n of neighbors(cur)) {
       if (n.cx < minCx || n.cx > maxCx || n.cy < minCy || n.cy > maxCy) continue;
+      if (isBlockedCell(n, walls)) continue;
+      if (cur.cx !== n.cx && cur.cy !== n.cy) {
+        if (isBlockedCell({ cx: n.cx, cy: cur.cy }, walls) || isBlockedCell({ cx: cur.cx, cy: n.cy }, walls)) {
+          continue;
+        }
+      }
       const pos = navCenter(n);
-      if (isBlocked(pos, walls)) continue;
       const step = cur.cx !== n.cx && cur.cy !== n.cy ? 1.414 : 1;
       const threat = options.intelligence >= 3
         ? routeThreat(state, options.team, navCenter(cur), pos) * threatWeight(options.intelligence)
@@ -475,10 +481,51 @@ function isBlocked(pos: Vec2, walls: WallRect[]): boolean {
   return walls.some((w) => pointInRect(pos, w));
 }
 
+function isBlockedCell(cell: NavCell, walls: WallRect[]): boolean {
+  const left = cell.cx * NAV_CELL;
+  const right = left + NAV_CELL;
+  const top = cell.cy * NAV_CELL;
+  const bottom = top + NAV_CELL;
+  return walls.some((w) => rectsOverlap(left, right, top, bottom, w));
+}
+
+function rectsOverlap(left: number, right: number, top: number, bottom: number, wall: WallRect): boolean {
+  return left < wall.right && right > wall.left && top < wall.bottom && bottom > wall.top;
+}
+
+function nearestOpenCell(start: NavCell, walls: WallRect[], maxRadius: number): NavCell | null {
+  if (!isBlockedCell(start, walls)) return start;
+  let best: NavCell | null = null;
+  let bestDist = Infinity;
+  for (let r = 1; r <= maxRadius; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+        const candidate = clampNavCell({ cx: start.cx + dx, cy: start.cy + dy });
+        if (isBlockedCell(candidate, walls)) continue;
+        const d = heuristic(start, candidate);
+        if (d < bestDist) {
+          best = candidate;
+          bestDist = d;
+        }
+      }
+    }
+    if (best) return best;
+  }
+  return null;
+}
+
 function toNavCell(pos: Vec2): NavCell {
+  return clampNavCell({
+    cx: Math.floor(pos.x / NAV_CELL),
+    cy: Math.floor(pos.y / NAV_CELL),
+  });
+}
+
+function clampNavCell(cell: NavCell): NavCell {
   return {
-    cx: Math.max(0, Math.min(Math.floor(WORLD_WIDTH / NAV_CELL), Math.floor(pos.x / NAV_CELL))),
-    cy: Math.max(0, Math.min(Math.floor(WORLD_HEIGHT / NAV_CELL), Math.floor(pos.y / NAV_CELL))),
+    cx: Math.max(0, Math.min(Math.floor(WORLD_WIDTH / NAV_CELL), cell.cx)),
+    cy: Math.max(0, Math.min(Math.floor(WORLD_HEIGHT / NAV_CELL), cell.cy)),
   };
 }
 
