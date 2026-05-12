@@ -198,10 +198,19 @@ export function drawCommandModeOverlay(
   for (const f of state.fighters) {
     if (!commandSelectedFighters.has(f.id) || !f.alive) continue;
     const p = camera.worldToScreen(f.position);
+    const br = Math.max(10, f.radius * camera.zoom * 1.55);
+    const arm = br * 0.44;
     ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, active ? 0.9 : 0.45);
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, Math.max(9, f.radius * camera.zoom * 1.55), 0, Math.PI * 2);
+    // top-left
+    ctx.moveTo(p.x - br + arm, p.y - br); ctx.lineTo(p.x - br, p.y - br); ctx.lineTo(p.x - br, p.y - br + arm);
+    // top-right
+    ctx.moveTo(p.x + br - arm, p.y - br); ctx.lineTo(p.x + br, p.y - br); ctx.lineTo(p.x + br, p.y - br + arm);
+    // bottom-left
+    ctx.moveTo(p.x - br, p.y + br - arm); ctx.lineTo(p.x - br, p.y + br); ctx.lineTo(p.x - br + arm, p.y + br);
+    // bottom-right
+    ctx.moveTo(p.x + br, p.y + br - arm); ctx.lineTo(p.x + br, p.y + br); ctx.lineTo(p.x + br - arm, p.y + br);
     ctx.stroke();
   }
   for (const b of state.buildings) {
@@ -226,11 +235,29 @@ export function drawCommandModeOverlay(
     const rw = Math.abs(commandDragStart.x - commandDragCurrent.x);
     const rh = Math.abs(commandDragStart.y - commandDragCurrent.y);
     ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.10);
-    ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.85);
-    ctx.lineWidth = 1;
+    // Semi-transparent fill
+    ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.07);
     ctx.fillRect(x, y, rw, rh);
+    // Corner brackets instead of a plain outline
+    const arm = Math.min(rw * 0.25, rh * 0.25, 18);
+    ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.90);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    // Top-left
+    ctx.moveTo(x + arm, y); ctx.lineTo(x, y); ctx.lineTo(x, y + arm);
+    // Top-right
+    ctx.moveTo(x + rw - arm, y); ctx.lineTo(x + rw, y); ctx.lineTo(x + rw, y + arm);
+    // Bottom-left
+    ctx.moveTo(x, y + rh - arm); ctx.lineTo(x, y + rh); ctx.lineTo(x + arm, y + rh);
+    // Bottom-right
+    ctx.moveTo(x + rw - arm, y + rh); ctx.lineTo(x + rw, y + rh); ctx.lineTo(x + rw, y + rh - arm);
+    ctx.stroke();
+    // Subtle dashed border connecting the brackets
+    ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.28);
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 5]);
     ctx.strokeRect(x + 0.5, y + 0.5, Math.max(0, rw - 1), Math.max(0, rh - 1));
+    ctx.setLineDash([]);
   }
   if (active) {
     ctx.globalCompositeOperation = 'source-over';
@@ -261,6 +288,16 @@ export function drawBuildingHoverHitpoints(
     const screen = camera.worldToScreen(b.position);
     const range = buildingEffectRange(b);
     const tint = b.team === Team.Player ? Colors.radar_friendly_status : Colors.enemyfire;
+
+    // Warm outline around building base when hovered
+    const warmColor = b.team === Team.Player ? Colors.building_glow_power : Colors.building_glow_shipyard;
+    const baseSize = footprintForBuildingType(b.type) * GRID_CELL_SIZE * camera.zoom;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = colorToCSS(warmColor, 0.45 * hoverAlpha);
+    ctx.lineWidth = 2;
+    ctx.strokeRect(screen.x - baseSize * 0.5, screen.y - baseSize * 0.5, baseSize, baseSize);
+    ctx.restore();
     if (range > 0) {
       const radius = range * camera.zoom;
       ctx.save();

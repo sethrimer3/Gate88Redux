@@ -213,6 +213,7 @@ export class GatlingTurret extends TurretBase {
     const detail = colorToCSS(Colors.gatlingturret_detail);
     this.drawTurretBase(ctx, screen, r, detail, camera);
 
+    // Twin barrels
     const perpX = -Math.sin(this.turretAngle) * r * 0.22;
     const perpY = Math.cos(this.turretAngle) * r * 0.22;
     const endX = Math.cos(this.turretAngle) * r * 1.05;
@@ -225,10 +226,35 @@ export class GatlingTurret extends TurretBase {
     ctx.moveTo(screen.x - perpX, screen.y - perpY);
     ctx.lineTo(screen.x - perpX + endX, screen.y - perpY + endY);
     ctx.stroke();
-    ctx.fillStyle = colorToCSS(Colors.gatlingturret_detail, 0.65);
-    ctx.beginPath();
-    ctx.arc(screen.x, screen.y, r * 0.18, 0, Math.PI * 2);
-    ctx.fill();
+
+    // Rotating drum — 4 small cylinders in a ring, spinning with animationTime
+    const drumR = r * 0.27;
+    const drumDotR = Math.max(1.2, r * 0.062);
+    const drumAngle = this.animationTime * 4.5;
+    ctx.fillStyle = colorToCSS(Colors.gatlingturret_detail, 0.62);
+    for (let i = 0; i < 4; i++) {
+      const a = drumAngle + i * (Math.PI / 2);
+      ctx.beginPath();
+      ctx.arc(screen.x + Math.cos(a) * drumR, screen.y + Math.sin(a) * drumR, drumDotR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Idle scanning arc — slow sweep when no target is locked
+    if (!this.targetEntity && this.powered && this.buildProgress >= 1) {
+      const scanOsc = Math.sin(this.animationTime * 1.2) * 0.55;
+      const scanCenter = this.turretAngle + scanOsc;
+      const spanHalf = 0.26;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = colorToCSS(Colors.gatlingturret_detail, 0.28);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(screen.x, screen.y);
+      ctx.arc(screen.x, screen.y, r * 1.65, scanCenter - spanHalf, scanCenter + spanHalf);
+      ctx.closePath();
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 }
 
@@ -255,13 +281,43 @@ export class MissileTurret extends TurretBase {
     const detail = colorToCSS(Colors.missileturret_detail);
     this.drawTurretBase(ctx, screen, r, detail, camera);
 
-    // Small missile shape at barrel tip
-    const tipX = screen.x + Math.cos(this.turretAngle) * r * 0.9;
-    const tipY = screen.y + Math.sin(this.turretAngle) * r * 0.9;
-    ctx.fillStyle = detail;
+    // Side-mounted launch pods — two thick stub barrels flanking the main barrel
+    const cosA = Math.cos(this.turretAngle);
+    const sinA = Math.sin(this.turretAngle);
+    const perpX = -sinA * r * 0.32;
+    const perpY =  cosA * r * 0.32;
+    const tubeLen = r * 0.82;
+    ctx.save();
+    ctx.lineCap = 'square';
+    ctx.strokeStyle = colorToCSS(Colors.missileturret_detail, 0.78);
+    ctx.lineWidth = Math.max(2, r * 0.14);
     ctx.beginPath();
-    ctx.arc(tipX, tipY, r * 0.15, 0, Math.PI * 2);
-    ctx.fill();
+    // Left pod
+    ctx.moveTo(screen.x + perpX, screen.y + perpY);
+    ctx.lineTo(screen.x + perpX + cosA * tubeLen, screen.y + perpY + sinA * tubeLen);
+    // Right pod
+    ctx.moveTo(screen.x - perpX, screen.y - perpY);
+    ctx.lineTo(screen.x - perpX + cosA * tubeLen, screen.y - perpY + sinA * tubeLen);
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+    ctx.restore();
+
+    // Missile silhouette at each pod tip
+    ctx.fillStyle = detail;
+    for (const sign of [1, -1]) {
+      const ox = perpX * sign;
+      const oy = perpY * sign;
+      const tipX = screen.x + ox + cosA * tubeLen;
+      const tipY = screen.y + oy + sinA * tubeLen;
+      const backLen = r * 0.28;
+      const wingSpan = r * 0.12;
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(tipX - cosA * backLen + (-sinA) * wingSpan, tipY - sinA * backLen + cosA * wingSpan);
+      ctx.lineTo(tipX - cosA * backLen - (-sinA) * wingSpan, tipY - sinA * backLen - cosA * wingSpan);
+      ctx.closePath();
+      ctx.fill();
+    }
   }
 }
 
@@ -366,14 +422,49 @@ export class ExciterTurret extends TurretBase {
     const detail = colorToCSS(Colors.exciterturret_detail);
     this.drawTurretBase(ctx, screen, r, detail, camera);
 
-    const endX = Math.cos(this.turretAngle) * r * 1.12;
-    const endY = Math.sin(this.turretAngle) * r * 1.12;
+    // Y-shaped antenna: center spine + two diagonal wings spreading from mid-point
+    const spineLen = r * 0.88;
+    const cosA = Math.cos(this.turretAngle);
+    const sinA = Math.sin(this.turretAngle);
+    // Spine
     ctx.strokeStyle = detail;
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.moveTo(screen.x, screen.y);
-    ctx.lineTo(screen.x + endX, screen.y + endY);
+    ctx.lineTo(screen.x + cosA * spineLen, screen.y + sinA * spineLen);
     ctx.stroke();
+    // Wings branch from midpoint
+    const pivotX = screen.x + cosA * r * 0.52;
+    const pivotY = screen.y + sinA * r * 0.52;
+    const wingLen = r * 0.56;
+    const wingAngleL = this.turretAngle - 0.52;
+    const wingAngleR = this.turretAngle + 0.52;
+    ctx.strokeStyle = colorToCSS(Colors.exciterturret_detail, 0.75);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(pivotX, pivotY);
+    ctx.lineTo(pivotX + Math.cos(wingAngleL) * wingLen, pivotY + Math.sin(wingAngleL) * wingLen);
+    ctx.moveTo(pivotX, pivotY);
+    ctx.lineTo(pivotX + Math.cos(wingAngleR) * wingLen, pivotY + Math.sin(wingAngleR) * wingLen);
+    ctx.stroke();
+    // Glowing antenna tips when locking/ready
+    if (this.exciterState === 'locking' || this.exciterState === 'ready') {
+      const pulse = 0.5 + 0.5 * Math.sin(this.animationTime * 9);
+      const alpha = 0.38 + this.lockProgress * 0.45 + pulse * 0.17;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = colorToCSS(Colors.exciterturret_detail, alpha);
+      for (const wingA of [wingAngleL, wingAngleR]) {
+        ctx.beginPath();
+        ctx.arc(
+          pivotX + Math.cos(wingA) * wingLen,
+          pivotY + Math.sin(wingA) * wingLen,
+          r * 0.11, 0, Math.PI * 2,
+        );
+        ctx.fill();
+      }
+      ctx.restore();
+    }
     this.drawLockOn(ctx, camera, screen);
   }
 
@@ -455,7 +546,7 @@ export class MassDriverTurret extends TurretBase {
     const detail = colorToCSS(Colors.massdriverturret_detail);
     this.drawTurretBase(ctx, screen, r, detail, camera);
 
-    // Thick barrel
+    // Thick reinforced barrel
     ctx.strokeStyle = detail;
     ctx.lineWidth = 3;
     ctx.beginPath();
@@ -464,6 +555,25 @@ export class MassDriverTurret extends TurretBase {
     const tipY = screen.y + Math.sin(this.turretAngle) * r * 1.2;
     ctx.lineTo(tipX, tipY);
     ctx.stroke();
+
+    // Kinetic reticle at barrel tip: 4 diagonal tick marks when targeting
+    if (this.targetEntity?.alive) {
+      const reticleR = r * 0.50;
+      const arm = r * 0.28;
+      const chargeBase = 1 - Math.max(0, this.fireTimer) / Math.max(0.001, this.fireRate * DT);
+      const charge = Math.max(0, Math.min(1, chargeBase));
+      ctx.save();
+      ctx.strokeStyle = colorToCSS(Colors.massdriverturret_detail, 0.45 + charge * 0.35);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let i = 0; i < 4; i++) {
+        const a = Math.PI / 4 + i * (Math.PI / 2);
+        ctx.moveTo(tipX + Math.cos(a) * reticleR, tipY + Math.sin(a) * reticleR);
+        ctx.lineTo(tipX + Math.cos(a) * (reticleR + arm), tipY + Math.sin(a) * (reticleR + arm));
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
 
     if (this.targetEntity && this.fireTimer <= this.fireRate * DT * 0.42) {
       const charge = 1 - Math.max(0, this.fireTimer) / Math.max(0.001, this.fireRate * DT * 0.42);
@@ -544,8 +654,21 @@ export class RegenTurret extends TurretBase {
     this.drawTurretBase(ctx, screen, r, detail, camera);
     this.drawBeam(ctx, camera, screen);
 
-    // Plus / cross symbol
-    ctx.strokeStyle = colorToCSS(Colors.particles_healing);
+    // Pulsing healing aura when actively firing at a target
+    if (this.beamTimer > 0 || (this.targetEntity?.alive && this.fireTimer < this.fireRate * DT * 0.3)) {
+      const pulse = 0.5 + 0.5 * Math.sin(this.animationTime * 8);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = colorToCSS(Colors.particles_healing, 0.22 + pulse * 0.20);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r * (1.4 + pulse * 0.18), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Plus / cross symbol with corner accent dots
+    ctx.strokeStyle = colorToCSS(Colors.particles_healing, 0.85);
     ctx.lineWidth = 2;
     const s = r * 0.35;
     ctx.beginPath();
@@ -554,6 +677,15 @@ export class RegenTurret extends TurretBase {
     ctx.moveTo(screen.x, screen.y - s);
     ctx.lineTo(screen.x, screen.y + s);
     ctx.stroke();
+    // Corner accent dots
+    ctx.fillStyle = colorToCSS(Colors.regenturret_detail, 0.48);
+    const dotR = Math.max(1, r * 0.07);
+    const dotOff = s * 0.75;
+    for (const [dx, dy] of [[dotOff, dotOff], [-dotOff, dotOff], [dotOff, -dotOff], [-dotOff, -dotOff]]) {
+      ctx.beginPath();
+      ctx.arc(screen.x + dx, screen.y + dy, dotR, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 }
 

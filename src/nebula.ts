@@ -59,6 +59,17 @@ const CLOUD_DEFS: NebulaCloudDef[] = [
     rx: 2100, ry: 1500, angle: 0.0,
     r0: 'rgba(55,0,100,0.10)', r1: 'rgba(0,0,0,0)',
   },
+  // --- Centre (contested) — warm golden/amber accent ---
+  {
+    wx: WORLD_WIDTH * 0.50, wy: WORLD_HEIGHT * 0.38,
+    rx: 1100, ry:  750, angle: 0.55,
+    r0: 'rgba(140,90,10,0.10)', r1: 'rgba(0,0,0,0)',
+  },
+  {
+    wx: WORLD_WIDTH * 0.48, wy: WORLD_HEIGHT * 0.65,
+    rx:  850, ry:  580, angle: -0.4,
+    r0: 'rgba(120,70,8,0.08)',  r1: 'rgba(0,0,0,0)',
+  },
   // --- Enemy side (right half) — red / orange ---
   {
     wx: WORLD_WIDTH * 0.78, wy: WORLD_HEIGHT * 0.25,

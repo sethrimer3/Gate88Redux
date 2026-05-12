@@ -45,6 +45,8 @@ export class PowerGraph {
     playerHasSource: false,
     playerEnergizedCount: 0,
   };
+  /** Per-team BFS flow direction per conduit cell (points FROM source TOWARD leaf). */
+  private flowDirs: Map<Team, Map<string, { dx: number; dy: number }>> = new Map();
 
   /** Mark the graph as needing a recompute. Called on any building/conduit change. */
   markDirty(): void {
@@ -60,6 +62,15 @@ export class PowerGraph {
   isCellEnergized(team: Team, cx: number, cy: number): boolean {
     const set = this.snapshot.energized.get(team);
     return set !== undefined && set.has(cellKey(cx, cy));
+  }
+
+  /**
+   * BFS flow direction at (cx, cy) for `team`: the unit step that energy
+   * travels along this conduit cell (FROM source TOWARD leaf buildings).
+   * Returns null for source-adjacent cells or cells not in the flow tree.
+   */
+  getFlowDir(team: Team, cx: number, cy: number): { dx: number; dy: number } | null {
+    return this.flowDirs.get(team)?.get(cellKey(cx, cy)) ?? null;
   }
 
   /**
@@ -122,11 +133,19 @@ export class PowerGraph {
     }
 
     // 3. BFS per team.
+    // Reusable direction objects for the 4 cardinal directions to avoid
+    // allocating a new object for every conduit cell discovered.
+    const DIR_RIGHT = { dx: 1, dy: 0 };
+    const DIR_LEFT  = { dx: -1, dy: 0 };
+    const DIR_DOWN  = { dx: 0, dy: 1 };
+    const DIR_UP    = { dx: 0, dy: -1 };
     const energized = new Map<Team, Set<string>>();
+    const newFlowDirs = new Map<Team, Map<string, { dx: number; dy: number }>>();
     for (const [team, sources] of sourceCells) {
       const conduitMap = conduitCellsByTeam.get(team) ?? new Map();
       const visited = new Set<string>();
       const queue: Array<{ cx: number; cy: number }> = [];
+      const teamFlowDirs = new Map<string, { dx: number; dy: number }>();
 
       // Seed: source cells and their 4-neighbours (so an adjacent conduit
       // immediately bordering a generator gets energized even without the
@@ -146,27 +165,31 @@ export class PowerGraph {
         seed(s.cx, s.cy - 1);
       }
 
-      // Flood through team-owned conduits.
+      // Flood through team-owned conduits, recording BFS parent direction
+      // (points FROM source TOWARD the cell, i.e. energy flow direction).
       while (queue.length > 0) {
         const cur = queue.shift()!;
-        const neighbours: Array<[number, number]> = [
-          [cur.cx + 1, cur.cy],
-          [cur.cx - 1, cur.cy],
-          [cur.cx, cur.cy + 1],
-          [cur.cx, cur.cy - 1],
+        const neighbours: Array<[number, number, { dx: number; dy: number }]> = [
+          [cur.cx + 1, cur.cy, DIR_RIGHT],
+          [cur.cx - 1, cur.cy, DIR_LEFT],
+          [cur.cx, cur.cy + 1, DIR_DOWN],
+          [cur.cx, cur.cy - 1, DIR_UP],
         ];
-        for (const [nx, ny] of neighbours) {
+        for (const [nx, ny, dir] of neighbours) {
           const nk = cellKey(nx, ny);
           if (visited.has(nk)) continue;
           if (conduitMap.has(nk)) {
             visited.add(nk);
+            teamFlowDirs.set(nk, dir);
             queue.push({ cx: nx, cy: ny });
           }
         }
       }
 
       energized.set(team, visited);
+      newFlowDirs.set(team, teamFlowDirs);
     }
+    this.flowDirs = newFlowDirs;
 
     // 4. Snapshot stats for HUD.
     const playerSet = energized.get(Team.Player);

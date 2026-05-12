@@ -17,7 +17,7 @@ import { Input } from './input.js';
 import { Audio } from './audio.js';
 import { GameState } from './gamestate.js';
 import { ShipGroup, TacticalOrder, Team } from './entities.js';
-import { RESEARCH_COST, CONDUIT_COST, ACTIVE_RESEARCH_ITEMS } from './constants.js';
+import { RESEARCH_COST, CONDUIT_COST, ACTIVE_RESEARCH_ITEMS, COMMANDPOST_BUILD_RADIUS, POWERGENERATOR_COVERAGE_RADIUS } from './constants.js';
 import { SHIP_WEAPON_OPTIONS, type ShipWeaponId } from './ship.js';
 import { worldToCell, cellKey, cellCenter, footprintCenter, footprintOrigin, GRID_CELL_SIZE } from './grid.js';
 import { defsByTier, BuildDef, getBuildDef } from './builddefs.js';
@@ -1472,11 +1472,54 @@ class QuickBuildMenu {
       ? colorToCSS(Colors.radar_friendly_status, 0.18)
       : colorToCSS(Colors.alert1, 0.12);
     ctx.fillRect(screen.x - sizePx / 2, screen.y - sizePx / 2, sizePx, sizePx);
+
+    // Invalid placement: diagonal cross-hatch overlay
+    if (!status.valid) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(screen.x - sizePx / 2, screen.y - sizePx / 2, sizePx, sizePx);
+      ctx.clip();
+      ctx.strokeStyle = colorToCSS(Colors.alert1, 0.20);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      const stride = Math.max(8, sizePx / 8);
+      for (let d = -sizePx; d <= sizePx * 2; d += stride) {
+        ctx.moveTo(screen.x - sizePx / 2 + d, screen.y - sizePx / 2);
+        ctx.lineTo(screen.x - sizePx / 2 + d - sizePx, screen.y + sizePx / 2);
+        ctx.moveTo(screen.x - sizePx / 2 + d, screen.y - sizePx / 2);
+        ctx.lineTo(screen.x - sizePx / 2 + d + sizePx, screen.y + sizePx / 2);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.setLineDash([4, 3]);
     ctx.strokeRect(screen.x - sizePx / 2, screen.y - sizePx / 2, sizePx, sizePx);
     ctx.setLineDash([]);
+
+    // Pulsing influence-range ring for buildings that have an effect radius
+    if (status.valid) {
+      let effectRadius = 0;
+      if (def.key === 'commandpost') effectRadius = COMMANDPOST_BUILD_RADIUS;
+      else if (def.key === 'powergenerator') effectRadius = POWERGENERATOR_COVERAGE_RADIUS;
+      if (effectRadius > 0) {
+        const t = performance.now() * 0.001;
+        const pulse = 0.5 + 0.5 * Math.sin(t * 2.4);
+        const ringR = effectRadius * camera.zoom;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.13 + pulse * 0.11);
+        ctx.lineWidth = 1;
+        ctx.setLineDash([9, 7]);
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, ringR, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+    }
 
     ctx.font = '10px "Poiret One", sans-serif';
     ctx.textAlign = 'center';

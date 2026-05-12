@@ -2312,6 +2312,7 @@ export class Game {
         h,
         this.state.gameTime,
         (cx, cy, team) => this.state.power.isCellEnergized(team, cx, cy),
+        (cx, cy, team) => this.state.power.getFlowDir(team, cx, cy),
       );
     }
     this.state.drawEntities(ctx, this.camera);
