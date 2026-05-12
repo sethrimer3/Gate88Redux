@@ -20,7 +20,7 @@ export class Camera {
   private _shakeX = 0;
   private _shakeY = 0;
   /** Maximum shake magnitude (clamp applied when adding new impulses). */
-  private static readonly MAX_SHAKE = 10;
+  static readonly MAX_SHAKE = 10;
   /** Decay exponent: shake halves in ~1/DECAY seconds. */
   private static readonly SHAKE_DECAY = 12;
 
@@ -33,7 +33,6 @@ export class Camera {
     this._shakeX = clamp(this._shakeX + Math.cos(angle) * magnitude, -Camera.MAX_SHAKE, Camera.MAX_SHAKE);
     this._shakeY = clamp(this._shakeY + Math.sin(angle) * magnitude, -Camera.MAX_SHAKE, Camera.MAX_SHAKE);
   }
-
   /** Logical screen width (CSS pixels). */
   get screenW(): number { return this.screenWidth; }
   /** Logical screen height (CSS pixels). */

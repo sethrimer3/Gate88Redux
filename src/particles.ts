@@ -6,6 +6,15 @@ import { Team } from './entities.js';
 import { Colors, colorToCSS, Color } from './colors.js';
 
 // ---------------------------------------------------------------------------
+// Effect budget constants
+// ---------------------------------------------------------------------------
+
+/** Maximum sparks emitted per impact (scaled by particleScale). */
+const IMPACT_SPARK_COUNT = 6;
+/** Maximum sparks emitted per muzzle flash (scaled by particleScale). */
+const MUZZLE_SPARK_COUNT = 3;
+
+// ---------------------------------------------------------------------------
 // Single particle
 // ---------------------------------------------------------------------------
 
@@ -352,7 +361,7 @@ export class ParticleSystem {
    *              around the reverse (impact-normal) direction.
    */
   emitImpact(pos: Vec2, angle: number): void {
-    const count = Math.max(1, Math.round(6 * this._particleScale));
+    const count = Math.max(1, Math.round(IMPACT_SPARK_COUNT * this._particleScale));
     for (let i = 0; i < count; i++) {
       const p = this.acquire();
       p.active = true;
@@ -395,7 +404,7 @@ export class ParticleSystem {
       p.additive = true;
     }
     // A few rapid sparks in the forward cone
-    const sparkCount = Math.max(1, Math.round(3 * this._particleScale));
+    const sparkCount = Math.max(1, Math.round(MUZZLE_SPARK_COUNT * this._particleScale));
     for (let i = 0; i < sparkCount; i++) {
       const p = this.acquire();
       p.active = true;

@@ -9,7 +9,8 @@
 import { Vec2 } from './math.js';
 import { Input } from './input.js';
 import { Camera } from './camera.js';
-import { Colors, TextColors, colorToCSS } from './colors.js';import { Team, EntityType } from './entities.js';
+import { Colors, TextColors, colorToCSS } from './colors.js';
+import { Team, EntityType } from './entities.js';
 import type { GameState } from './gamestate.js';
 import { BuildingBase, Wall } from './building.js';
 import { TurretBase } from './turret.js';

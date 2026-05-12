@@ -467,7 +467,7 @@ export class GameState {
       if (!target.alive) {
         this.particles.emitExplosion(target.position, target.radius);
         // Larger targets add screen shake
-        this.pendingShakeMagnitude = Math.min(10, this.pendingShakeMagnitude + Math.min(4, target.radius * 0.12));
+        this.pendingShakeMagnitude = Math.min(Camera.MAX_SHAKE, this.pendingShakeMagnitude + Math.min(4, target.radius * 0.12));
         // Explosion sound — size depends on entity type
         const playerDist = this.player.position.distanceTo(target.position);
         if (
@@ -820,7 +820,7 @@ export class GameState {
     this.recentlyDamaged.add(target.id);
     if (!target.alive) {
       this.particles.emitExplosion(target.position, target.radius);
-      this.pendingShakeMagnitude = Math.min(10, this.pendingShakeMagnitude + Math.min(4, target.radius * 0.12));
+      this.pendingShakeMagnitude = Math.min(Camera.MAX_SHAKE, this.pendingShakeMagnitude + Math.min(4, target.radius * 0.12));
       this.playEntityExplosionSound(target);
     } else {
       const hitAngle = Math.atan2(proj.velocity.y, proj.velocity.x);
@@ -854,7 +854,7 @@ export class GameState {
     this.ringEffects.spawn('shockwave', pos, blastRadius * 0.08, blastRadius * 1.08, 0.55, 1.35);
     this.ringEffects.spawn('blackout_wave', pos, blastRadius * 0.2, blastRadius * 0.78, 0.36, 0.5);
     // Larger blasts contribute more shake
-    this.pendingShakeMagnitude = Math.min(10, this.pendingShakeMagnitude + Math.min(7, blastRadius * 0.07));
+    this.pendingShakeMagnitude = Math.min(Camera.MAX_SHAKE, this.pendingShakeMagnitude + Math.min(7, blastRadius * 0.07));
     const playerDist = this.player.position.distanceTo(pos);
     Audio.playSoundAt(blastRadius > 70 ? 'explode2' : 'explode1', playerDist);
   }
