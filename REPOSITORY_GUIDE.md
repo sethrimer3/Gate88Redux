@@ -192,6 +192,7 @@ This document maps the repository structure and gives a concise, broad summary o
 | `src/spacefluid.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/special.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/starfield.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
+| `src/suns.ts` | Distant Suns / Solar Backdrop visual layer. | Pre-baked screen-space warm radial glow plus optional volumetric rays, solar corona arcs, and lens-glint sparkles. Drawn after background fill and before nebula. Quality-scaled via `VisualQualityPreset`. |
 | `src/teamutils.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/theme.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
 | `src/turret.ts` | TypeScript gameplay/client module. | Exports constants/types/functions/classes implementing this subsystem; may include interfaces and update/render/control logic. |
