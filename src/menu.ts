@@ -244,6 +244,7 @@ export class MainMenu {
   private mousePressedLatched: boolean = false;
   private mouseXLatched: number = 0;
   private mouseYLatched: number = 0;
+  private rankedSliderDragging: boolean = false;
 
   // Output set by setup screens after the user clicks their start button.
   private pendingAction: MenuAction = 'none';
@@ -269,6 +270,7 @@ export class MainMenu {
   private setState(s: MenuState): void {
     this.state = s;
     this.selectedIndex = 0;
+    this.rankedSliderDragging = false;
     this.hits = [];
     this.openedAt = performance.now() * 0.001;
     Audio.playSound('menucursor');
@@ -316,6 +318,9 @@ export class MainMenu {
     }
 
     if (this.state === 'none') return 'none';
+    if (Input.mouseReleased || !Input.mouseDown) {
+      this.rankedSliderDragging = false;
+    }
 
     // Resolve any pendingAction triggered last frame by setup-screen buttons.
     if (this.pendingAction !== 'none') {
@@ -984,7 +989,12 @@ export class MainMenu {
     ctx.fillText(`${rankedDifficultyName(rank)} / ${rankedApm(rank)} APM`, sx + sw + 18, trackY + 16);
 
     const track: HitRect = { x: sx, y: trackY - 18, w: sw, h: 36 };
-    if (this.handleClick(track) || (Input.mouseDown && pointInRect(Input.mousePos.x, Input.mousePos.y, track))) {
+    if (this.mousePressedLatched && pointInRect(this.mouseXLatched, this.mouseYLatched, track)) {
+      this.rankedSliderDragging = true;
+      this.clickPulse = { rect: track, t: 0.18 };
+      this.mousePressedLatched = false;
+    }
+    if (this.rankedSliderDragging && Input.mouseDown) {
       const tt = Math.max(0, Math.min(1, (Input.mousePos.x - sx) / sw));
       const nextRank = Math.round((tt * 3000) / 10) * 10;
       if (nextRank !== cfg.aiRank) {

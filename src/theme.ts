@@ -39,15 +39,20 @@ export function applyThemeColors(): void {
   const player = option(themeSettings.playerColor);
   const enemy = option(themeSettings.enemyColor);
   const text = cloneColor(player, 0.9);
+  const playerOutline = cloneColor(player, 1.12);
+  const playerDimOutline = cloneColor(player, 0.72);
+  const playerHealth = cloneColor(player, 1.18);
 
   assign(TextColors.normal, text);
   assign(TextColors.highlight, cloneColor(player, 1.05));
   assign(TextColors.title, cloneColor(player, 1.0));
   assign(TextColors.system, cloneColor(player, 1.05));
   assign(Colors.general_building, text);
+  assign(Colors.advanced_building, playerDimOutline);
+  assign(Colors.healthbar, playerHealth);
   assign(Colors.radar_gridlines, cloneColor(player, 0.58));
-  assign(Colors.radar_friendly_status, cloneColor(player, 1.0));
-  assign(Colors.friendly_status, cloneColor(player, 0.75));
+  assign(Colors.radar_friendly_status, playerOutline);
+  assign(Colors.friendly_status, playerDimOutline);
   assign(Colors.friendlyfire, cloneColor(player, 0.95));
   assign(Colors.mainguy, cloneColor(player, 0.82));
   assign(Colors.particles_friendly_exhaust, cloneColor(player, 0.52));
