@@ -1233,6 +1233,7 @@ export class EnemyBasePlanner {
       cap = Math.min(cap, 5);
     } else if (
       def.key === 'missileturret' ||
+      def.key === 'gatlingturret' ||
       def.key === 'exciterturret' ||
       def.key === 'massdriverturret' ||
       def.key === 'regenturret'
@@ -1454,6 +1455,7 @@ export class EnemyBasePlanner {
       case 'massdriverturret':
       case 'exciterturret':
       case 'regenturret': return 72;
+      case 'gatlingturret': return 68;
       case 'missileturret': return 66;
       case 'wall': return 35;
       default: return 50;

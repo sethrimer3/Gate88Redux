@@ -42,6 +42,7 @@ export const Colors = {
   powergenerator_coverage:    c(11, 80, 124, 1.0),
   timebomb_detail:            c(111, 65, 37, 2.0),
   missileturret_detail:       c(163, 193, 205, 1.2),
+  gatlingturret_detail:       c(190, 210, 120, 1.4),
   exciterturret_detail:       c(65, 35, 0, 3.9),
   massdriverturret_detail:    c(60, 40, 18, 2.0),
   regenturret_detail:         c(174, 198, 175, 1.0),

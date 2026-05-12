@@ -74,6 +74,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 - One active research item can run at a time.
 - Active research items are turret unlocks, Bomber Yard, and Advanced Fighters.
 - Completed research is hidden from the research menu and summarized on the HUD.
+- Gatling Turret is a starter long-range suppressive bullet turret. Missile Turret costs $80 to research before it appears in the build menu. Exciter Turret remains research-gated and fires a 2-second lock-on laser with a 3-second cooldown.
 
 ## Hidden Or Not Implemented
 

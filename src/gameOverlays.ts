@@ -366,6 +366,7 @@ export function drawGlowLayer(
     const pulse = 0.75 + 0.25 * Math.sin(state.gameTime * 2.2 + b.id * 0.37);
     glow.circleWorld(camera, b.position, b.radius * 1.9, color, 0.035 * pulse);
     if (
+      b.type === EntityType.GatlingTurret ||
       b.type === EntityType.MissileTurret ||
       b.type === EntityType.TimeBomb ||
       b.type === EntityType.ExciterTurret ||

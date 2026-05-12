@@ -10,6 +10,11 @@ import type { GameState } from './gamestate.js';
 import { SynonymousDriftMine, SYNONYMOUS_MINE_LAYER_RANGE } from './synonymousMine.js';
 import { aimAngle, aimAtEntity, isCombatTargetValid, isFiniteVec, isHostileTeam, type PredictiveAimResult } from './targeting.js';
 
+export const EXCITER_LOCK_TIME_SECS = 2.0;
+export const EXCITER_COOLDOWN_SECS = 3.0;
+export const EXCITER_DAMAGE = WEAPON_STATS.exciterbeam.damage;
+const EXCITER_LOCK_CIRCLE_RADIUS = 18;
+
 // ---------------------------------------------------------------------------
 // Base turret
 // ---------------------------------------------------------------------------
@@ -124,8 +129,9 @@ export abstract class TurretBase extends BuildingBase {
 
   projectileSpeedForAim(): number {
     switch (this.type) {
+      case EntityType.GatlingTurret: return WEAPON_STATS.gatlingturret.speed;
       case EntityType.MissileTurret: return WEAPON_STATS.missile.speed;
-      case EntityType.ExciterTurret: return WEAPON_STATS.fire.speed;
+      case EntityType.ExciterTurret: return 0;
       case EntityType.MassDriverTurret: return WEAPON_STATS.massdriverbullet.speed;
       default: return WEAPON_STATS.fire.speed;
     }
@@ -185,6 +191,48 @@ export abstract class TurretBase extends BuildingBase {
 }
 
 // ---------------------------------------------------------------------------
+// GatlingTurret
+// ---------------------------------------------------------------------------
+
+export class GatlingTurret extends TurretBase {
+  constructor(position: Vec2, team: Team) {
+    super(
+      EntityType.GatlingTurret,
+      team,
+      position,
+      HP_VALUES.turret,
+      WEAPON_STATS.gatlingturret.fireRate,
+      WEAPON_STATS.gatlingturret.range,
+    );
+  }
+
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive) return;
+    const screen = camera.worldToScreen(this.position);
+    const r = this.radius * camera.zoom;
+    const detail = colorToCSS(Colors.gatlingturret_detail);
+    this.drawTurretBase(ctx, screen, r, detail, camera);
+
+    const perpX = -Math.sin(this.turretAngle) * r * 0.22;
+    const perpY = Math.cos(this.turretAngle) * r * 0.22;
+    const endX = Math.cos(this.turretAngle) * r * 1.05;
+    const endY = Math.sin(this.turretAngle) * r * 1.05;
+    ctx.strokeStyle = detail;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(screen.x + perpX, screen.y + perpY);
+    ctx.lineTo(screen.x + perpX + endX, screen.y + perpY + endY);
+    ctx.moveTo(screen.x - perpX, screen.y - perpY);
+    ctx.lineTo(screen.x - perpX + endX, screen.y - perpY + endY);
+    ctx.stroke();
+    ctx.fillStyle = colorToCSS(Colors.gatlingturret_detail, 0.65);
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, r * 0.18, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // MissileTurret
 // ---------------------------------------------------------------------------
 
@@ -222,15 +270,93 @@ export class MissileTurret extends TurretBase {
 // ---------------------------------------------------------------------------
 
 export class ExciterTurret extends TurretBase {
+  lockTarget: Entity | null = null;
+  lockProgress = 0;
+  cooldownRemaining = 0;
+  exciterState: 'idle' | 'locking' | 'ready' | 'cooldown' = 'idle';
+  lastLaserTargetPos: Vec2 | null = null;
+
   constructor(position: Vec2, team: Team) {
     super(
       EntityType.ExciterTurret,
       team,
       position,
       HP_VALUES.turret,
-      WEAPON_STATS.exciterbullet.fireRate,
-      350,
+      WEAPON_STATS.exciterbeam.fireRate,
+      WEAPON_STATS.exciterbeam.range,
     );
+  }
+
+  override update(dt: number): void {
+    super.update(dt);
+    if (!this.alive || this.buildProgress < 1) return;
+
+    if (this.exciterState === 'cooldown') {
+      this.cooldownRemaining = Math.max(0, this.cooldownRemaining - dt);
+      if (this.cooldownRemaining <= 0) this.exciterState = 'idle';
+      return;
+    }
+
+    if (this.exciterState === 'locking') {
+      if (!isCombatTargetValid(this, this.lockTarget, this.range)) {
+        this.cancelLockToCooldown();
+        return;
+      }
+      this.targetEntity = this.lockTarget;
+      this.lockProgress = Math.min(1, this.lockProgress + dt / EXCITER_LOCK_TIME_SECS);
+      if (this.lockTarget) {
+        const desired = this.position.angleTo(this.lockTarget.position);
+        const diff = wrapAngle(desired - this.turretAngle);
+        this.turretAngle = wrapAngle(this.turretAngle + Math.sign(diff) * Math.min(Math.abs(diff), 4.2 * dt));
+      }
+      if (this.lockProgress >= 1) this.exciterState = 'ready';
+    }
+  }
+
+  override acquireTarget(entities: Entity[]): void {
+    if (this.exciterState !== 'idle') return;
+    let best: Entity | null = null;
+    let bestDist = this.range;
+    for (const e of entities) {
+      if (!e.alive || !isHostileTeam(this.team, e.team)) continue;
+      const d = this.position.distanceTo(e.position);
+      if (d < bestDist) {
+        bestDist = d;
+        best = e;
+      }
+    }
+    if (best) {
+      this.lockTarget = best;
+      this.targetEntity = best;
+      this.lockProgress = 0;
+      this.exciterState = 'locking';
+    }
+  }
+
+  override canFire(): boolean {
+    if (this.exciterState !== 'ready') return false;
+    if (!isCombatTargetValid(this, this.lockTarget, this.range)) {
+      this.cancelLockToCooldown();
+      return false;
+    }
+    return true;
+  }
+
+  override consumeShot(): void {
+    this.lastLaserTargetPos = this.lockTarget?.position.clone() ?? null;
+    this.lockTarget = null;
+    this.targetEntity = null;
+    this.lockProgress = 0;
+    this.cooldownRemaining = EXCITER_COOLDOWN_SECS;
+    this.exciterState = 'cooldown';
+  }
+
+  cancelLockToCooldown(): void {
+    this.lockTarget = null;
+    this.targetEntity = null;
+    this.lockProgress = 0;
+    this.cooldownRemaining = EXCITER_COOLDOWN_SECS;
+    this.exciterState = 'cooldown';
   }
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
@@ -240,19 +366,69 @@ export class ExciterTurret extends TurretBase {
     const detail = colorToCSS(Colors.exciterturret_detail);
     this.drawTurretBase(ctx, screen, r, detail, camera);
 
-    // Double-barrel lines
-    const perpX = -Math.sin(this.turretAngle) * r * 0.2;
-    const perpY = Math.cos(this.turretAngle) * r * 0.2;
-    const endX = Math.cos(this.turretAngle) * r * 1.0;
-    const endY = Math.sin(this.turretAngle) * r * 1.0;
+    const endX = Math.cos(this.turretAngle) * r * 1.12;
+    const endY = Math.sin(this.turretAngle) * r * 1.12;
     ctx.strokeStyle = detail;
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(screen.x + perpX, screen.y + perpY);
-    ctx.lineTo(screen.x + perpX + endX, screen.y + perpY + endY);
-    ctx.moveTo(screen.x - perpX, screen.y - perpY);
-    ctx.lineTo(screen.x - perpX + endX, screen.y - perpY + endY);
+    ctx.moveTo(screen.x, screen.y);
+    ctx.lineTo(screen.x + endX, screen.y + endY);
     ctx.stroke();
+    this.drawLockOn(ctx, camera, screen);
+  }
+
+  private drawLockOn(ctx: CanvasRenderingContext2D, camera: Camera, turretScreen: Vec2): void {
+    if ((this.exciterState !== 'locking' && this.exciterState !== 'ready') || !this.lockTarget?.alive) return;
+    const target = camera.worldToScreen(this.lockTarget.position);
+    const progress = Math.max(0, Math.min(1, this.lockProgress));
+    const circleR = EXCITER_LOCK_CIRCLE_RADIUS * camera.zoom;
+    const outerGap = (42 - 26 * progress) * camera.zoom;
+    const triLen = 10 * camera.zoom;
+    const color = this.team === Team.Player ? Colors.friendlyfire : Colors.enemyfire;
+
+    const dx = target.x - turretScreen.x;
+    const dy = target.y - turretScreen.y;
+    const len = Math.max(1, Math.hypot(dx, dy));
+    const edgeX = target.x - (dx / len) * circleR;
+    const edgeY = target.y - (dy / len) * circleR;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = colorToCSS(color, 0.2 + progress * 0.55);
+    ctx.lineWidth = 0.8 + progress * 4.2;
+    ctx.beginPath();
+    ctx.moveTo(turretScreen.x, turretScreen.y);
+    ctx.lineTo(edgeX, edgeY);
+    ctx.stroke();
+
+    ctx.strokeStyle = colorToCSS(Colors.exciterturret_detail, 0.62 + progress * 0.28);
+    ctx.lineWidth = Math.max(1, 1.4 * camera.zoom);
+    ctx.beginPath();
+    ctx.arc(target.x, target.y, circleR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = colorToCSS(color, 0.42 + progress * 0.42);
+    const dirs = [
+      { x: 0, y: -1, a: Math.PI / 2 },
+      { x: 1, y: 0, a: Math.PI },
+      { x: 0, y: 1, a: -Math.PI / 2 },
+      { x: -1, y: 0, a: 0 },
+    ];
+    for (const d of dirs) {
+      const tipX = target.x + d.x * (circleR + outerGap);
+      const tipY = target.y + d.y * (circleR + outerGap);
+      ctx.save();
+      ctx.translate(tipX, tipY);
+      ctx.rotate(d.a);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(-triLen, -triLen * 0.55);
+      ctx.lineTo(-triLen, triLen * 0.55);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
   }
 }
 

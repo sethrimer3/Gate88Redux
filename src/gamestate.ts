@@ -472,6 +472,7 @@ export class GameState {
         ) {
           Audio.playSoundAt('explode2', playerDist);
         } else if (
+          target.type === EntityType.GatlingTurret ||
           target.type === EntityType.MissileTurret ||
           target.type === EntityType.Wall ||
           target.type === EntityType.TimeBomb ||
@@ -884,6 +885,7 @@ export class GameState {
     ) {
       Audio.playSoundAt('explode2', playerDist);
     } else if (
+      target.type === EntityType.GatlingTurret ||
       target.type === EntityType.MissileTurret ||
       target.type === EntityType.Wall ||
       target.type === EntityType.TimeBomb ||

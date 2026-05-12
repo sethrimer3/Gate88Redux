@@ -68,7 +68,7 @@ export function findClosestEnemy(
  */
 export function damageLaserLine(
   state: GameState,
-  spaceFluid: SpaceFluid,
+  spaceFluid: SpaceFluid | null,
   source: Entity,
   start: Vec2,
   end: Vec2,
@@ -93,7 +93,7 @@ export function damageLaserLine(
       state.recentlyDamaged.add(target.id);
       if (!target.alive) {
         state.particles.emitExplosion(target.position, target.radius);
-        spaceFluid.addExplosion(target.position.x, target.position.y, 1.2, 214, 134, 48);
+        spaceFluid?.addExplosion(target.position.x, target.position.y, 1.2, 214, 134, 48);
       } else {
         state.particles.emitSpark(target.position);
       }

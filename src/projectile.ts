@@ -224,6 +224,50 @@ export class GatlingBullet extends ProjectileBase {
   }
 }
 
+export class GatlingTurretBullet extends ProjectileBase {
+  constructor(
+    team: Team,
+    position: Vec2,
+    angle: number,
+    source: Entity | null = null,
+  ) {
+    super({
+      type: EntityType.Bullet,
+      team,
+      position,
+      angle,
+      damage: WEAPON_STATS.gatlingturret.damage,
+      speed: WEAPON_STATS.gatlingturret.speed,
+      lifetime: WEAPON_STATS.gatlingturret.range / WEAPON_STATS.gatlingturret.speed,
+      source,
+    });
+    this.radius = ENTITY_RADIUS.bullet * 0.65;
+  }
+
+  protected override updateTrail(dt: number): void {
+    for (const point of this.trail) point.age += dt;
+    this.trail = this.trail.filter((point) => point.age <= GATLING_TRAIL_LIFETIME);
+    const last = this.trail[this.trail.length - 1];
+    if (!last || last.pos.distanceTo(this.position) >= 4) {
+      this.trail.push({ pos: this.position.clone(), age: 0 });
+    }
+    if (this.trail.length > 3) this.trail.shift();
+  }
+
+  draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive) return;
+    const screen = camera.worldToScreen(this.position);
+    const fireColor = this.team === Team.Player
+      ? colorToCSS(Colors.gatlingturret_detail, 0.82)
+      : colorToCSS(Colors.enemyfire, 0.74);
+    this.drawTrail(ctx, camera, fireColor, GATLING_TRAIL_LIFETIME, 1.1);
+    ctx.fillStyle = fireColor;
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, 1.25 * camera.zoom, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Missile – homing towards target
 // ---------------------------------------------------------------------------

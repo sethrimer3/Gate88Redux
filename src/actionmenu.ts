@@ -103,6 +103,7 @@ const RESEARCH_LABELS: Record<string, string> = {
   weaponLaser: 'Laser',
   weaponGuidedMissile: 'Guided\nMissile',
   missileturret: 'Missile\nTurret',
+  gatlingturret: 'Gatling\nTurret',
   synonymousminelayer: 'Mine\nLayer',
   exciterturret: 'Exciter\nTurret',
   massdriverturret: 'Mass Driver\nTurret',
@@ -273,7 +274,7 @@ function buildResearchRoot(state: GameState): RadialItem[] {
     ];
   }
   return [
-    category('Structures', ['synonymousminelayer', 'exciterturret', 'massdriverturret', 'regenturret', 'bomberyard']),
+    category('Structures', ['missileturret', 'synonymousminelayer', 'exciterturret', 'massdriverturret', 'regenturret', 'bomberyard']),
     category('Ship', ['shipHp', 'shipSpeedEnergy', 'shipFireSpeed', 'shipShield']),
     category('Fighters', ['advancedFighters']),
     category('Weapons', ['weaponGatling', 'weaponLaser', 'weaponGuidedMissile'], [

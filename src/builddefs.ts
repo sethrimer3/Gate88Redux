@@ -28,6 +28,7 @@ import {
   Factory,
 } from './building.js';
 import {
+  GatlingTurret,
   MissileTurret,
   ExciterTurret,
   MassDriverTurret,
@@ -169,7 +170,19 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     buildTime: BUILD_TIME.missileturret,
     tier: 'turret',
     radialLabel: 'Missile\nTurret',
+    researchKey: 'missileturret',
     factory: (pos, team) => new MissileTurret(pos, team),
+  },
+  gatlingturret: {
+    key: 'gatlingturret',
+    label: 'Gatling Turret',
+    description: 'Long-range suppressive bullet turret.',
+    cost: BUILDING_COST.gatlingturret,
+    footprintCells: 3,
+    buildTime: BUILD_TIME.gatlingturret,
+    tier: 'turret',
+    radialLabel: 'Gatling\nTurret',
+    factory: (pos, team) => new GatlingTurret(pos, team),
   },
   synonymousminelayer: {
     key: 'synonymousminelayer',
@@ -225,6 +238,8 @@ export function buildCostForBuildingType(type: EntityType): number {
       return BUILDING_COST.powergenerator;
     case EntityType.Wall:
       return BUILDING_COST.wall;
+    case EntityType.GatlingTurret:
+      return BUILDING_COST.gatlingturret;
     case EntityType.FighterYard:
       return BUILDING_COST.fighteryard;
     case EntityType.BomberYard:
@@ -256,6 +271,8 @@ export function buildDefForEntityType(type: EntityType): BuildDef | undefined {
       return BUILD_DEFS.powergenerator;
     case EntityType.Wall:
       return BUILD_DEFS.wall;
+    case EntityType.GatlingTurret:
+      return BUILD_DEFS.gatlingturret;
     case EntityType.FighterYard:
       return BUILD_DEFS.fighteryard;
     case EntityType.BomberYard:

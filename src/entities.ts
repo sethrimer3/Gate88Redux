@@ -58,6 +58,7 @@ export enum EntityType {
   ResearchLab,
   Factory,
   // Turrets
+  GatlingTurret,
   MissileTurret,
   ExciterTurret,
   MassDriverTurret,
