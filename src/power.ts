@@ -133,6 +133,12 @@ export class PowerGraph {
     }
 
     // 3. BFS per team.
+    // Reusable direction objects for the 4 cardinal directions to avoid
+    // allocating a new object for every conduit cell discovered.
+    const DIR_RIGHT = { dx: 1, dy: 0 };
+    const DIR_LEFT  = { dx: -1, dy: 0 };
+    const DIR_DOWN  = { dx: 0, dy: 1 };
+    const DIR_UP    = { dx: 0, dy: -1 };
     const energized = new Map<Team, Set<string>>();
     const newFlowDirs = new Map<Team, Map<string, { dx: number; dy: number }>>();
     for (const [team, sources] of sourceCells) {
@@ -163,18 +169,18 @@ export class PowerGraph {
       // (points FROM source TOWARD the cell, i.e. energy flow direction).
       while (queue.length > 0) {
         const cur = queue.shift()!;
-        const neighbours: Array<[number, number]> = [
-          [cur.cx + 1, cur.cy],
-          [cur.cx - 1, cur.cy],
-          [cur.cx, cur.cy + 1],
-          [cur.cx, cur.cy - 1],
+        const neighbours: Array<[number, number, { dx: number; dy: number }]> = [
+          [cur.cx + 1, cur.cy, DIR_RIGHT],
+          [cur.cx - 1, cur.cy, DIR_LEFT],
+          [cur.cx, cur.cy + 1, DIR_DOWN],
+          [cur.cx, cur.cy - 1, DIR_UP],
         ];
-        for (const [nx, ny] of neighbours) {
+        for (const [nx, ny, dir] of neighbours) {
           const nk = cellKey(nx, ny);
           if (visited.has(nk)) continue;
           if (conduitMap.has(nk)) {
             visited.add(nk);
-            teamFlowDirs.set(nk, { dx: nx - cur.cx, dy: ny - cur.cy });
+            teamFlowDirs.set(nk, dir);
             queue.push({ cx: nx, cy: ny });
           }
         }

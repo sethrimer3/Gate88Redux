@@ -195,8 +195,10 @@ export class WorldGrid {
         const tAcross = phase / 0.45; // 0 = entering cell, 1 = leaving cell
         const dotAlpha = Math.sin(tAcross * Math.PI) * 0.55 * (0.7 + cellOffset * 0.3);
         if (dotAlpha < 0.02) continue;
-        // Position: start at upstream edge (-0.45 cell width), exit at downstream (+0.45)
-        const offset = (tAcross - 0.5) * cellPx * 0.90;
+        // Position: dot travels 90% of the cell width so it stays clearly
+        // within bounds; the remaining 10% provides a small visual margin.
+        const FLOW_TRAVEL_SCALE = 0.90;
+        const offset = (tAcross - 0.5) * cellPx * FLOW_TRAVEL_SCALE;
         const c = camera.worldToScreen(cellCenter(cx, cy));
         const color = entry.team === Team.Player
           ? `rgba(140,240,255,${dotAlpha})`
