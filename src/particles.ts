@@ -344,6 +344,76 @@ export class ParticleSystem {
     }
   }
 
+  /**
+   * Emit a small burst of directional impact sparks when a non-lethal
+   * projectile hit occurs.  Scaled by the quality budget.
+   * @param pos   World position of the impact
+   * @param angle Angle of the incoming projectile (radians) — sparks scatter
+   *              around the reverse (impact-normal) direction.
+   */
+  emitImpact(pos: Vec2, angle: number): void {
+    const count = Math.max(1, Math.round(6 * this._particleScale));
+    for (let i = 0; i < count; i++) {
+      const p = this.acquire();
+      p.active = true;
+      p.x = pos.x;
+      p.y = pos.y;
+      // Scatter sparks roughly away from the projectile direction
+      const scatter = (Math.random() - 0.5) * Math.PI * 1.4;
+      const backAngle = angle + Math.PI + scatter;
+      const spd = randomRange(80, 200);
+      p.vx = Math.cos(backAngle) * spd;
+      p.vy = Math.sin(backAngle) * spd;
+      p.color = Colors.particles_impact;
+      p.alpha = 1;
+      p.life = randomRange(0.06, 0.18);
+      p.maxLife = p.life;
+      p.size = randomRange(0.8, 2.2);
+      p.additive = true;
+    }
+  }
+
+  /**
+   * Emit a brief bright muzzle flash when a weapon fires.
+   * @param pos   World position of the muzzle tip
+   * @param angle Firing angle (radians)
+   */
+  emitMuzzleFlash(pos: Vec2, angle: number): void {
+    // Central flash particle
+    {
+      const p = this.acquire();
+      p.active = true;
+      p.x = pos.x;
+      p.y = pos.y;
+      p.vx = Math.cos(angle) * 20;
+      p.vy = Math.sin(angle) * 20;
+      p.color = Colors.particles_muzzle;
+      p.alpha = 1;
+      p.life = 0.055;
+      p.maxLife = p.life;
+      p.size = randomRange(2.5, 4.5);
+      p.additive = true;
+    }
+    // A few rapid sparks in the forward cone
+    const sparkCount = Math.max(1, Math.round(3 * this._particleScale));
+    for (let i = 0; i < sparkCount; i++) {
+      const p = this.acquire();
+      p.active = true;
+      p.x = pos.x;
+      p.y = pos.y;
+      const spread = (Math.random() - 0.5) * 0.9;
+      const spd = randomRange(120, 280);
+      p.vx = Math.cos(angle + spread) * spd;
+      p.vy = Math.sin(angle + spread) * spd;
+      p.color = Colors.particles_nova;
+      p.alpha = 0.9;
+      p.life = randomRange(0.04, 0.10);
+      p.maxLife = p.life;
+      p.size = randomRange(0.6, 1.6);
+      p.additive = true;
+    }
+  }
+
   // --- Simulation ---
 
   update(dt: number): void {

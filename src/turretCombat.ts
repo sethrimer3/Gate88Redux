@@ -48,7 +48,9 @@ export function fireTurretShots(state: GameState, localTeam: Team): void {
     } else if (b.type === EntityType.GatlingTurret) {
       b.consumeShot();
       const spread = (Math.random() - 0.5) * WEAPON_STATS.gatlingturret.spread;
-      state.addEntity(new GatlingTurretBullet(b.team, b.position.clone(), (angle ?? b.turretAngle) + spread, b));
+      const fireAngle = (angle ?? b.turretAngle) + spread;
+      state.addEntity(new GatlingTurretBullet(b.team, b.position.clone(), fireAngle, b));
+      if (Math.random() < 0.25) state.particles.emitMuzzleFlash(b.position, fireAngle);
       Audio.playSoundAt('shortbullet', playerDist);
     } else if (b.type === EntityType.ExciterTurret) {
       const targetPos = target.position.clone();
@@ -65,7 +67,9 @@ export function fireTurretShots(state: GameState, localTeam: Team): void {
       Audio.playSoundAt('massdriverbullet', playerDist);
     } else {
       b.consumeShot();
-      state.addEntity(new Bullet(b.team, b.position.clone(), angle ?? b.turretAngle, b));
+      const fireAngle = angle ?? b.turretAngle;
+      state.addEntity(new Bullet(b.team, b.position.clone(), fireAngle, b));
+      state.particles.emitMuzzleFlash(b.position, fireAngle);
       Audio.playSoundAt('fire', playerDist);
     }
     recordCombatAimSample({

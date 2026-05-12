@@ -487,6 +487,15 @@ export class Game {
     // Camera follows the living ship, or the ghost spectator while dead.
     this.camera.update(this.ghostSpectatorPos ?? this.state.player.position, DT);
 
+    // Drain accumulated shake requests from the game state and apply to camera
+    // if the current quality preset has camera shake enabled.
+    if (this.state.pendingShakeMagnitude > 0) {
+      if (this.visualPreset.cameraShakeEnabled) {
+        this.camera.addShake(this.state.pendingShakeMagnitude);
+      }
+      this.state.pendingShakeMagnitude = 0;
+    }
+
     // Emit exhaust particles when the player is thrusting (any WASD key).
     // Exhaust trails opposite the actual thrust direction, which under the new
     // mouse-aim controls is decoupled from the ship's facing. When boosting
@@ -2295,6 +2304,16 @@ export class Game {
       (cx, cy, team) => this.state.power.isCellEnergized(team, cx, cy),
       this.visualPreset.conduitShimmer,
     );
+    if (this.visualPreset.conduitPulseEnabled) {
+      this.state.grid.drawConduitPulses(
+        ctx,
+        this.camera,
+        w,
+        h,
+        this.state.gameTime,
+        (cx, cy, team) => this.state.power.isCellEnergized(team, cx, cy),
+      );
+    }
     this.state.drawEntities(ctx, this.camera);
     drawMergedShipBlockerOutlines(ctx, this.camera, this.state);
     drawGhostSpectator(ctx, this.camera, this.state, this.ghostSpectatorPos);

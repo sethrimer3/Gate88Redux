@@ -6,9 +6,9 @@ import { Entity, EntityType, Team } from './entities.js';
 import { Colors, colorToCSS } from './colors.js';
 import { ENTITY_RADIUS, WEAPON_STATS, SWARM_MISSILE_DAMAGE_MULTIPLIER } from './constants.js';
 
-const BULLET_TRAIL_LIFETIME = 0.09;
+const BULLET_TRAIL_LIFETIME = 0.12;
 const BULLET_TRAIL_MIN_DISTANCE = 2;
-const GATLING_TRAIL_LIFETIME = 0.0275;
+const GATLING_TRAIL_LIFETIME = 0.04;
 
 interface TrailPoint {
   pos: Vec2;
@@ -157,25 +157,31 @@ export class Bullet extends ProjectileBase {
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     if (!this.alive) return;
     const screen = camera.worldToScreen(this.position);
-    const fireColor =
-      this.team === Team.Player
-        ? colorToCSS(Colors.friendlyfire)
-        : colorToCSS(Colors.enemyfire);
-    this.drawTrail(ctx, camera, fireColor);
+    const coreColor = this.team === Team.Player
+      ? colorToCSS(Colors.bullet_player_cannon)
+      : colorToCSS(Colors.bullet_enemy_cannon);
+    const trailColor = this.team === Team.Player
+      ? colorToCSS(Colors.bullet_player_cannon, 0.55)
+      : colorToCSS(Colors.bullet_enemy_cannon, 0.55);
+    this.drawTrail(ctx, camera, trailColor);
 
-    // Small bright dot with short tail
-    const tail = this.velocity.normalize().scale(-2 * camera.zoom);
-    ctx.strokeStyle = fireColor;
-    ctx.lineWidth = 2;
+    // Bright elongated streak
+    const tail = this.velocity.normalize().scale(-5 * camera.zoom);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = coreColor;
+    ctx.lineWidth = 2.5 * camera.zoom;
+    ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(screen.x, screen.y);
     ctx.lineTo(screen.x + tail.x, screen.y + tail.y);
     ctx.stroke();
 
-    ctx.fillStyle = fireColor;
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
     ctx.beginPath();
-    ctx.arc(screen.x, screen.y, 2 * camera.zoom, 0, Math.PI * 2);
+    ctx.arc(screen.x, screen.y, 1.8 * camera.zoom, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
   }
 }
 
@@ -212,15 +218,17 @@ export class GatlingBullet extends ProjectileBase {
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     if (!this.alive) return;
     const screen = camera.worldToScreen(this.position);
-    const fireColor =
-      this.team === Team.Player
-        ? colorToCSS(Colors.friendlyfire, 0.82)
-        : colorToCSS(Colors.enemyfire, 0.82);
-    this.drawTrail(ctx, camera, fireColor, GATLING_TRAIL_LIFETIME, 1.25);
-    ctx.fillStyle = fireColor;
+    const coreColor = this.team === Team.Player
+      ? colorToCSS(Colors.bullet_player_gatling)
+      : colorToCSS(Colors.bullet_enemy_gatling);
+    this.drawTrail(ctx, camera, coreColor, GATLING_TRAIL_LIFETIME, 1.25);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = coreColor;
     ctx.beginPath();
-    ctx.arc(screen.x, screen.y, 1.5 * camera.zoom, 0, Math.PI * 2);
+    ctx.arc(screen.x, screen.y, 1.4 * camera.zoom, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
   }
 }
 
@@ -257,14 +265,17 @@ export class GatlingTurretBullet extends ProjectileBase {
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     if (!this.alive) return;
     const screen = camera.worldToScreen(this.position);
-    const fireColor = this.team === Team.Player
-      ? colorToCSS(Colors.gatlingturret_detail, 0.82)
-      : colorToCSS(Colors.enemyfire, 0.74);
-    this.drawTrail(ctx, camera, fireColor, GATLING_TRAIL_LIFETIME, 1.1);
-    ctx.fillStyle = fireColor;
+    const coreColor = this.team === Team.Player
+      ? colorToCSS(Colors.bullet_player_turret)
+      : colorToCSS(Colors.bullet_enemy_turret);
+    this.drawTrail(ctx, camera, coreColor, GATLING_TRAIL_LIFETIME, 1.1);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = coreColor;
     ctx.beginPath();
-    ctx.arc(screen.x, screen.y, 1.25 * camera.zoom, 0, Math.PI * 2);
+    ctx.arc(screen.x, screen.y, 1.2 * camera.zoom, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
   }
 }
 
@@ -323,29 +334,31 @@ export class Missile extends ProjectileBase {
     if (!this.alive) return;
     const screen = camera.worldToScreen(this.position);
     const r = this.radius * camera.zoom;
-    const fireColor =
-      this.team === Team.Player
-        ? colorToCSS(Colors.friendlyfire)
-        : colorToCSS(Colors.enemyfire);
-    this.drawTrail(ctx, camera, fireColor);
+    // Warm ember trail regardless of team
+    this.drawTrail(ctx, camera, colorToCSS(Colors.missile_trail, 0.72), BULLET_TRAIL_LIFETIME, 2.2);
 
     ctx.save();
     ctx.translate(screen.x, screen.y);
     ctx.rotate(this.angle);
 
-    // Small triangle body
-    ctx.fillStyle = fireColor;
+    // Engine glow (additive warm pulse at rear)
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = colorToCSS(Colors.missile_trail, 0.45);
+    ctx.beginPath();
+    ctx.arc(-r * 0.7, 0, r * 0.55, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+
+    // Missile body — team-colored triangle
+    const bodyColor = this.team === Team.Player
+      ? colorToCSS(Colors.friendlyfire)
+      : colorToCSS(Colors.enemyfire);
+    ctx.fillStyle = bodyColor;
     ctx.beginPath();
     ctx.moveTo(r * 1.2, 0);
     ctx.lineTo(-r * 0.6, -r * 0.5);
     ctx.lineTo(-r * 0.6, r * 0.5);
     ctx.closePath();
-    ctx.fill();
-
-    // Exhaust trail glow
-    ctx.fillStyle = colorToCSS(Colors.particles_neutral_exhaust, 0.6);
-    ctx.beginPath();
-    ctx.arc(-r * 0.8, 0, r * 0.3, 0, Math.PI * 2);
     ctx.fill();
 
     ctx.restore();
@@ -461,10 +474,17 @@ export class BomberMissile extends ProjectileBase {
     if (!this.alive) return;
     const screen = camera.worldToScreen(this.position);
     const r = this.radius * camera.zoom;
-    this.drawTrail(ctx, camera, colorToCSS(Colors.explosion, 0.75), 0.14, 2.5);
+    this.drawTrail(ctx, camera, colorToCSS(Colors.missile_trail, 0.85), 0.14, 2.8);
     ctx.save();
     ctx.translate(screen.x, screen.y);
     ctx.rotate(this.angle);
+    // Engine glow
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = colorToCSS(Colors.missile_trail, 0.38);
+    ctx.beginPath();
+    ctx.arc(-r * 0.8, 0, r * 0.65, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = this.team === Team.Player ? colorToCSS(Colors.friendlyfire) : colorToCSS(Colors.enemyfire);
     ctx.beginPath();
     ctx.moveTo(r * 1.2, 0);
@@ -724,10 +744,17 @@ export class ExciterBullet extends ProjectileBase {
     if (!this.alive) return;
     const screen = camera.worldToScreen(this.position);
     this.drawTrail(ctx, camera, colorToCSS(Colors.exciterturret_detail, 0.9));
-    ctx.fillStyle = colorToCSS(Colors.exciterturret_detail);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = colorToCSS(Colors.exciterturret_detail, 0.85);
     ctx.beginPath();
-    ctx.arc(screen.x, screen.y, 1.5 * camera.zoom, 0, Math.PI * 2);
+    ctx.arc(screen.x, screen.y, 2.2 * camera.zoom, 0, Math.PI * 2);
     ctx.fill();
+    ctx.fillStyle = colorToCSS(Colors.particles_nova, 0.6);
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, 1.1 * camera.zoom, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 }
 
@@ -769,12 +796,32 @@ export class ExciterBeam extends ProjectileBase {
     if (!this.alive) return;
     const from = camera.worldToScreen(this.position);
     const to = camera.worldToScreen(this.targetPos);
-    ctx.strokeStyle = colorToCSS(Colors.exciterturret_detail, 0.9);
-    ctx.lineWidth = 1.5;
+    const fade = Math.max(0, this.lifetime / 0.08);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    // Outer warm halo
+    ctx.strokeStyle = colorToCSS(Colors.exciterturret_detail, 0.18 * fade);
+    ctx.lineWidth = 9;
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(to.x, to.y);
     ctx.stroke();
+    // Mid warm layer
+    ctx.strokeStyle = colorToCSS(Colors.exciterturret_detail, 0.6 * fade);
+    ctx.lineWidth = 3.5;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+    // Bright core
+    ctx.strokeStyle = `rgba(255,255,200,${0.9 * fade})`;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+    ctx.restore();
   }
 }
 

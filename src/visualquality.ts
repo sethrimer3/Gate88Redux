@@ -20,6 +20,16 @@ export interface VisualQualityPreset {
   readonly particleScale: number;
   /** Enable animated shooting-star streaks in the background starfield. */
   readonly shootingStarsEnabled: boolean;
+  /**
+   * Enable small screen-shake impulses for large explosions and heavy weapon
+   * impacts.  Always false in Low mode; enabled for medium/high.
+   */
+  readonly cameraShakeEnabled: boolean;
+  /**
+   * Enable traveling energy-pulse dots along powered conduits in High graphics.
+   * Too CPU-intensive for Low; partial in Medium; full in High.
+   */
+  readonly conduitPulseEnabled: boolean;
 }
 
 export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> = {
@@ -35,6 +45,8 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     colorFringe: false,
     particleScale: 0.35,
     shootingStarsEnabled: false,
+    cameraShakeEnabled: false,
+    conduitPulseEnabled: false,
   },
   medium: {
     glowEnabled: true,
@@ -48,6 +60,8 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     colorFringe: true,
     particleScale: 0.65,
     shootingStarsEnabled: true,
+    cameraShakeEnabled: true,
+    conduitPulseEnabled: false,
   },
   high: {
     glowEnabled: true,
@@ -61,6 +75,8 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     colorFringe: true,
     particleScale: 1.0,
     shootingStarsEnabled: true,
+    cameraShakeEnabled: true,
+    conduitPulseEnabled: true,
   },
 };
 

@@ -351,10 +351,11 @@ export class FighterShip extends Entity {
     ctx.translate(screen.x, screen.y);
     ctx.rotate(this.angle);
 
-    // Ship body: small triangle
-    const shipColor = colorToCSS(Colors.fighters);
-    ctx.strokeStyle = shipColor;
-    ctx.lineWidth = 1;
+    // Ship body: small triangle, team-colored outline
+    const friendlyOutline = colorToCSS(Colors.bullet_player_cannon, 0.72);
+    const enemyOutline = colorToCSS(Colors.bullet_enemy_turret, 0.72);
+    ctx.strokeStyle = this.team === Team.Player ? friendlyOutline : enemyOutline;
+    ctx.lineWidth = 1.2;
     ctx.beginPath();
     ctx.moveTo(r * 1.2, 0);
     ctx.lineTo(-r * 0.6, -r * 0.6);
@@ -371,15 +372,23 @@ export class FighterShip extends Entity {
     const glint = 0.5 + 0.5 * Math.sin(coreTime * 5.3 + 1.2);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    ctx.fillStyle = colorToCSS(coreColor, 0.10 + pulse * 0.12);
+    ctx.fillStyle = colorToCSS(coreColor, 0.12 + pulse * 0.14);
     ctx.beginPath();
-    ctx.arc(screen.x, screen.y, r * 1.05, 0, Math.PI * 2);
+    ctx.arc(screen.x, screen.y, r * 1.15, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = colorToCSS(groupColor, 0.18 + pulse * 0.12);
+    ctx.strokeStyle = colorToCSS(groupColor, 0.20 + pulse * 0.14);
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.arc(screen.x, screen.y, r * (0.62 + pulse * 0.08), coreTime, coreTime + Math.PI * 1.35);
     ctx.stroke();
+    // Engine exhaust glow at rear
+    const exhaustX = screen.x - Math.cos(this.angle) * r * 0.7;
+    const exhaustY = screen.y - Math.sin(this.angle) * r * 0.7;
+    const exhaustColor = this.team === Team.Player ? Colors.particles_friendly_exhaust : Colors.particles_enemy_exhaust;
+    ctx.fillStyle = colorToCSS(exhaustColor, 0.18 + pulse * 0.10);
+    ctx.beginPath();
+    ctx.arc(exhaustX, exhaustY, r * 0.7, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
 
     ctx.fillStyle = colorToCSS(coreColor, 0.72 + 0.28 * this.healthFraction);
@@ -650,10 +659,12 @@ export class BomberShip extends FighterShip {
     ctx.translate(screen.x, screen.y);
     ctx.rotate(this.angle);
 
-    // Larger diamond shape
-    const shipColor = colorToCSS(Colors.fighters);
-    ctx.strokeStyle = shipColor;
-    ctx.lineWidth = 1.5;
+    // Larger diamond shape — team-colored for identity
+    const bomberOutline = this.team === Team.Player
+      ? colorToCSS(Colors.bullet_player_cannon, 0.78)
+      : colorToCSS(Colors.particles_explosion1, 0.82);
+    ctx.strokeStyle = bomberOutline;
+    ctx.lineWidth = 1.8;
     ctx.beginPath();
     ctx.moveTo(r * 1.0, 0);
     ctx.lineTo(0, -r * 0.7);
@@ -669,15 +680,25 @@ export class BomberShip extends FighterShip {
     const pulse = 0.5 + 0.5 * Math.sin(coreTime * 2.3 + this.id);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    ctx.fillStyle = colorToCSS(coreColor, 0.10 + pulse * 0.12);
+    ctx.fillStyle = colorToCSS(coreColor, 0.12 + pulse * 0.14);
     ctx.beginPath();
-    ctx.arc(screen.x, screen.y, r * 0.95, 0, Math.PI * 2);
+    ctx.arc(screen.x, screen.y, r * 1.05, 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = colorToCSS(groupColor, 0.18 + pulse * 0.12);
+    ctx.strokeStyle = colorToCSS(groupColor, 0.20 + pulse * 0.13);
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.arc(screen.x, screen.y, r * (0.65 + pulse * 0.08), -coreTime, -coreTime + Math.PI * 1.35);
     ctx.stroke();
+    // Bomber engine glows (two rear exhausts)
+    const exhaustColor = this.team === Team.Player ? Colors.particles_friendly_exhaust : Colors.particles_enemy_exhaust;
+    for (const dy of [-0.45, 0.45]) {
+      const ex = screen.x - Math.cos(this.angle) * r * 0.55 + Math.sin(this.angle) * r * dy;
+      const ey = screen.y - Math.sin(this.angle) * r * 0.55 - Math.cos(this.angle) * r * dy;
+      ctx.fillStyle = colorToCSS(exhaustColor, 0.22 + pulse * 0.12);
+      ctx.beginPath();
+      ctx.arc(ex, ey, r * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
 
     ctx.fillStyle = colorToCSS(coreColor, 0.72 + 0.28 * this.healthFraction);

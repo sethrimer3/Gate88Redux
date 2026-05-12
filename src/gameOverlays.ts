@@ -9,13 +9,12 @@
 import { Vec2 } from './math.js';
 import { Input } from './input.js';
 import { Camera } from './camera.js';
-import { Colors, TextColors, colorToCSS } from './colors.js';
-import { Team, EntityType } from './entities.js';
+import { Colors, TextColors, colorToCSS } from './colors.js';import { Team, EntityType } from './entities.js';
 import type { GameState } from './gamestate.js';
 import { BuildingBase, Wall } from './building.js';
 import { TurretBase } from './turret.js';
 import { FighterShip, BomberShip, SynonymousNovaBomberShip } from './fighter.js';
-import { Laser, ChargedLaserBurst, GuidedMissile, BomberMissile, SwarmMissile, MassDriverBullet } from './projectile.js';
+import { Laser, ChargedLaserBurst, GuidedMissile, BomberMissile, SwarmMissile, MassDriverBullet, GatlingBullet, GatlingTurretBullet } from './projectile.js';
 import { GlowLayer } from './glowlayer.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
 import { SHIP_STATS, COMMANDPOST_BUILD_RADIUS, POWERGENERATOR_COVERAGE_RADIUS } from './constants.js';
@@ -352,8 +351,9 @@ export function drawGlowLayer(
         glow.circleWorld(camera, p.position, Math.min(18, blastRadius * 0.12), Colors.alert2, 0.12);
       }
       const exhaust = p.position.add(new Vec2(Math.cos(p.angle + Math.PI) * p.radius, Math.sin(p.angle + Math.PI) * p.radius));
-      glow.circleWorld(camera, exhaust, p.radius * 2.4, Colors.alert2, 0.18);
-      glow.circleWorld(camera, exhaust, p.radius * 4.2, Colors.explosion, 0.08);
+      glow.circleWorld(camera, exhaust, p.radius * 2.8, Colors.missile_trail, 0.22);
+      glow.circleWorld(camera, exhaust, p.radius * 4.8, Colors.explosion, 0.09);
+      glow.circleWorld(camera, exhaust, p.radius * 1.5, Colors.particles_nova, 0.15);
     } else {
       const blastRadius = 'blastRadius' in p ? (p as { blastRadius: number }).blastRadius : 0;
       if (blastRadius > 0) {
@@ -371,6 +371,21 @@ export function drawGlowLayer(
     const color = friendly ? Colors.radar_friendly_status : Colors.enemyfire;
     const pulse = 0.75 + 0.25 * Math.sin(state.gameTime * 2.2 + b.id * 0.37);
     glow.circleWorld(camera, b.position, b.radius * 1.9, color, 0.035 * pulse);
+
+    // Per-type warm ambient glow
+    if (b.type === EntityType.PowerGenerator) {
+      glow.circleWorld(camera, b.position, b.radius * 2.4, Colors.building_glow_power, 0.055 * pulse);
+      glow.circleWorld(camera, b.position, b.radius * 1.2, Colors.building_glow_power, 0.10 * pulse);
+    } else if (b.type === EntityType.ResearchLab) {
+      glow.circleWorld(camera, b.position, b.radius * 2.0, Colors.building_glow_research, 0.042 * pulse);
+    } else if (b.type === EntityType.Factory) {
+      glow.circleWorld(camera, b.position, b.radius * 1.8, Colors.building_glow_factory, 0.048 * pulse);
+    } else if (b.type === EntityType.FighterYard || b.type === EntityType.BomberYard) {
+      glow.circleWorld(camera, b.position, b.radius * 2.1, Colors.building_glow_shipyard, 0.038 * pulse);
+    } else if (b.type === EntityType.CommandPost) {
+      glow.circleWorld(camera, b.position, b.radius * 2.8, color, 0.028 * pulse);
+    }
+
     if (
       b.type === EntityType.GatlingTurret ||
       b.type === EntityType.MissileTurret ||
@@ -426,7 +441,17 @@ export function drawGlowLayer(
       if (p instanceof GuidedMissile || p instanceof BomberMissile || p instanceof SwarmMissile) continue; // handled above
       const lifeProgress = p.maxLifetime > 0 ? Math.min(1, Math.max(0, 1 - p.lifetime / p.maxLifetime)) : 1;
       if (lifeProgress <= 0.02) continue;
-      const bulletColor = p.team === Team.Player ? Colors.friendlyfire : Colors.enemyfire;
+
+      // Use weapon-type-specific glow color for visual identity
+      let bulletColor: typeof Colors.friendlyfire;
+      if (p instanceof GatlingBullet) {
+        bulletColor = p.team === Team.Player ? Colors.bullet_player_gatling : Colors.bullet_enemy_gatling;
+      } else if (p instanceof GatlingTurretBullet) {
+        bulletColor = p.team === Team.Player ? Colors.bullet_player_turret : Colors.bullet_enemy_turret;
+      } else {
+        bulletColor = p.team === Team.Player ? Colors.bullet_player_cannon : Colors.bullet_enemy_cannon;
+      }
+
       const speed = Math.hypot(p.velocity.x, p.velocity.y);
       const speedFactor = Math.min(1, speed / 520);
       const screen = camera.worldToScreen(p.position);

@@ -193,6 +193,14 @@ function fireSelectedPrimary(
       state.player.angle + spread,
       state.player,
     ));
+    // Small muzzle flash on every 3rd shot to avoid spam
+    if (Math.random() < 0.33) {
+      const mpos = new Vec2(
+        state.player.position.x + Math.cos(state.player.angle) * 12,
+        state.player.position.y + Math.sin(state.player.angle) * 12,
+      );
+      state.particles.emitMuzzleFlash(mpos, state.player.angle);
+    }
     Audio.playSound('shortbullet');
     return activeGuidedMissile;
   }
@@ -252,6 +260,11 @@ function fireSelectedPrimary(
   }
 
   state.player.consumePrimaryFire(PLAYER_FIRE_COOLDOWN * state.player.fireCooldownMultiplier);
+  const muzzlePos = new Vec2(
+    state.player.position.x + Math.cos(state.player.angle) * 14,
+    state.player.position.y + Math.sin(state.player.angle) * 14,
+  );
+  state.particles.emitMuzzleFlash(muzzlePos, state.player.angle);
   state.addEntity(new Bullet(
     Team.Player,
     state.player.position.clone(),
