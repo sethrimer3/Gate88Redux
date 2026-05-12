@@ -2374,7 +2374,7 @@ export class Game {
     }
   }
 
-  private drawPracticeHUD(ctx: CanvasRenderingContext2D, _w: number, _h: number): void {
+  private drawPracticeHUD(ctx: CanvasRenderingContext2D, _w: number, h: number): void {
     ctx.font = '12px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
@@ -2383,6 +2383,30 @@ export class Game {
       `Bases destroyed: ${this.practiceMode.score.basesDestroyed} | Time: ${Math.floor(this.practiceMode.score.timeSurvived)}s`,
       10, 10,
     );
+
+    // AI strategy debug info — shown when debug overlay is active.
+    if (this.debugOverlay) {
+      const info = this.practiceMode.getStrategyDebugInfo(this.state);
+      if (info) {
+        const lines = [
+          `AI Strategy Debug:`,
+          `  Urgency: ${info.urgency}  Player: ${info.playerStrategy}`,
+          `  Shipyards: ${info.currentShipyards} / ${info.targetShipyards} (target)`,
+          `  Staged: ${info.stagedCount} / ${info.waveLaunchThreshold} (wave threshold)`,
+          `  Last wave: ${Math.floor(info.secsSinceLastWave)}s ago`,
+          `  Failed waves: ${info.consecutiveFailedWaves}`,
+        ];
+        ctx.font = '11px monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
+        let y = h - 10;
+        for (let i = lines.length - 1; i >= 0; i--) {
+          ctx.fillText(lines[i], 10, y);
+          y -= 15;
+        }
+      }
+    }
   }
 
   private playerSpeedFraction(): number {

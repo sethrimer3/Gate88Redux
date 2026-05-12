@@ -67,7 +67,7 @@ import { isConfluenceFaction } from './confluence.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
 
 // ---------------------------------------------------------------------------
-// Public snapshot type
+// Public types
 // ---------------------------------------------------------------------------
 
 export interface PlannerSnapshot {
@@ -79,7 +79,21 @@ export interface PlannerSnapshot {
   ringCount: number;
   /** Fraction of all ring conduit cells queued so far [0,1]. */
   conduitProgress: number;
+  // -- Strategic debug fields -------------------------------------------------
+  /** Current urgency level (0=normal, 1=elevated, 2=high). */
+  urgencyLevel: number;
+  /** Desired shipyard count based on difficulty + game time. */
+  targetShipyardCount: number;
+  /** Actual alive, powered, finished shipyard count. */
+  currentShipyardCount: number;
+  /** Current player strategy classification. */
+  playerStrategy: PlayerStrategy;
+  /** Seconds since the last major attack wave was launched. */
+  secsSinceLastAttack: number;
 }
+
+/** Lightweight classification of what the player appears to be doing. */
+export type PlayerStrategy = 'unknown' | 'rushing' | 'turtling' | 'teching' | 'swarming';
 
 // ---------------------------------------------------------------------------
 // Module-level constants
@@ -109,6 +123,15 @@ interface AdaptiveStats {
   commandPostRushes: number;
   lastBuilderKillTime: number;
   unpoweredSegments: Map<string, { count: number; lastTime: number; redundantLinks: number }>;
+}
+
+/** Player strategic profile used to guide reactive turret and wave decisions. */
+interface PlayerThreatState {
+  strategy: PlayerStrategy;
+  shipyardCount: number;
+  turretCount: number;
+  researchCount: number;
+  lastEval: number;
 }
 
 interface ActiveAutoBuild {
@@ -175,6 +198,10 @@ export class EnemyBasePlanner {
   private rebuildTimers: number[] = [];
   /** Accumulates time (seconds) since the last successful ring advancement. */
   private ringAdvanceStuckTimer: number = 0;
+  /** Anti-stall: how long since the last major attack was signalled. */
+  private secsSinceLastAttack: number = 0;
+  /** Anti-stall: seconds since we last checked / forced shipyard scaling. */
+  private shipyardScaleTimer: number = 0;
 
   // -- Chat narration ---------------------------------------------------------
 
@@ -202,6 +229,24 @@ export class EnemyBasePlanner {
     commandPostRushes: 0,
     lastBuilderKillTime: -9999,
     unpoweredSegments: new Map(),
+  };
+
+  // -- Strategic state --------------------------------------------------------
+
+  /**
+   * Urgency level set by PracticeMode when attacks stagnate.
+   * 0 = normal, 1 = elevated (AI has failed multiple waves), 2 = high (AI is stalling).
+   * Higher urgency boosts shipyard / offensive build priority.
+   */
+  private urgencyLevel: number = 0;
+
+  /** Player strategic profile — updated externally by PracticeMode. */
+  private playerThreat: PlayerThreatState = {
+    strategy: 'unknown',
+    shipyardCount: 0,
+    turretCount: 0,
+    researchCount: 0,
+    lastEval: -999,
   };
 
   private usesConduits(state: GameState): boolean {
@@ -387,6 +432,10 @@ export class EnemyBasePlanner {
     // Decay chat cooldown.
     if (this.chatCooldown > 0) this.chatCooldown = Math.max(0, this.chatCooldown - dt);
 
+    // Tick stagnation timer.
+    this.secsSinceLastAttack += dt;
+    this.shipyardScaleTimer += dt;
+
     // 1. Builder lifecycle.
     this.processBuilderRebuilds(state, cp, dt);
     this.assignRepairTargets(state);
@@ -406,6 +455,9 @@ export class EnemyBasePlanner {
       this.tickTimer = this.basePlannerInterval();
       this.maybeAdvanceRing(state);
       this.replanQueue(state);
+      // Anti-stall: periodically force shipyard orders into the queue front
+      // when the AI is below its target shipyard count and has resources.
+      this.maybeForceShipyardScaling(state, enemyResources - spent);
       spent += this.dispatchAutoBuilds(state, cp, enemyResources - spent);
     }
 
@@ -818,15 +870,27 @@ export class EnemyBasePlanner {
 
   private nextInnerBackfillOrder(state: GameState): BuildOrder | null {
     const idx = difficultyIndex(this.config.difficulty);
-    if (idx < 1 || this.currentRing < 2 || this.rings.length < 2) return null;
+    // Easy doesn't do backfill; Normal+ does once ring 1 is active (was ring 2).
+    if (idx < 1 || this.currentRing < 1 || this.rings.length < 1) return null;
+
+    // Relaxed turret gating: only require 1+ turrets on Normal, 2+ on Hard+.
+    // (Previously required 3-5 turrets at Hard+, which delayed shipyards far too long.)
     const turretCoverage = this.countEnemyBuildings(state, (b) => b instanceof TurretBase);
-    if (turretCoverage < [99, 2, 3, 4, 5][idx]) return null;
+    if (turretCoverage < [99, 1, 1, 2, 2][idx]) return null;
+
+    // Desired counts scale with difficulty AND with urgencyLevel.
+    // Base targets per difficulty: Easy=0, Normal=2, Hard=4, Expert=6, Nightmare=8 fighter yards.
+    const urgencyBonus = this.urgencyLevel; // +1 or +2 extra yards when stalling
+    const gameTime = state.gameTime;
+    // Time-based escalation: every 3 minutes (180 s) add 1 more desired yard at Hard+.
+    // Capped at +4 to prevent runaway queue saturation in very long games.
+    const timeBonus = idx >= 2 ? Math.min(4, Math.floor(gameTime / 180)) : 0;
 
     const desired = [
-      { key: 'fighteryard', count: [0, 1, 2, 3, 4][idx] },
-      { key: 'bomberyard', count: [0, 0, 1, 2, 3][idx] },
-      { key: 'researchlab', count: [0, 1, 1, 2, 3][idx] },
-      { key: 'factory', count: [0, 0, 1, 1, 2][idx] },
+      { key: 'fighteryard', count: [0, 2, 4, 6, 8][idx] + urgencyBonus + timeBonus },
+      { key: 'bomberyard',  count: [0, 0, 2, 3, 4][idx] + (idx >= 2 ? urgencyBonus : 0) },
+      { key: 'researchlab', count: [0, 1, 2, 3, 4][idx] },
+      { key: 'factory',     count: [0, 1, 1, 2, 3][idx] },
     ];
 
     for (const want of desired) {
@@ -837,7 +901,11 @@ export class EnemyBasePlanner {
         + this.activeAutoBuilds.filter((active) => active.order.kind === 'building' && active.order.def.key === want.key).length;
       if (current + alreadyQueued >= want.count) continue;
 
-      const maxRing = Math.min(this.currentRing - 1, Math.min(2 + Math.floor(idx / 2), this.rings.length - 1));
+      // Allow placing in rings 0 through currentRing (wider search at higher difficulty/urgency).
+      const maxRing = Math.min(
+        this.currentRing,
+        Math.min(2 + Math.floor(idx / 2) + this.urgencyLevel, this.rings.length - 1),
+      );
       for (let r = 0; r <= maxRing; r++) {
         const ring = this.rings[r];
         const attempts = Math.max(10, ring.conduitCells.length);
@@ -1116,9 +1184,15 @@ export class EnemyBasePlanner {
   }
 
   private replacementForRedundantGenerator(ring: RingPlan): string {
-    if (ring.role === 'production') return difficultyIndex(this.config.difficulty) >= 3 ? 'bomberyard' : 'fighteryard';
+    if (ring.role === 'production') {
+      // Prefer bomber yards at higher difficulty; also switch if AI is stalling
+      // to push offensive capability harder.
+      return (difficultyIndex(this.config.difficulty) >= 3 || this.urgencyLevel >= 2)
+        ? 'bomberyard' : 'fighteryard';
+    }
     if (ring.role === 'innerDefense') return 'wall';
-    if (ring.role === 'picket') return 'missileturret';
+    // For picket and forward rings, pick turret type reactively.
+    if (ring.role === 'picket' || ring.role === 'forward') return this.chooseTurretForSlot(ring);
     return 'researchlab';
   }
 
@@ -1450,7 +1524,12 @@ export class EnemyBasePlanner {
       case 'powergenerator': return 100;
       case 'researchlab': return 95;
       case 'fighteryard':
-      case 'bomberyard': return 90;
+      case 'bomberyard':
+        // When the AI is stalling or urgency is elevated, boost offensive
+        // production buildings above almost everything (even conduits at level 2).
+        if (this.urgencyLevel >= 2) return 110;
+        if (this.urgencyLevel >= 1) return 102;
+        return 90;
       case 'factory': return 78;
       case 'massdriverturret':
       case 'exciterturret':
@@ -1705,6 +1784,136 @@ export class EnemyBasePlanner {
   getActiveRaidTarget(): Vec2 | null { return this.raidPlanner.getActiveTarget(); }
 
   // ---------------------------------------------------------------------------
+  // Strategic interface (called by PracticeMode)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set the urgency level for offensive production.
+   *   0 = normal behaviour.
+   *   1 = elevated — AI has failed several waves; boost shipyard priority.
+   *   2 = high — AI is stalling hard; shipyards jump above almost everything.
+   */
+  setStrategicUrgency(level: number): void {
+    this.urgencyLevel = Math.max(0, Math.min(2, Math.round(level)));
+  }
+
+  /** Notify the planner that an attack wave launched (resets stagnation timer). */
+  notifyAttackLaunched(): void {
+    this.secsSinceLastAttack = 0;
+  }
+
+  /** Update the planner's view of the player's strategic profile. */
+  notifyPlayerThreat(strategy: PlayerStrategy, shipyardCount: number, turretCount: number, researchCount: number): void {
+    this.playerThreat = { strategy, shipyardCount, turretCount, researchCount, lastEval: 0 };
+  }
+
+  /** How many alive, powered, finished shipyards this AI team has. */
+  getShipyardCount(state: GameState): number {
+    return this.countEnemyBuildings(
+      state,
+      (b) => b instanceof Shipyard && b.powered && b.buildProgress >= 1,
+    );
+  }
+
+  /**
+   * Target shipyard count based on difficulty and game time.
+   * This is what the AI is trying to build towards.
+   */
+  getTargetShipyardCount(state: GameState): number {
+    const idx = difficultyIndex(this.config.difficulty);
+    const urgencyBonus = this.urgencyLevel;
+    // Cap at +4 to match the backfill timeBonus cap (prevents unreachable targets).
+    const timeBonus = idx >= 2 ? Math.min(4, Math.floor(state.gameTime / 180)) : 0;
+    // Base: Easy=1, Normal=3, Hard=5, Expert=7, Nightmare=10 + time + urgency
+    return [1, 3, 5, 7, 10][idx] + urgencyBonus + timeBonus;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Anti-stall: force shipyard scaling when below target
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Periodically called from update(). When the AI has been below its target
+   * shipyard count and has the resources, inject a fighter-yard build order
+   * near the front of the queue so it doesn't sit idle.
+   */
+  private maybeForceShipyardScaling(state: GameState, availableResources: number): void {
+    const idx = difficultyIndex(this.config.difficulty);
+    if (idx < 2) return; // Only Hard+ gets this treatment
+
+    // Check every 15 seconds (or sooner when urgent).
+    const checkInterval = this.urgencyLevel >= 1 ? 8 : 15;
+    if (this.shipyardScaleTimer < checkInterval) return;
+    this.shipyardScaleTimer = 0;
+
+    const current = this.getShipyardCount(state);
+    const target  = this.getTargetShipyardCount(state);
+    if (current >= target) return;
+
+    const def = getBuildDef('fighteryard');
+    if (!def) return;
+    if (availableResources < def.cost) return;
+
+    // Check we're not already queuing one.
+    const alreadyQueued =
+      this.queue.filter((o) => o.kind === 'building' && o.def.key === 'fighteryard').length +
+      this.activeAutoBuilds.filter((a) => a.order.kind === 'building' && a.order.def.key === 'fighteryard').length;
+    if (alreadyQueued >= 2) return;
+
+    // Find a valid location in the accessible rings.
+    const maxRing = Math.min(this.currentRing, this.rings.length - 1);
+    for (let r = maxRing; r >= 0; r--) {
+      const ring = this.rings[r];
+      const attempts = Math.max(12, ring.conduitCells.length);
+      for (let n = 0; n < attempts; n++) {
+        const h = Math.floor(
+          hash01plan(this.seed + 31337, r * 103 + n + this.buildsPlaced, 4242) *
+            Math.max(1, ring.conduitCells.length),
+        );
+        const anchor = ring.conduitCells[h];
+        if (!anchor) continue;
+        const cell = this.findBestBuildingCell(state, anchor.cx, anchor.cy, def, ring);
+        if (!cell) continue;
+        const k = `fighteryard:${cellKey(cell.cx, cell.cy)}`;
+        if (this.backfillKeys.has(k)) continue;
+        this.backfillKeys.add(k);
+        this.claimedBuildingKeys.add(cellKey(cell.cx, cell.cy));
+        this.reserveBuildingFootprint(def, cell.cx, cell.cy);
+        // Inject near the front of the queue (after any active conduit orders).
+        const insertAt = Math.min(2, this.queue.length);
+        this.queue.splice(insertAt, 0, { kind: 'building', cx: cell.cx, cy: cell.cy, def, layConduitFirst: false });
+        return;
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reactive turret selection
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Choose the best turret type for a given ring slot based on the player's
+   * observed strategy.  Called from `replacementForRedundantGenerator` and
+   * can also be used by ring-slot placement logic.
+   */
+  private chooseTurretForSlot(ring: RingPlan): string {
+    const idx = difficultyIndex(this.config.difficulty);
+    // Lower difficulties use the doctrine default (missile turrets).
+    if (idx < 2) return ring.role === 'innerDefense' ? 'missileturret' : 'exciterturret';
+
+    const { strategy, shipyardCount, researchCount } = this.playerThreat;
+
+    // Player is swarming (many shipyards, few upgrades) → mass drivers are best.
+    if (strategy === 'swarming' || shipyardCount >= 4) return 'massdriverturret';
+    // Player is teching (few yards, many upgrades) → exciter turrets shut down the player ship.
+    if (strategy === 'teching' || researchCount >= 3) return 'exciterturret';
+    // Player is turtling → stay offensive; minimal extra turrets.
+    if (strategy === 'turtling') return 'missileturret';
+    // Default mixed defence.
+    return ring.role === 'innerDefense' ? 'massdriverturret' : 'exciterturret';
+  }
+
+  // ---------------------------------------------------------------------------
   // Diagnostics
   // ---------------------------------------------------------------------------
 
@@ -1712,13 +1921,18 @@ export class EnemyBasePlanner {
     const totalCells  = this.rings.reduce((s, r) => s + r.conduitCells.length, 0);
     const queuedCells = this.rings.reduce((s, r) => s + r.conduitQueuePtr, 0);
     return {
-      currentRing:     this.currentRing,
-      buildsPlaced:    this.buildsPlaced,
-      builderCount:    this.livingBuilders(),
-      queueSize:       this.queue.length + this.activeAutoBuilds.length,
-      doctrine:        this.doctrineType,
-      ringCount:       this.rings.length,
-      conduitProgress: totalCells > 0 ? queuedCells / totalCells : 0,
+      currentRing:          this.currentRing,
+      buildsPlaced:         this.buildsPlaced,
+      builderCount:         this.livingBuilders(),
+      queueSize:            this.queue.length + this.activeAutoBuilds.length,
+      doctrine:             this.doctrineType,
+      ringCount:            this.rings.length,
+      conduitProgress:      totalCells > 0 ? queuedCells / totalCells : 0,
+      urgencyLevel:         this.urgencyLevel,
+      targetShipyardCount:  0, // filled in by PracticeMode using getTargetShipyardCount()
+      currentShipyardCount: 0, // filled in by PracticeMode using getShipyardCount()
+      playerStrategy:       this.playerThreat.strategy,
+      secsSinceLastAttack:  this.secsSinceLastAttack,
     };
   }
 }
