@@ -604,6 +604,24 @@ export class SynonymousFighterShip extends FighterShip {
         ctx.lineTo(b.x, b.y);
       }
       ctx.stroke();
+
+      // Hexagonal center core
+      const hexR = nodeR * 1.8;
+      ctx.strokeStyle = colorToCSS(color, 0.52);
+      ctx.lineWidth = Math.max(0.8, 0.9 * camera.zoom);
+      ctx.beginPath();
+      for (let j = 0; j < 6; j++) {
+        const a = j * Math.PI / 3;
+        if (j === 0) ctx.moveTo(Math.cos(a) * hexR, Math.sin(a) * hexR);
+        else ctx.lineTo(Math.cos(a) * hexR, Math.sin(a) * hexR);
+      }
+      ctx.closePath();
+      ctx.stroke();
+      // Center glow dot
+      ctx.fillStyle = colorToCSS(color, 0.72);
+      ctx.beginPath();
+      ctx.arc(0, 0, nodeR * 0.65, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     for (let i = 0; i < points.length; i++) {
@@ -904,6 +922,20 @@ export class SynonymousNovaBomberShip extends BomberShip {
       ctx.strokeStyle = colorToCSS(Colors.particles_switch, 0.22);
       ctx.stroke();
     }
+
+    // Drone count indicator arcs — outer ring with one segment per drone
+    const arcOuterR = 30 * camera.zoom;
+    const arcGap = 0.10;
+    const arcStep = Math.PI * 2 / NOVA_BOMBER_DRONES;
+    ctx.lineWidth = Math.max(1.5, 2.0 * camera.zoom);
+    for (let i = 0; i < NOVA_BOMBER_DRONES; i++) {
+      const alive = this.droneHp[i] > 0;
+      ctx.strokeStyle = colorToCSS(color, alive ? 0.52 : 0.11);
+      ctx.beginPath();
+      ctx.arc(0, 0, arcOuterR, -Math.PI / 2 + i * arcStep + arcGap, -Math.PI / 2 + (i + 1) * arcStep - arcGap);
+      ctx.stroke();
+    }
+
     ctx.restore();
   }
 }
