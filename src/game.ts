@@ -45,6 +45,7 @@ import { findClosestEnemy } from './combatUtils.js';
 import { injectFluidForces } from './fluidForces.js';
 import { injectCrystalDisturbances } from './fluidForces.js';
 import { CrystalNebula } from './crystalnebula.js';
+import { DistantSuns } from './suns.js';
 import { fireTurretShots } from './turretCombat.js';
 import { updateFighterWeaponFire } from './fighterCombat.js';
 import { updatePlayerFiring, updateGuidedMissileControl } from './weaponFiring.js';
@@ -102,6 +103,7 @@ export class Game {
   private spaceFluid: SpaceFluid;
   private glowLayer: GlowLayer;
   private crystalNebula: CrystalNebula;
+  private distantSuns: DistantSuns;
   private visualQuality: VisualQuality = DEFAULT_VISUAL_QUALITY;
   private visualPreset: VisualQualityPreset = VISUAL_QUALITY_PRESETS[DEFAULT_VISUAL_QUALITY];
   private overlayCache: OverlayCache = createOverlayCache();
@@ -226,6 +228,7 @@ export class Game {
     this.spaceFluid = createSpaceFluid();
     this.glowLayer = new GlowLayer();
     this.crystalNebula = new CrystalNebula();
+    this.distantSuns = new DistantSuns();
     this.spaceFluid.resize(window.innerWidth, window.innerHeight);
     this.applyVisualQuality(loadVisualQuality());
 
@@ -252,6 +255,7 @@ export class Game {
     this.spaceFluid.setLowGraphicsMode(this.visualPreset.fluidLowGraphics);
     this.glowLayer.configure(this.visualPreset.glowEnabled, this.visualPreset.glowScale);
     this.crystalNebula.configure(this.visualPreset);
+    this.distantSuns.configure(this.visualPreset);
     this.state?.ringEffects.setMaxLive(quality === 'low' ? 32 : quality === 'medium' ? 64 : 96);
     this.state?.particles.setParticleScale(this.visualPreset.particleScale);
     this.starfield.setShootingStarsEnabled(this.visualPreset.shootingStarsEnabled);
@@ -489,6 +493,8 @@ export class Game {
 
     // Advance starfield animations (twinkling, shooting stars)
     this.starfield.update(DT);
+    // Advance distant-suns glint timers.
+    this.distantSuns.update(DT);
 
     // Camera follows the living ship, or the ghost spectator while dead.
     this.camera.update(this.ghostSpectatorPos ?? this.state.player.position, DT);
@@ -2306,6 +2312,8 @@ export class Game {
     this.glowLayer.begin();
 
     // Draw game world
+    // Layer 1: distant suns / solar glow (deepest parallax background)
+    this.distantSuns.draw(ctx, this.camera, w, h);
     this.nebula.draw(ctx, this.camera, w, h);
     this.starfield.draw(ctx, this.camera, w, h);
     // Crystal nebula clouds — behind gameplay entities, in front of starfield.

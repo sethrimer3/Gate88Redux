@@ -10,6 +10,7 @@ Implemented:
 - Conduit shimmer can be toggled by quality; powered conduits keep deterministic coordinate-based phase offsets.
 - The screen overlay now uses a cached vignette gradient plus a subtle territory tint and optional high-quality scanlines.
 - **Crystal Nebula Clouds** (`src/crystalnebula.ts`): tiny angular crystal motes (diamonds, rhombuses, 4-point glints) scattered across 9 world regions in a parallax-aware layer between the starfield and gameplay. Ships, fighters, bullets, missiles, and explosions disturb the motes; spring-damping physics returns them to their home positions. Quality-scaled: disabled on Low, sparse on Medium, full density with glow on High.
+- **Distant Suns / Solar Backdrop** (`src/suns.ts`): one enormous warm sun rendered in screen space (rebuilt on resize) behind all other background layers. Molten-gold core, amber halo, deep red outer glow, and soft violet-pink fringe bathe the scene in warm cinematic light. Quality tiers: Low = glow only; Medium = glow + 5 volumetric light rays; High = glow + 8 rays + 3 solar corona arcs + rare warm lens-glint sparkles. A faint screen-space radial warmth overlay provides subtle sun-direction directionality at all quality levels.
 
 Tuning:
 - Change the default in `src/visualquality.ts` via `DEFAULT_VISUAL_QUALITY`.
@@ -17,6 +18,17 @@ Tuning:
 - `low` disables glow and conduit shimmer, lowers ring capacity, keeps fluid in low graphics mode, and disables crystal nebula entirely.
 - `medium` is the safe default: glow at 0.25 scale, conduit shimmer on, fluid low graphics, crystal nebula at 40 % density with no per-mote glow.
 - `high` raises glow to 0.33 scale, enables scanlines and full fluid density, crystal nebula at 100 % density with glow highlights for disturbed motes and glints.
+
+Distant Suns tuning knobs (in `src/visualquality.ts` presets):
+- `distantSunsEnabled` — master on/off flag (true for all tiers; even Low has the glow).
+- `distantSunsRays` — enable volumetric light rays (medium / high).
+- `distantSunsCorona` — enable solar corona arcs and shimmer (high only).
+- `distantSunsGlints` — enable rare warm lens-glint sparkles (high only).
+
+Distant Suns art constants (in `src/suns.ts`):
+- `SUN_CX` / `SUN_CY` — screen-fraction position of the sun center (0.82, -0.06).
+- `PARALLAX_X` / `PARALLAX_Y` — camera-shift multipliers for the subtle sun parallax (0.003).
+- `RAY_COUNT_MEDIUM` / `RAY_COUNT_HIGH` — ray counts per tier (5, 8).
 
 Crystal Nebula tuning knobs (in `src/visualquality.ts` presets):
 - `crystalNebulaEnabled` — master on/off flag.

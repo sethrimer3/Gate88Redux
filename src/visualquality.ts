@@ -50,6 +50,29 @@ export interface VisualQualityPreset {
    * crystal motes.  0 = no interaction; 1 = full.
    */
   readonly crystalNebulaInteractionScale: number;
+
+  // --- Distant Suns / Solar Backdrop ---
+
+  /**
+   * Enable the distant-suns solar backdrop layer.
+   * Even at Low quality this just blits a pre-baked gradient — very cheap.
+   */
+  readonly distantSunsEnabled: boolean;
+  /**
+   * Enable volumetric light rays emanating from the sun (medium / high).
+   * Rays are thin tapered triangles; no blur.
+   */
+  readonly distantSunsRays: boolean;
+  /**
+   * Enable solar corona arcs and stronger corona shimmer (high only).
+   * Drawn as a few stroked partial ellipses.
+   */
+  readonly distantSunsCorona: boolean;
+  /**
+   * Enable rare warm lens-glint sparkles near the sun (high only).
+   * Each glint is a tiny cross + dot that fades in and out.
+   */
+  readonly distantSunsGlints: boolean;
 }
 
 export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> = {
@@ -71,6 +94,10 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     crystalNebulaDensityScale: 0,
     crystalNebulaGlow: false,
     crystalNebulaInteractionScale: 0,
+    distantSunsEnabled: true,
+    distantSunsRays: false,
+    distantSunsCorona: false,
+    distantSunsGlints: false,
   },
   medium: {
     glowEnabled: true,
@@ -90,6 +117,10 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     crystalNebulaDensityScale: 0.40,
     crystalNebulaGlow: false,
     crystalNebulaInteractionScale: 0.7,
+    distantSunsEnabled: true,
+    distantSunsRays: true,
+    distantSunsCorona: false,
+    distantSunsGlints: false,
   },
   high: {
     glowEnabled: true,
@@ -109,6 +140,10 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     crystalNebulaDensityScale: 1.0,
     crystalNebulaGlow: true,
     crystalNebulaInteractionScale: 1.0,
+    distantSunsEnabled: true,
+    distantSunsRays: true,
+    distantSunsCorona: true,
+    distantSunsGlints: true,
   },
 };
 
