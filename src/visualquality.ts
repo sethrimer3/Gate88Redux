@@ -53,3 +53,25 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
 
 export const DEFAULT_VISUAL_QUALITY: VisualQuality = 'medium';
 
+const VISUAL_QUALITY_STORAGE_KEY = 'gate88_visual_quality';
+
+/** Load the persisted visual quality from localStorage, falling back to the default. */
+export function loadVisualQuality(): VisualQuality {
+  try {
+    const raw = window.localStorage?.getItem(VISUAL_QUALITY_STORAGE_KEY);
+    if (raw === 'low' || raw === 'medium' || raw === 'high') return raw;
+  } catch {
+    // localStorage unavailable (e.g. private browsing with strict settings)
+  }
+  return DEFAULT_VISUAL_QUALITY;
+}
+
+/** Persist the given visual quality to localStorage. */
+export function saveVisualQuality(quality: VisualQuality): void {
+  try {
+    window.localStorage?.setItem(VISUAL_QUALITY_STORAGE_KEY, quality);
+  } catch {
+    // Ignore write failures
+  }
+}
+

@@ -324,10 +324,16 @@ export function drawGlowLayer(
     const t = 1 - fire.lifeSeconds / fire.totalSeconds;
     const fade = Math.max(0, 1 - t);
     const bloom = fire.intensity * fade;
-    glow.circleWorld(camera, fire.center, fire.radius * 1.45, Colors.alert1, 0.10 * bloom);
-    glow.circleWorld(camera, fire.center, fire.radius * 1.08, Colors.explosion, 0.20 * bloom);
-    glow.circleWorld(camera, fire.center, fire.radius * 0.48, Colors.alert2, 0.24 * bloom);
-    glow.circleWorld(camera, fire.center, Math.max(10, fire.radius * 0.18), Colors.particles_switch, 0.20 * bloom);
+    // Outer red halo
+    glow.circleWorld(camera, fire.center, fire.radius * 1.45, Colors.alert1, 0.12 * bloom);
+    // Mid warm orange layer (new)
+    glow.circleWorld(camera, fire.center, fire.radius * 1.12, Colors.particles_ember, 0.18 * bloom);
+    // Core bright amber
+    glow.circleWorld(camera, fire.center, fire.radius * 1.08, Colors.explosion, 0.22 * bloom);
+    // Bright inner yellow
+    glow.circleWorld(camera, fire.center, fire.radius * 0.48, Colors.alert2, 0.28 * bloom);
+    // Hot white center
+    glow.circleWorld(camera, fire.center, Math.max(10, fire.radius * 0.18), Colors.particles_nova, 0.24 * bloom);
   }
 
   for (const p of state.projectiles) {

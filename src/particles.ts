@@ -183,6 +183,7 @@ export class ParticleSystem {
   }
 
   emitExplosion(pos: Vec2, size: number): void {
+    // Central nova flash — warm ivory burst that fades almost instantly.
     {
       const p = this.acquire();
       p.active = true;
@@ -190,21 +191,24 @@ export class ParticleSystem {
       p.y = pos.y;
       p.vx = 0;
       p.vy = 0;
-      p.color = Colors.particles_explosion3;
+      p.color = Colors.particles_nova;
       p.alpha = 1;
-      p.life = 0.08;
+      p.life = 0.07;
       p.maxLife = p.life;
-      p.size = Math.max(3, size * 0.55);
+      p.size = Math.max(4, size * 0.65);
       p.additive = true;
     }
 
     // Primary fireball — large additive particles that bloom together.
+    // Warm palette: red → orange → amber → bright yellow → warm white.
     const primaryCount = Math.floor(18 + size * 2.5);
-    const colors: Color[] = [
+    const fireballColors: Color[] = [
       Colors.particles_explosion1,
       Colors.particles_explosion2,
       Colors.alert2,
       Colors.particles_explosion3,
+      Colors.particles_ember,
+      Colors.particles_nova,
     ];
     for (let i = 0; i < primaryCount; i++) {
       const p = this.acquire();
@@ -215,7 +219,7 @@ export class ParticleSystem {
       const spd = randomRange(30, 150) * (size / 20);
       p.vx = Math.cos(ang) * spd;
       p.vy = Math.sin(ang) * spd;
-      p.color = colors[i % colors.length];
+      p.color = fireballColors[i % fireballColors.length];
       p.alpha = 1;
       p.life = randomRange(0.35, 1.1);
       p.maxLife = p.life;
@@ -223,9 +227,12 @@ export class ParticleSystem {
       p.additive = true;
     }
 
-    // Secondary debris — small normal-blend particles that stay longer.
+    // Secondary debris — mix of normal-blend particles and warm additive embers.
+    // Additive embers (60 %) give a glowing warm haze; normal debris (40 %) adds
+    // solid scattered chunks so the explosion reads clearly at any zoom level.
     const debrisCount = Math.floor(8 + size * 1.2);
     for (let i = 0; i < debrisCount; i++) {
+      const useEmber = i % 5 < 3; // 60 % additive embers
       const p = this.acquire();
       p.active = true;
       p.x = pos.x + randomRange(-size * 0.4, size * 0.4);
@@ -234,16 +241,16 @@ export class ParticleSystem {
       const spd = randomRange(10, 60) * (size / 20);
       p.vx = Math.cos(ang) * spd;
       p.vy = Math.sin(ang) * spd;
-      p.color = Colors.particles_explosion2;
-      p.alpha = 0.8;
+      p.color = useEmber ? Colors.particles_ember : Colors.particles_explosion2;
+      p.alpha = useEmber ? 0.9 : 0.8;
       p.life = randomRange(0.5, 1.5);
       p.maxLife = p.life;
       p.size = randomRange(1.0, 2.5);
-      p.additive = false;
+      p.additive = useEmber;
     }
 
-    // A small capped spark pass gives explosions brighter motion without
-    // increasing POOL_SIZE or doing any per-pixel work.
+    // High-velocity sparks — warm orange/ivory and bright yellow streaks.
+    const sparkColors: Color[] = [Colors.alert2, Colors.particles_ember, Colors.particles_nova];
     const sparkCount = Math.min(10, Math.floor(3 + size * 0.22));
     for (let i = 0; i < sparkCount; i++) {
       const p = this.acquire();
@@ -254,7 +261,7 @@ export class ParticleSystem {
       const spd = randomRange(140, 260) * Math.max(0.65, size / 45);
       p.vx = Math.cos(ang) * spd;
       p.vy = Math.sin(ang) * spd;
-      p.color = i % 3 === 0 ? Colors.alert2 : Colors.particles_explosion3;
+      p.color = sparkColors[i % sparkColors.length];
       p.alpha = 1;
       p.life = randomRange(0.10, 0.24);
       p.maxLife = p.life;
@@ -313,11 +320,11 @@ export class ParticleSystem {
       p.vx = randomRange(-15, 15);
       p.vy = randomRange(-25, -5);
       p.color = Colors.particles_switch;
-      p.alpha = 0.8;
+      p.alpha = 0.85;
       p.life = randomRange(0.3, 0.7);
       p.maxLife = p.life;
       p.size = randomRange(1, 2.5);
-      p.additive = false;
+      p.additive = true;
     }
   }
 
