@@ -23,6 +23,7 @@ import { footprintForBuildingType } from './buildingfootprint.js';
 import { type FactionType, type ConfluenceTerritoryCircle, CONFLUENCE_BASE_RADIUS, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_PARENT_EXPAND_DURATION, CONFLUENCE_NEW_CIRCLE_GROW_DURATION, CONFLUENCE_INCLUDE_MARGIN, isConfluenceFaction, isSynonymousFaction } from './confluence.js';
 import { SynonymousSwarmSystem, SYNONYMOUS_BASE_PRODUCTION, SYNONYMOUS_BUILD_COST, SYNONYMOUS_CURRENCY_SYMBOL, SYNONYMOUS_FACTORY_PRODUCTION } from './synonymous.js';
 import { resolveShipNavigationTarget, scoreShipRoute } from './shippath.js';
+import { buildingBlocksShips, buildingShipCollisionRect } from './buildingCollision.js';
 
 export interface DestroyedBuildingRecord {
   type: EntityType;
@@ -88,6 +89,14 @@ export class GameState {
   synonymous: SynonymousSwarmSystem = new SynonymousSwarmSystem();
   private synonymousBaseAccumulator: Map<Team, number> = new Map();
   private synonymousFactoryAccumulator: Map<number, number> = new Map();
+  private fighterNavCache: Map<number, {
+    targetX: number;
+    targetY: number;
+    fromX: number;
+    fromY: number;
+    nextUpdateAt: number;
+    navTarget: Vec2;
+  }> = new Map();
 
   /**
    * Countdown until the next pending conduit is promoted to the active grid.
@@ -608,22 +617,14 @@ export class GameState {
     for (const ship of shipsToCheck) {
       for (const building of this.buildings) {
         if (!building.alive || building.buildProgress < 1) continue;
+        if (!buildingBlocksShips(building)) continue;
         this.pushEntityOutOfBuildingFootprint(ship, building);
       }
     }
   }
 
   private pushEntityOutOfBuildingFootprint(entity: Entity, building: BuildingBase): void {
-    const bc = {
-      cx: Math.floor(building.position.x / GRID_CELL_SIZE),
-      cy: Math.floor(building.position.y / GRID_CELL_SIZE),
-    };
-    const size = footprintForBuildingType(building.type);
-    const origin = footprintOrigin(bc.cx, bc.cy, size);
-    const left = origin.cx * GRID_CELL_SIZE;
-    const right = (origin.cx + size) * GRID_CELL_SIZE;
-    const top = origin.cy * GRID_CELL_SIZE;
-    const bottom = (origin.cy + size) * GRID_CELL_SIZE;
+    const { left, right, top, bottom } = buildingShipCollisionRect(building);
     const closestX = Math.max(left, Math.min(right, entity.position.x));
     const closestY = Math.max(top, Math.min(bottom, entity.position.y));
     const dx = entity.position.x - closestX;
@@ -1378,6 +1379,7 @@ export class GameState {
   private updateFighterNavigation(f: FighterShip): void {
     if (!f.alive || f.docked) {
       f.setNavigationTarget(null);
+      this.fighterNavCache.delete(f.id);
       return;
     }
     const target = f.order === 'dock' && f.homeYard
@@ -1385,10 +1387,43 @@ export class GameState {
       : f.targetPos;
     if (!target) {
       f.setNavigationTarget(null);
+      this.fighterNavCache.delete(f.id);
+      return;
+    }
+    const cached = this.fighterNavCache.get(f.id);
+    const targetMovedSq = cached
+      ? (target.x - cached.targetX) ** 2 + (target.y - cached.targetY) ** 2
+      : Infinity;
+    const shipMovedSq = cached
+      ? (f.position.x - cached.fromX) ** 2 + (f.position.y - cached.fromY) ** 2
+      : Infinity;
+    const reachedCachedWaypointSq = cached
+      ? (f.position.x - cached.navTarget.x) ** 2 + (f.position.y - cached.navTarget.y) ** 2
+      : Infinity;
+    const targetRefreshDistanceSq = (GRID_CELL_SIZE * 2) ** 2;
+    const shipRefreshDistanceSq = (GRID_CELL_SIZE * 5) ** 2;
+    const waypointRefreshDistanceSq = (GRID_CELL_SIZE * 1.5) ** 2;
+    if (
+      cached &&
+      this.gameTime < cached.nextUpdateAt &&
+      targetMovedSq < targetRefreshDistanceSq &&
+      shipMovedSq < shipRefreshDistanceSq &&
+      reachedCachedWaypointSq > waypointRefreshDistanceSq
+    ) {
+      f.setNavigationTarget(cached.navTarget);
       return;
     }
     const intelligence = f.team === Team.Enemy ? 2 : 1;
-    f.setNavigationTarget(this.resolveShipNavigationTarget(f, target, intelligence));
+    const navTarget = this.resolveShipNavigationTarget(f, target, intelligence);
+    this.fighterNavCache.set(f.id, {
+      targetX: target.x,
+      targetY: target.y,
+      fromX: f.position.x,
+      fromY: f.position.y,
+      nextUpdateAt: this.gameTime + (f.team === Team.Enemy ? 0.32 : 0.22),
+      navTarget,
+    });
+    f.setNavigationTarget(navTarget);
   }
 
   /** Count docked and total fighters for a group. */

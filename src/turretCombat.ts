@@ -12,6 +12,7 @@ import { GameState } from './gamestate.js';
 import { Bullet } from './projectile.js';
 import { MassDriverBullet, Missile } from './projectile.js';
 import { TurretBase } from './turret.js';
+import { aimAngle, recordCombatAimSample } from './targeting.js';
 
 /**
  * Acquire targets and fire for every fully-built turret that belongs to
@@ -26,6 +27,10 @@ export function fireTurretShots(state: GameState, localTeam: Team): void {
     if (!b.canFire()) continue;
     const target = b.targetEntity;
     if (!target) continue;
+    const aim = b.computeAim(target);
+    const angle = aimAngle(aim);
+    if (angle === null) continue;
+    b.turretAngle = angle;
     b.consumeShot();
     const playerDist = state.player.position.distanceTo(b.position);
     if (b.type === EntityType.RegenTurret) {
@@ -34,14 +39,26 @@ export function fireTurretShots(state: GameState, localTeam: Team): void {
       b.showBeam(target.position);
       Audio.playSoundAt('regenbullet', playerDist);
     } else if (b.type === EntityType.MissileTurret) {
-      state.addEntity(new Missile(b.team, b.position.clone(), b.turretAngle, b, target));
+      state.addEntity(new Missile(b.team, b.position.clone(), angle, b, target));
       Audio.playSoundAt('missile', playerDist);
     } else if (b.type === EntityType.MassDriverTurret) {
-      state.addEntity(new MassDriverBullet(b.team, b.position.clone(), b.turretAngle, b));
+      state.addEntity(new MassDriverBullet(b.team, b.position.clone(), angle, b));
       Audio.playSoundAt('massdriverbullet', playerDist);
     } else {
-      state.addEntity(new Bullet(b.team, b.position.clone(), b.turretAngle, b));
+      state.addEntity(new Bullet(b.team, b.position.clone(), angle, b));
       Audio.playSoundAt(b.type === EntityType.ExciterTurret ? 'exciterbullet' : 'fire', playerDist);
     }
+    recordCombatAimSample({
+      shooterId: b.id,
+      targetId: target.id,
+      shooter: b.position.clone(),
+      target: target.position.clone(),
+      targetVelocity: target.velocity.clone(),
+      aimPoint: aim.aimPoint.clone(),
+      spawn: b.position.clone(),
+      range: b.range,
+      interceptValid: aim.valid && !aim.usedFallback,
+      createdAt: state.gameTime,
+    });
   }
 }

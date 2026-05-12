@@ -4,6 +4,7 @@ import { EntityType, ShipGroup, Team } from './entities.js';
 import type { GameState } from './gamestate.js';
 import type { LanClient } from './lan/lanClient.js';
 import { Vec2 } from './math.js';
+import { recentCombatAimSamples } from './targeting.js';
 
 export type ShipCommandGroup = ShipGroup | 'all';
 export type WaypointMarker = { pos: Vec2; issuedAt: number };
@@ -151,6 +152,62 @@ export function drawDebugOverlay(ctx: CanvasRenderingContext2D, args: {
       ? colorToCSS(Colors.alert2, 0.95)
       : colorToCSS(Colors.general_building, 0.9);
     ctx.fillText(lines[i], x + 8, y + 7 + i * 15);
+  }
+  ctx.restore();
+}
+
+export function drawCombatTargetingDebug(ctx: CanvasRenderingContext2D, camera: Camera, state: GameState): void {
+  const samples = recentCombatAimSamples(state.gameTime);
+  if (samples.length === 0) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const sample of samples) {
+    const age = Math.max(0, state.gameTime - sample.createdAt);
+    const alpha = Math.max(0, 1 - age / 2);
+    if (alpha <= 0) continue;
+    const shooter = camera.worldToScreen(sample.shooter);
+    const target = camera.worldToScreen(sample.target);
+    const aim = camera.worldToScreen(sample.aimPoint);
+    const spawn = camera.worldToScreen(sample.spawn);
+    const velEnd = camera.worldToScreen(sample.target.add(sample.targetVelocity.scale(0.35)));
+
+    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.24 * alpha);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(shooter.x, shooter.y, sample.range * camera.zoom, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = colorToCSS(Colors.alert1, 0.42 * alpha);
+    ctx.beginPath();
+    ctx.moveTo(shooter.x, shooter.y);
+    ctx.lineTo(target.x, target.y);
+    ctx.stroke();
+
+    ctx.strokeStyle = sample.interceptValid
+      ? colorToCSS(Colors.friendly_status, 0.74 * alpha)
+      : colorToCSS(Colors.alert2, 0.64 * alpha);
+    ctx.beginPath();
+    ctx.moveTo(spawn.x, spawn.y);
+    ctx.lineTo(aim.x, aim.y);
+    ctx.stroke();
+
+    ctx.fillStyle = colorToCSS(Colors.particles_switch, 0.9 * alpha);
+    ctx.beginPath();
+    ctx.arc(spawn.x, spawn.y, Math.max(2, 3 * camera.zoom), 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = sample.interceptValid
+      ? colorToCSS(Colors.friendly_status, 0.95 * alpha)
+      : colorToCSS(Colors.alert2, 0.9 * alpha);
+    ctx.beginPath();
+    ctx.arc(aim.x, aim.y, Math.max(2, 4 * camera.zoom), 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = colorToCSS(Colors.particles_switch, 0.42 * alpha);
+    ctx.beginPath();
+    ctx.moveTo(target.x, target.y);
+    ctx.lineTo(velEnd.x, velEnd.y);
+    ctx.stroke();
   }
   ctx.restore();
 }

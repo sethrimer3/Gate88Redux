@@ -24,6 +24,7 @@ import {
 import { SpaceFluid } from './spacefluid.js';
 import { WEAPON_STATS } from './constants.js';
 import { damageLaserLineLimited } from './combatUtils.js';
+import { aimAngle, aimAtEntity, isCombatTargetValid, recordCombatAimSample } from './targeting.js';
 
 /**
  * For each live, undocked Team.Player fighter: find the nearest enemy in
@@ -44,7 +45,7 @@ export function updateFighterWeaponFire(state: GameState, spaceFluid: SpaceFluid
     let target = null;
     let bestDist = Infinity;
     for (const e of nearby) {
-      if (!e.alive || e.team !== Team.Enemy) continue;
+      if (!isCombatTargetValid(f, e, f.weaponRange)) continue;
       const d = f.position.distanceTo(e.position);
       if (d < bestDist) {
         bestDist = d;
@@ -52,7 +53,13 @@ export function updateFighterWeaponFire(state: GameState, spaceFluid: SpaceFluid
       }
     }
     if (!target) continue;
-    const angle = f.position.angleTo(target.position);
+    const projectileSpeed = f instanceof BomberShip ? WEAPON_STATS.bigmissile.speed : WEAPON_STATS.fire.speed;
+    const aim = aimAtEntity(f, target, projectileSpeed, {
+      maxPredictionTime: f instanceof BomberShip ? 0.7 : 1.0,
+      fallback: 'shortPrediction',
+    });
+    const angle = aimAngle(aim);
+    if (angle === null) continue;
 
     if (f instanceof SynonymousNovaBomberShip) {
       const charged = f.consumeChargedNova();
@@ -75,7 +82,8 @@ export function updateFighterWeaponFire(state: GameState, spaceFluid: SpaceFluid
       f.consumeShot(f.fireRate);
       for (let i = 0; i < f.droneCount; i++) {
         const start = f.firingOrigin(i);
-        const end = target.position.clone();
+        const laserAim = aimAtEntity(f, target, WEAPON_STATS.laser.speed, { fallback: 'current' });
+        const end = laserAim.aimPoint.clone();
         state.addEntity(new SynonymousDroneLaser(f.team, start, end, f));
         damageLaserLineLimited(state, spaceFluid, start, end, f.weaponDamage, 3, 2, f);
       }
@@ -86,5 +94,17 @@ export function updateFighterWeaponFire(state: GameState, spaceFluid: SpaceFluid
       bullet.damage = f.weaponDamage;
       state.addEntity(bullet);
     }
+    recordCombatAimSample({
+      shooterId: f.id,
+      targetId: target.id,
+      shooter: f.position.clone(),
+      target: target.position.clone(),
+      targetVelocity: target.velocity.clone(),
+      aimPoint: aim.aimPoint.clone(),
+      spawn: f.position.clone(),
+      range: f.weaponRange,
+      interceptValid: aim.valid && !aim.usedFallback,
+      createdAt: state.gameTime,
+    });
   }
 }

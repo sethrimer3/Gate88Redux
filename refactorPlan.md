@@ -92,6 +92,13 @@ Lines removed from `game.ts`: ~100.  New file `src/combatUtils.ts`: ~95 lines.
 
 ## Planned splits (not yet started)
 
+### Current monolith follow-up
+
+- `src/game.ts` is 3,116 lines after the ship-blocker outline change. Keep the
+  next overlay extraction focused on `drawMergedShipBlockerOutlines`,
+  `drawCommandModeOverlay`, `drawBuildingHoverHitpoints`, `drawGlowLayer`,
+  `drawGhostSpectator`, `drawLossOverlay`, and `drawScreenOverlays`.
+
 ### `src/game.ts` (remaining ~3,110 lines)
 
 The `Game` class is the largest remaining monolith.  Suggested extractions

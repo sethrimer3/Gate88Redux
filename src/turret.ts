@@ -8,6 +8,7 @@ import { Colors, colorToCSS } from './colors.js';
 import { ENTITY_RADIUS, WEAPON_STATS, DT, HP_VALUES } from './constants.js';
 import type { GameState } from './gamestate.js';
 import { SynonymousDriftMine, SYNONYMOUS_MINE_LAYER_RANGE } from './synonymousMine.js';
+import { aimAngle, aimAtEntity, isCombatTargetValid, isFiniteVec, isHostileTeam, type PredictiveAimResult } from './targeting.js';
 
 // ---------------------------------------------------------------------------
 // Base turret
@@ -22,6 +23,7 @@ export abstract class TurretBase extends BuildingBase {
   turretAngle: number = 0;
   beamTargetPos: Vec2 | null = null;
   beamTimer: number = 0;
+  lastAim: PredictiveAimResult | null = null;
 
   constructor(
     type: EntityType,
@@ -42,7 +44,13 @@ export abstract class TurretBase extends BuildingBase {
 
     // Rotate towards target
     if (this.targetEntity && this.targetEntity.alive) {
-      const desired = this.position.angleTo(this.targetEntity.position);
+      const aim = this.computeAim(this.targetEntity);
+      const desired = aimAngle(aim);
+      if (desired === null) {
+        this.lastAim = null;
+        this.targetEntity = null;
+      } else {
+        this.lastAim = aim;
       const diff = wrapAngle(desired - this.turretAngle);
       const rotSpeed = 3.0;
       if (Math.abs(diff) < rotSpeed * dt) {
@@ -51,6 +59,7 @@ export abstract class TurretBase extends BuildingBase {
         this.turretAngle = wrapAngle(
           this.turretAngle + Math.sign(diff) * rotSpeed * dt,
         );
+      }
       }
     }
 
@@ -66,11 +75,15 @@ export abstract class TurretBase extends BuildingBase {
 
   /** Check if the turret can fire at its current target. */
   canFire(): boolean {
-    if (this.fireTimer > 0 || !this.targetEntity || !this.targetEntity.alive) {
+    if (this.fireTimer > 0 || !isCombatTargetValid(this, this.targetEntity, this.range)) {
       return false;
     }
-    const dist = this.position.distanceTo(this.targetEntity.position);
-    return dist <= this.range;
+    const aim = this.computeAim(this.targetEntity);
+    const angle = aimAngle(aim);
+    if (angle === null || !isFiniteVec(aim.direction)) return false;
+    this.lastAim = aim;
+    this.turretAngle = angle;
+    return true;
   }
 
   /** Consume a shot, resetting the fire timer. */
@@ -88,10 +101,11 @@ export abstract class TurretBase extends BuildingBase {
    * For most turrets this means nearest enemy; RegenTurret overrides this.
    */
   acquireTarget(entities: Entity[]): void {
+    if (isCombatTargetValid(this, this.targetEntity, this.range)) return;
     let best: Entity | null = null;
     let bestDist = this.range;
     for (const e of entities) {
-      if (!e.alive || e.team === this.team) continue;
+      if (!e.alive || !isHostileTeam(this.team, e.team)) continue;
       const d = this.position.distanceTo(e.position);
       if (d < bestDist) {
         bestDist = d;
@@ -99,6 +113,30 @@ export abstract class TurretBase extends BuildingBase {
       }
     }
     this.targetEntity = best;
+  }
+
+  computeAim(target: Entity): PredictiveAimResult {
+    return aimAtEntity(this, target, this.projectileSpeedForAim(), {
+      maxPredictionTime: this.maxPredictionTimeForAim(),
+      fallback: 'shortPrediction',
+    });
+  }
+
+  projectileSpeedForAim(): number {
+    switch (this.type) {
+      case EntityType.MissileTurret: return WEAPON_STATS.missile.speed;
+      case EntityType.ExciterTurret: return WEAPON_STATS.fire.speed;
+      case EntityType.MassDriverTurret: return WEAPON_STATS.massdriverbullet.speed;
+      default: return WEAPON_STATS.fire.speed;
+    }
+  }
+
+  maxPredictionTimeForAim(): number {
+    switch (this.type) {
+      case EntityType.MissileTurret: return 0.55;
+      case EntityType.MassDriverTurret: return 1.6;
+      default: return 0.9;
+    }
   }
 
   /** Common turret drawing: square platform + barrel line. */
@@ -283,6 +321,14 @@ export class RegenTurret extends TurretBase {
       WEAPON_STATS.regenbullet.fireRate,
       300,
     );
+  }
+
+  /** Override: targets the nearest damaged friendly unit or building. */
+  override canFire(): boolean {
+    if (this.fireTimer > 0 || !this.targetEntity || !this.targetEntity.alive) return false;
+    if (this.targetEntity.team !== this.team || this.targetEntity.health >= this.targetEntity.maxHealth) return false;
+    if (!isFiniteVec(this.position) || !isFiniteVec(this.targetEntity.position)) return false;
+    return this.position.distanceTo(this.targetEntity.position) <= this.range;
   }
 
   /** Override: targets the nearest damaged friendly unit or building. */

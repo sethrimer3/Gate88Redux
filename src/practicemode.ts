@@ -19,6 +19,7 @@ import {
 } from './practiceconfig.js';
 import { BuilderDrone, isBuilderDrone } from './builderdrone.js';
 import { isSynonymousFaction } from './confluence.js';
+import { aimAngle, aimAtEntity, isCombatTargetValid, recordCombatAimSample } from './targeting.js';
 
 const TURRET_FIRE_CHECK_INTERVAL = 0.1;
 const AI_MAIN_SHIP_ORDER_RADIUS = 1000;
@@ -213,6 +214,10 @@ export class PracticeMode {
 
       const target = b.targetEntity;
       if (!target) continue;
+      const aim = b.computeAim(target);
+      const angle = aimAngle(aim);
+      if (b.type !== EntityType.RegenTurret && angle === null) continue;
+      if (angle !== null) b.turretAngle = angle;
       b.consumeShot();
 
       if (b.type === EntityType.RegenTurret) {
@@ -229,19 +234,31 @@ export class PracticeMode {
           state.addEntity(beam);
           Audio.playSoundAt('laser', playerDist);
         } else {
-          state.addEntity(new Missile(b.team, b.position.clone(), b.turretAngle, b, target));
+          state.addEntity(new Missile(b.team, b.position.clone(), angle ?? b.turretAngle, b, target));
           Audio.playSoundAt('missile', playerDist);
         }
       } else if (b.type === EntityType.ExciterTurret) {
-        state.addEntity(new Bullet(b.team, b.position.clone(), b.turretAngle, b));
+        state.addEntity(new Bullet(b.team, b.position.clone(), angle ?? b.turretAngle, b));
         Audio.playSoundAt('exciterbullet', playerDist);
       } else if (b.type === EntityType.MassDriverTurret) {
-        state.addEntity(new MassDriverBullet(b.team, b.position.clone(), b.turretAngle, b));
+        state.addEntity(new MassDriverBullet(b.team, b.position.clone(), angle ?? b.turretAngle, b));
         Audio.playSoundAt('massdriverbullet', playerDist);
       } else {
-        state.addEntity(new Bullet(b.team, b.position.clone(), b.turretAngle, b));
+        state.addEntity(new Bullet(b.team, b.position.clone(), angle ?? b.turretAngle, b));
         Audio.playSoundAt('fire', playerDist);
       }
+      recordCombatAimSample({
+        shooterId: b.id,
+        targetId: target.id,
+        shooter: b.position.clone(),
+        target: target.position.clone(),
+        targetVelocity: target.velocity.clone(),
+        aimPoint: aim.aimPoint.clone(),
+        spawn: b.position.clone(),
+        range: b.range,
+        interceptValid: aim.valid && !aim.usedFallback,
+        createdAt: state.gameTime,
+      });
     }
   }
 
@@ -314,14 +331,20 @@ export class PracticeMode {
       if (f.canFire()) {
         const nearby = state.getEntitiesInRange(f.position, f.weaponRange);
         for (const e of nearby) {
-          if (e.team === Team.Player && e.alive) {
+          if (isCombatTargetValid(f, e, f.weaponRange)) {
+            const projectileSpeed = f instanceof SynonymousNovaBomberShip ? WEAPON_STATS.bigmissile.speed : WEAPON_STATS.fire.speed;
+            const aim = aimAtEntity(f, e, projectileSpeed, {
+              maxPredictionTime: f instanceof SynonymousNovaBomberShip ? 0.7 : 1.0,
+              fallback: 'shortPrediction',
+            });
+            const fireAngle = aimAngle(aim);
+            if (fireAngle === null) continue;
             if (f instanceof SynonymousNovaBomberShip) {
               const charged = f.consumeChargedNova();
               if (charged) {
-                const angle = f.position.angleTo(charged.target);
-                state.addEntity(new SynonymousNovaBomb(f.team, f.position.clone(), angle, charged.aoeRadius, charged.damage, charged.travel, f));
+                state.addEntity(new SynonymousNovaBomb(f.team, f.position.clone(), fireAngle, charged.aoeRadius, charged.damage, charged.travel, f));
               } else {
-                f.beginNovaCharge(e.position);
+                f.beginNovaCharge(aim.aimPoint);
               }
             } else if (f instanceof SynonymousFighterShip) {
               f.markCombatSplit();
@@ -334,10 +357,22 @@ export class PracticeMode {
               }
             } else {
               f.consumeShot(WEAPON_STATS.fire.fireRate);
-              const bullet = new Bullet(f.team, f.position.clone(), f.angle, f);
+              const bullet = new Bullet(f.team, f.position.clone(), fireAngle, f, e);
               bullet.damage = f.weaponDamage;
               state.addEntity(bullet);
             }
+            recordCombatAimSample({
+              shooterId: f.id,
+              targetId: e.id,
+              shooter: f.position.clone(),
+              target: e.position.clone(),
+              targetVelocity: e.velocity.clone(),
+              aimPoint: aim.aimPoint.clone(),
+              spawn: f.position.clone(),
+              range: f.weaponRange,
+              interceptValid: aim.valid && !aim.usedFallback,
+              createdAt: state.gameTime,
+            });
             break;
           }
         }

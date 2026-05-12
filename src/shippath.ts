@@ -1,10 +1,10 @@
-import { EntityType, Team } from './entities.js';
+import { Team } from './entities.js';
 import type { GameState } from './gamestate.js';
-import { GRID_CELL_SIZE, cellCenter, cellKey, footprintOrigin, worldToCell } from './grid.js';
+import { GRID_CELL_SIZE, cellKey } from './grid.js';
 import { Vec2, pointToSegmentDistance } from './math.js';
 import { WORLD_HEIGHT, WORLD_WIDTH } from './constants.js';
-import { footprintForBuildingType } from './buildingfootprint.js';
 import { TurretBase } from './turret.js';
+import { buildingBlocksShips, buildingShipCollisionRect } from './buildingCollision.js';
 
 export interface ShipPathOptions {
   team: Team;
@@ -69,15 +69,13 @@ export function scoreShipRoute(
 function collectWalls(state: GameState, inflate: number): WallRect[] {
   const walls: WallRect[] = [];
   for (const b of state.buildings) {
-    if (!b.alive || b.buildProgress < 1 || b.type !== EntityType.Wall) continue;
-    const c = worldToCell(b.position);
-    const size = footprintForBuildingType(b.type);
-    const origin = footprintOrigin(c.cx, c.cy, size);
+    if (!b.alive || b.buildProgress < 1 || !buildingBlocksShips(b)) continue;
+    const rect = buildingShipCollisionRect(b, inflate);
     walls.push({
-      left: origin.cx * GRID_CELL_SIZE - inflate,
-      right: (origin.cx + size) * GRID_CELL_SIZE + inflate,
-      top: origin.cy * GRID_CELL_SIZE - inflate,
-      bottom: (origin.cy + size) * GRID_CELL_SIZE + inflate,
+      left: rect.left,
+      right: rect.right,
+      top: rect.top,
+      bottom: rect.bottom,
       center: b.position.clone(),
       hp: Math.max(1, b.health + ('shield' in b ? Number(b.shield) || 0 : 0)),
     });

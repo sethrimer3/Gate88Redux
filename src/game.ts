@@ -44,17 +44,19 @@ import { SYNONYMOUS_BUILD_COST, SYNONYMOUS_CURRENCY_SYMBOL } from './synonymous.
 import { cloneDefaultVsAIConfig, rankedDifficultyName, VSAI_RANKED_SCORE_KEY } from './vsaiconfig.js';
 import { GlowLayer } from './glowlayer.js';
 import { DEFAULT_VISUAL_QUALITY, VISUAL_QUALITY_PRESETS, type VisualQuality, type VisualQualityPreset } from './visualquality.js';
-import { drawConfluenceTerritory, drawDebugOverlay, drawWaypointMarkers, type ShipCommandGroup, type WaypointMarker } from './gameRender.js';
+import { drawCombatTargetingDebug, drawConfluenceTerritory, drawDebugOverlay, drawWaypointMarkers, type ShipCommandGroup, type WaypointMarker } from './gameRender.js';
 import type { NetInputSnapshot, NetGameSnapshot } from './net/protocol.js';
 import type { WebRtcTransport } from './online/webrtcTransport.js';
 import { isHomingTarget, findClosestEnemy, damageLaserLine, damageLaserLineLimited } from './combatUtils.js';
 import { injectFluidForces } from './fluidForces.js';
 import { fireTurretShots } from './turretCombat.js';
 import { updateFighterWeaponFire } from './fighterCombat.js';
+import { buildingBlocksShips } from './buildingCollision.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 
 const PLAYER_FIRE_COOLDOWN = WEAPON_STATS.fire.fireRate * DT;
+const MAX_FIXED_UPDATES_PER_FRAME = 5;
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -281,10 +283,15 @@ export class Game {
     // Input.update() is called after each fixed tick so that per-frame events
     // (wasPressed, doubleTapped, etc.) are never dropped at high frame rates
     // and are never processed more than once.
-    while (this.accumulator >= DT) {
+    let fixedUpdates = 0;
+    while (this.accumulator >= DT && fixedUpdates < MAX_FIXED_UPDATES_PER_FRAME) {
       this.fixedUpdate();
       Input.update();
       this.accumulator -= DT;
+      fixedUpdates++;
+    }
+    if (fixedUpdates === MAX_FIXED_UPDATES_PER_FRAME && this.accumulator >= DT) {
+      this.accumulator = 0;
     }
 
     this.render();
@@ -2579,7 +2586,7 @@ export class Game {
       this.visualPreset.conduitShimmer,
     );
     this.state.drawEntities(ctx, this.camera);
-    this.drawMergedWallOutlines(ctx);
+    this.drawMergedShipBlockerOutlines(ctx);
     this.drawGhostSpectator(ctx);
     drawWaypointMarkers(ctx, this.camera, this.state, this.waypointMarkers);
     this.drawCommandModeOverlay(ctx, w, h);
@@ -2653,6 +2660,7 @@ export class Game {
     }
 
     if (this.debugOverlay) {
+      drawCombatTargetingDebug(ctx, this.camera, this.state);
       drawDebugOverlay(ctx, {
         screenW: w,
         state: this.state,
@@ -2726,24 +2734,29 @@ export class Game {
     ctx.restore();
   }
 
-  private drawMergedWallOutlines(ctx: CanvasRenderingContext2D): void {
-    const walls = this.state.buildings.filter((b): b is Wall =>
-      b.alive && b.buildProgress >= 1 && b instanceof Wall,
+  private drawMergedShipBlockerOutlines(ctx: CanvasRenderingContext2D): void {
+    const blockers = this.state.buildings.filter((b) =>
+      b.alive && b.buildProgress >= 1 && buildingBlocksShips(b),
     );
-    if (walls.length === 0) return;
+    if (blockers.length === 0) return;
 
     const cells = new Set<string>();
     const entries: Array<{ x: number; y: number; team: Team; shielded: boolean }> = [];
-    for (const wall of walls) {
-      const size = footprintForBuildingType(wall.type);
-      const cx = Math.floor(wall.position.x / GRID_CELL_SIZE);
-      const cy = Math.floor(wall.position.y / GRID_CELL_SIZE);
+    for (const building of blockers) {
+      const size = footprintForBuildingType(building.type);
+      const cx = Math.floor(building.position.x / GRID_CELL_SIZE);
+      const cy = Math.floor(building.position.y / GRID_CELL_SIZE);
       const originX = cx - Math.floor(size / 2);
       const originY = cy - Math.floor(size / 2);
       for (let y = originY; y < originY + size; y++) {
         for (let x = originX; x < originX + size; x++) {
-          cells.add(`${wall.team}:${x},${y}`);
-          entries.push({ x, y, team: wall.team, shielded: wall.maxShield > 0 });
+          cells.add(`${building.team}:${x},${y}`);
+          entries.push({
+            x,
+            y,
+            team: building.team,
+            shielded: building instanceof Wall && building.maxShield > 0,
+          });
         }
       }
     }

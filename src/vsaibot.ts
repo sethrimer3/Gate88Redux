@@ -36,6 +36,8 @@ import { TurretBase } from './turret.js';
 import { VsAIConfig, effectiveApm, effectiveDifficultyScalar } from './vsaiconfig.js';
 import { tryFireSpecial } from './special.js';
 import type { EnemyBasePlanner } from './enemybaseplanner.js';
+import { aimAngle, aimAtEntity, recordCombatAimSample } from './targeting.js';
+import { WEAPON_STATS } from './constants.js';
 
 const VISION_RADIUS = 900;
 const RETREAT_HEALTH_FRACTION = 0.35;
@@ -594,8 +596,12 @@ export class VsAIDirector {
                               moveTarget.y - this.ship.position.y);
     const dist = toTarget.length();
 
-    // Aim
-    this.ship.desiredAim = target.clone();
+    const liveGoalEntity = this.findLiveGoalEntity();
+    const aim = liveGoalEntity
+      ? aimAtEntity(this.ship, liveGoalEntity, WEAPON_STATS.fire.speed, { maxPredictionTime: 1.0, fallback: 'shortPrediction' })
+      : null;
+    const aimPoint = aim?.valid ? aim.aimPoint : target;
+    this.ship.desiredAim = aimPoint.clone();
 
     // Move strategy depends on goal.
     if (this.goal === 'retreat') {
@@ -628,13 +634,32 @@ export class VsAIDirector {
 
     // Resolve actual fire.
     if (this.ship.wantsFire && this.ship.canFirePrimary()) {
+      const fireAngle = aim ? aimAngle(aim) : this.ship.angle;
+      if (fireAngle === null) {
+        this.ship.wantsFire = false;
+      } else {
       this.ship.consumePrimaryFire(PRIMARY_FIRE_COOLDOWN);
       const playerDist = state.player.alive
         ? state.player.position.distanceTo(this.ship.position)
         : 9999;
       state.addEntity(new Bullet(this.ship.team, this.ship.position.clone(),
-        this.ship.angle, this.ship, state.player.alive ? state.player : null));
+        fireAngle, this.ship, liveGoalEntity ?? (state.player.alive ? state.player : null)));
       Audio.playSoundAt('fire', playerDist);
+      if (liveGoalEntity && aim) {
+        recordCombatAimSample({
+          shooterId: this.ship.id,
+          targetId: liveGoalEntity.id,
+          shooter: this.ship.position.clone(),
+          target: liveGoalEntity.position.clone(),
+          targetVelocity: liveGoalEntity.velocity.clone(),
+          aimPoint: aim.aimPoint.clone(),
+          spawn: this.ship.position.clone(),
+          range: 380,
+          interceptValid: aim.valid && !aim.usedFallback,
+          createdAt: state.gameTime,
+        });
+      }
+      }
     }
 
     // Special ability — used sparingly when an obvious cluster of player
@@ -658,6 +683,21 @@ export class VsAIDirector {
       return;
     }
     this.ship.desiredMove = new Vec2((v.x / len) * scale, (v.y / len) * scale);
+  }
+
+  private findLiveGoalEntity(): Entity | null {
+    if (!this.goalTarget) return null;
+    let best: Entity | null = null;
+    let bestDist = 90;
+    for (const m of this.memory.values()) {
+      if (!m.entity.alive || m.entity.team !== Team.Player) continue;
+      const d = m.entity.position.distanceTo(this.goalTarget);
+      if (d < bestDist) {
+        bestDist = d;
+        best = m.entity;
+      }
+    }
+    return best;
   }
 }
 
