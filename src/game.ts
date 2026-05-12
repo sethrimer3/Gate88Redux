@@ -37,7 +37,7 @@ import { isConfluenceFaction, isSynonymousFaction, resolveRaceSelection, type Fa
 import { SYNONYMOUS_BUILD_COST, SYNONYMOUS_CURRENCY_SYMBOL } from './synonymous.js';
 import { cloneDefaultVsAIConfig, rankedDifficultyName, VSAI_RANKED_SCORE_KEY } from './vsaiconfig.js';
 import { GlowLayer } from './glowlayer.js';
-import { DEFAULT_VISUAL_QUALITY, VISUAL_QUALITY_PRESETS, type VisualQuality, type VisualQualityPreset } from './visualquality.js';
+import { DEFAULT_VISUAL_QUALITY, VISUAL_QUALITY_PRESETS, type VisualQuality, type VisualQualityPreset, loadVisualQuality, saveVisualQuality } from './visualquality.js';
 import { drawCombatTargetingDebug, drawConfluenceTerritory, drawDebugOverlay, drawWaypointMarkers, type ShipCommandGroup, type WaypointMarker } from './gameRender.js';
 import type { NetInputSnapshot, NetGameSnapshot } from './net/protocol.js';
 import type { WebRtcTransport } from './online/webrtcTransport.js';
@@ -223,7 +223,7 @@ export class Game {
     this.spaceFluid = createSpaceFluid();
     this.glowLayer = new GlowLayer();
     this.spaceFluid.resize(window.innerWidth, window.innerHeight);
-    this.applyVisualQuality(this.visualQuality);
+    this.applyVisualQuality(loadVisualQuality());
 
     this.resizeCanvas();
     window.addEventListener('resize', () => this.resizeCanvas());
@@ -247,6 +247,8 @@ export class Game {
     this.spaceFluid.setLowGraphicsMode(this.visualPreset.fluidLowGraphics);
     this.glowLayer.configure(this.visualPreset.glowEnabled, this.visualPreset.glowScale);
     this.state?.ringEffects.setMaxLive(quality === 'low' ? 32 : quality === 'medium' ? 64 : 96);
+    this.mainMenu.visualQuality = quality;
+    saveVisualQuality(quality);
   }
 
   private get screenW(): number {
@@ -328,11 +330,17 @@ export class Game {
       }
     }
     const action = this.mainMenu.update(DT, this.screenW, this.screenH);
+    if (this.mainMenu.visualQuality !== this.visualQuality) {
+      this.applyVisualQuality(this.mainMenu.visualQuality);
+    }
     this.handleMenuAction(action);
   }
 
   private updatePaused(): void {
     const action = this.mainMenu.update(DT, this.screenW, this.screenH);
+    if (this.mainMenu.visualQuality !== this.visualQuality) {
+      this.applyVisualQuality(this.mainMenu.visualQuality);
+    }
     this.handleMenuAction(action);
   }
 

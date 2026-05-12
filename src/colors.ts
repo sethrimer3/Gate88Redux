@@ -80,6 +80,8 @@ export const Colors = {
   particles_explosion2:         c(130, 110, 0, 1.0),
   particles_explosion3:         c(255, 255, 255, 1.0),
   particles_spark:              c(0, 210, 255, 1.0),
+  particles_ember:              c(255, 140, 20, 1.0),
+  particles_nova:               c(255, 240, 180, 1.0),
   healthbar:                    c(0, 53, 0, 4.0),
   batterybar:                   c(107, 0, 1, 2.0),
   alert1:                       c(255, 0, 0, 1.0),

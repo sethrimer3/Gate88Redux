@@ -106,6 +106,23 @@ export class RingEffectSystem {
       if (!camera.isOnScreen(e.center, r + 40)) continue;
       const palette = this.paletteFor(e.kind);
 
+      // Warm halo band at the leading edge — a faint radial glow just inside
+      // the main ring.  Skip on very small effects to avoid overdraw cost.
+      if (radiusPx > 16 && palette.haloAlpha > 0) {
+        const inner = Math.max(0, radiusPx - palette.haloWidth);
+        const grad = ctx.createRadialGradient(
+          screen.x, screen.y, inner,
+          screen.x, screen.y, radiusPx + 4,
+        );
+        grad.addColorStop(0, colorToCSS(palette.outer, 0));
+        grad.addColorStop(0.45, colorToCSS(palette.outer, palette.haloAlpha * alpha));
+        grad.addColorStop(1, colorToCSS(palette.outer, 0));
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, radiusPx + 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
       // Outer ring
       ctx.strokeStyle = colorToCSS(palette.outer, palette.outerAlpha * alpha);
       ctx.lineWidth = palette.width;
@@ -143,19 +160,21 @@ export class RingEffectSystem {
     width: number;
     gap: number;
     dashed: boolean;
+    haloAlpha: number;
+    haloWidth: number;
   } {
     switch (kind) {
       case 'shockwave':
-        return { outer: Colors.particles_switch, inner: Colors.explosion, outerAlpha: 0.62, innerAlpha: 0.32, width: 2.5, gap: 10, dashed: false };
+        return { outer: Colors.particles_switch, inner: Colors.explosion, outerAlpha: 0.72, innerAlpha: 0.38, width: 3, gap: 10, dashed: false, haloAlpha: 0.06, haloWidth: 28 };
       case 'emp_wave':
-        return { outer: Colors.particles_spark, inner: Colors.radar_allied_status, outerAlpha: 0.56, innerAlpha: 0.28, width: 2, gap: 12, dashed: true };
+        return { outer: Colors.particles_spark, inner: Colors.radar_allied_status, outerAlpha: 0.62, innerAlpha: 0.32, width: 2, gap: 12, dashed: true, haloAlpha: 0.04, haloWidth: 20 };
       case 'build_complete_wave':
       case 'power_restore_wave':
       case 'power_wave':
-        return { outer: Colors.particles_friendly_exhaust, inner: Colors.radar_friendly_status, outerAlpha: 0.6, innerAlpha: 0.35, width: 2, gap: 8, dashed: false };
+        return { outer: Colors.particles_friendly_exhaust, inner: Colors.radar_friendly_status, outerAlpha: 0.68, innerAlpha: 0.40, width: 2.5, gap: 8, dashed: false, haloAlpha: 0.05, haloWidth: 22 };
       case 'blackout_wave':
       case 'blackout':
-        return { outer: Colors.alert1, inner: Colors.enemyfire, outerAlpha: 0.7, innerAlpha: 0.4, width: 2, gap: 8, dashed: true };
+        return { outer: Colors.alert1, inner: Colors.enemyfire, outerAlpha: 0.76, innerAlpha: 0.44, width: 2.5, gap: 8, dashed: true, haloAlpha: 0.04, haloWidth: 18 };
     }
   }
 

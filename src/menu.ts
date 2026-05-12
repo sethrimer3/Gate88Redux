@@ -55,6 +55,7 @@ import {
 } from './online/supabaseClient.js';
 import { OnlineLobbyManager } from './online/onlineLobby.js';
 import { SignalingClient } from './online/signalingClient.js';
+import { DEFAULT_VISUAL_QUALITY, type VisualQuality } from './visualquality.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -159,6 +160,13 @@ export class MainMenu {
   practiceConfig: PracticeConfig = cloneDefaultPracticeConfig();
   /** Persisted Vs. AI config. */
   vsAIConfig: VsAIConfig = cloneDefaultVsAIConfig();
+
+  /**
+   * Current graphics quality level.  Set externally by game.ts via
+   * applyVisualQuality() and read back from the settings / pause screens.
+   * Defaults to medium until game.ts overrides it from localStorage.
+   */
+  visualQuality: VisualQuality = DEFAULT_VISUAL_QUALITY;
 
   // -------------------------------------------------------------------------
   // LAN multiplayer state
@@ -428,6 +436,14 @@ export class MainMenu {
       case 'pause':
         return [
           { label: 'Resume', action: () => { this.pendingAction = 'resume'; } },
+          {
+            label: `Graphics: ${visualQualityLabel(this.visualQuality)}`,
+            action: () => {
+              const next: Record<VisualQuality, VisualQuality> = { low: 'medium', medium: 'high', high: 'low' };
+              this.visualQuality = next[this.visualQuality];
+            },
+            description: 'Low / Medium / High — click to cycle',
+          },
           { label: 'Quit to Menu', action: () => { this.pendingAction = 'quit_to_menu'; } },
         ];
       default:
@@ -886,6 +902,17 @@ export class MainMenu {
     const x = cx - 230;
     let y = 160;
     const rowH = 44;
+
+    const QUALITY_OPTIONS: VisualQuality[] = ['low', 'medium', 'high'];
+    y = this.drawCycleRow<VisualQuality>(
+      ctx, x, y, rowH, 'Graphics Quality',
+      this.visualQuality,
+      QUALITY_OPTIONS,
+      (v) => { this.visualQuality = v; },
+      visualQualityLabel,
+      QUALITY_OPTIONS.indexOf(this.visualQuality) / (QUALITY_OPTIONS.length - 1),
+    );
+
     y = this.drawThemeColorRow(ctx, x, y, rowH, 'Player Color', themeSettings.playerColor, (v) => {
       themeSettings.playerColor = v;
       applyThemeColors();
@@ -2318,6 +2345,14 @@ export class MainMenu {
 // ---------------------------------------------------------------------------
 // Local label helpers
 // ---------------------------------------------------------------------------
+
+function visualQualityLabel(v: VisualQuality): string {
+  switch (v) {
+    case 'low':    return 'Low';
+    case 'medium': return 'Medium';
+    case 'high':   return 'High';
+  }
+}
 
 function researchUnlockLabel(v: ResearchUnlock): string {
   switch (v) {
