@@ -82,6 +82,23 @@ export const Colors = {
   particles_spark:              c(0, 210, 255, 1.0),
   particles_ember:              c(255, 140, 20, 1.0),
   particles_nova:               c(255, 240, 180, 1.0),
+  // Impact flash — used for non-lethal projectile hits
+  particles_impact:             c(255, 220, 100, 1.0),
+  // Muzzle flash — brief bright burst at weapon muzzle
+  particles_muzzle:             c(255, 250, 180, 1.0),
+  // Weapon-type projectile trail/core colors
+  bullet_player_cannon:         c(180, 255, 230, 1.1),  // cyan-green streaks for player cannon
+  bullet_enemy_cannon:          c(255, 110, 60, 1.0),   // warm orange-red for enemy cannon
+  bullet_player_gatling:        c(200, 255, 90, 1.0),   // bright lime for player gatling
+  bullet_enemy_gatling:         c(255, 80, 80, 1.0),    // hot red for enemy gatling
+  bullet_player_turret:         c(130, 230, 255, 1.0),  // cool cyan for player turret bullets
+  bullet_enemy_turret:          c(255, 140, 40, 1.0),   // amber-orange for enemy turret bullets
+  missile_trail:                c(255, 160, 40, 1.0),   // warm orange ember trail (all missiles)
+  // Building ambient glow
+  building_glow_power:          c(180, 220, 60, 1.0),   // yellow-green power generator glow
+  building_glow_research:       c(60, 220, 180, 1.0),   // teal research lab glow
+  building_glow_factory:        c(200, 130, 30, 1.0),   // amber factory glow
+  building_glow_shipyard:       c(140, 200, 255, 1.0),  // cool blue shipyard glow
   healthbar:                    c(0, 53, 0, 4.0),
   batterybar:                   c(107, 0, 1, 2.0),
   alert1:                       c(255, 0, 0, 1.0),

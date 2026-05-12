@@ -6,6 +6,15 @@ import { Team } from './entities.js';
 import { Colors, colorToCSS, Color } from './colors.js';
 
 // ---------------------------------------------------------------------------
+// Effect budget constants
+// ---------------------------------------------------------------------------
+
+/** Maximum sparks emitted per impact (scaled by particleScale). */
+const IMPACT_SPARK_COUNT = 6;
+/** Maximum sparks emitted per muzzle flash (scaled by particleScale). */
+const MUZZLE_SPARK_COUNT = 3;
+
+// ---------------------------------------------------------------------------
 // Single particle
 // ---------------------------------------------------------------------------
 
@@ -66,9 +75,22 @@ function lightenColor(color: Color, amount: number): Color {
 export class ParticleSystem {
   private pool: Particle[];
   private nextIndex: number = 0;
+  /**
+   * Fraction (0–1) of the full particle budget to emit.  Controlled by the
+   * active visual-quality preset via {@link setParticleScale}.
+   */
+  private _particleScale: number = 1;
 
   constructor() {
     this.pool = Array.from({ length: POOL_SIZE }, createParticle);
+  }
+
+  /**
+   * Set the quality scale that governs how many particles are spawned for
+   * expensive emitters (explosions, sparks).  1 = full quality; 0.35 = low.
+   */
+  setParticleScale(scale: number): void {
+    this._particleScale = Math.max(0.1, Math.min(1, scale));
   }
 
   private acquire(): Particle {
@@ -183,7 +205,10 @@ export class ParticleSystem {
   }
 
   emitExplosion(pos: Vec2, size: number): void {
+    const scale = this._particleScale;
+
     // Central nova flash — warm ivory burst that fades almost instantly.
+    // Always emit at least one nova flash regardless of quality.
     {
       const p = this.acquire();
       p.active = true;
@@ -201,7 +226,7 @@ export class ParticleSystem {
 
     // Primary fireball — large additive particles that bloom together.
     // Warm palette: red → orange → amber → bright yellow → warm white.
-    const primaryCount = Math.floor(18 + size * 2.5);
+    const primaryCount = Math.max(2, Math.floor((18 + size * 2.5) * scale));
     const fireballColors: Color[] = [
       Colors.particles_explosion1,
       Colors.particles_explosion2,
@@ -230,7 +255,7 @@ export class ParticleSystem {
     // Secondary debris — mix of normal-blend particles and warm additive embers.
     // Additive embers (60 %) give a glowing warm haze; normal debris (40 %) adds
     // solid scattered chunks so the explosion reads clearly at any zoom level.
-    const debrisCount = Math.floor(8 + size * 1.2);
+    const debrisCount = Math.max(1, Math.floor((8 + size * 1.2) * scale));
     for (let i = 0; i < debrisCount; i++) {
       const useEmber = i % 5 < 3; // 60 % additive embers
       const p = this.acquire();
@@ -251,7 +276,7 @@ export class ParticleSystem {
 
     // High-velocity sparks — warm orange/ivory and bright yellow streaks.
     const sparkColors: Color[] = [Colors.alert2, Colors.particles_ember, Colors.particles_nova];
-    const sparkCount = Math.min(10, Math.floor(3 + size * 0.22));
+    const sparkCount = Math.max(1, Math.min(10, Math.floor((3 + size * 0.22) * scale)));
     for (let i = 0; i < sparkCount; i++) {
       const p = this.acquire();
       p.active = true;
@@ -271,7 +296,7 @@ export class ParticleSystem {
   }
 
   emitSpark(pos: Vec2): void {
-    const count = 5;
+    const count = Math.max(1, Math.round(5 * this._particleScale));
     for (let i = 0; i < count; i++) {
       const p = this.acquire();
       p.active = true;
@@ -324,6 +349,76 @@ export class ParticleSystem {
       p.life = randomRange(0.3, 0.7);
       p.maxLife = p.life;
       p.size = randomRange(1, 2.5);
+      p.additive = true;
+    }
+  }
+
+  /**
+   * Emit a small burst of directional impact sparks when a non-lethal
+   * projectile hit occurs.  Scaled by the quality budget.
+   * @param pos   World position of the impact
+   * @param angle Angle of the incoming projectile (radians) — sparks scatter
+   *              around the reverse (impact-normal) direction.
+   */
+  emitImpact(pos: Vec2, angle: number): void {
+    const count = Math.max(1, Math.round(IMPACT_SPARK_COUNT * this._particleScale));
+    for (let i = 0; i < count; i++) {
+      const p = this.acquire();
+      p.active = true;
+      p.x = pos.x;
+      p.y = pos.y;
+      // Scatter sparks roughly away from the projectile direction
+      const scatter = (Math.random() - 0.5) * Math.PI * 1.4;
+      const backAngle = angle + Math.PI + scatter;
+      const spd = randomRange(80, 200);
+      p.vx = Math.cos(backAngle) * spd;
+      p.vy = Math.sin(backAngle) * spd;
+      p.color = Colors.particles_impact;
+      p.alpha = 1;
+      p.life = randomRange(0.06, 0.18);
+      p.maxLife = p.life;
+      p.size = randomRange(0.8, 2.2);
+      p.additive = true;
+    }
+  }
+
+  /**
+   * Emit a brief bright muzzle flash when a weapon fires.
+   * @param pos   World position of the muzzle tip
+   * @param angle Firing angle (radians)
+   */
+  emitMuzzleFlash(pos: Vec2, angle: number): void {
+    // Central flash particle
+    {
+      const p = this.acquire();
+      p.active = true;
+      p.x = pos.x;
+      p.y = pos.y;
+      p.vx = Math.cos(angle) * 20;
+      p.vy = Math.sin(angle) * 20;
+      p.color = Colors.particles_muzzle;
+      p.alpha = 1;
+      p.life = 0.055;
+      p.maxLife = p.life;
+      p.size = randomRange(2.5, 4.5);
+      p.additive = true;
+    }
+    // A few rapid sparks in the forward cone
+    const sparkCount = Math.max(1, Math.round(MUZZLE_SPARK_COUNT * this._particleScale));
+    for (let i = 0; i < sparkCount; i++) {
+      const p = this.acquire();
+      p.active = true;
+      p.x = pos.x;
+      p.y = pos.y;
+      const spread = (Math.random() - 0.5) * 0.9;
+      const spd = randomRange(120, 280);
+      p.vx = Math.cos(angle + spread) * spd;
+      p.vy = Math.sin(angle + spread) * spd;
+      p.color = Colors.particles_nova;
+      p.alpha = 0.9;
+      p.life = randomRange(0.04, 0.10);
+      p.maxLife = p.life;
+      p.size = randomRange(0.6, 1.6);
       p.additive = true;
     }
   }

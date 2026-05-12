@@ -2,7 +2,98 @@
 
 ---
 
-## Terran AI Base Construction — PR 20 Implementation Summary
+## Visual Overhaul Pass 2 — Build 030 — Remaining Work
+
+Build 030 implemented the highest-impact parts of the second-pass visual overhaul. The following items were deferred because they are either complex, require deeper architectural changes, or need more content art direction before implementation.
+
+### High Priority
+
+**1. Per-building layered rendering (building.ts)**
+The building draw methods are currently dense one-liners (legacy style). A proper
+second-pass overhaul would expand each building class's `draw()` method into
+multi-layer rendering:
+- `PowerGenerator`: glowing energy orb core with emanating spokes and pulsing outer shell
+- `ResearchLab`: multi-ring scanning animation with orbiting node dots
+- `Factory`: animated gear with coolant pipes and intake vents
+- `Shipyard`: launch bay opening animation; ship silhouettes docking/undocking
+- `CommandPost`: satellite dish animation or antenna cross with rotating radar sweep
+- `Turrets`: distinct barrel/mount shapes per type (gatling = multi-barrel, missile = launch tubes, exciter = antenna array)
+
+Each building should use the warm color constants added in Build 030
+(`building_glow_power`, `building_glow_research`, etc.).
+
+**2. Fighter damage flicker and death breakup (fighter.ts)**
+When a fighter takes heavy damage:
+- Add a `damageFraction`-based flicker to the outline alpha
+- Add a small random "twist" to the angle when near death
+
+When a fighter dies at high speed:
+- Emit a short spinning fragment arc from `emitExplosion`
+- Already partially handled by `emitExplosion` but could be richer
+
+**3. Player ship visual polish (ship.ts)**
+The player ship already has good thruster trails but could benefit from:
+- A more elaborate 3-layer silhouette (hull + wing outlines + engine pod)
+- Weapon-specific muzzle positions (cannon = bow tip, gatling = side pods)
+- Shield hit flash when shield absorbs damage
+
+**4. Synonymous faction visual overhaul (fighter.ts / building.ts)**
+The Synonymous faction drones share the same triangle silhouette as standard fighters.
+Give them a distinctive swarm-style visual:
+- Hexagonal core dot surrounded by small orbiting flecks
+- Nova-bomber: larger glowing sphere with drone count indicator arcs
+
+**5. Build placement and command indicator polish (actionmenu.ts / game.ts)**
+- Build placement ghost: add a warm pulsing outer ring at `buildRadius` to show influence area
+- Invalid placement: red cross-hatch overlay (not just the current red tint)
+- Rally point: animated radiating ring at the rally position
+- Attack command: briefly draw a crosshair/reticle at the target position
+
+### Medium Priority
+
+**6. Directional conduit energy flow (grid.ts)**
+The `drawConduitPulses()` method added in Build 030 draws individual pulses per cell.
+A more satisfying version would:
+- Precompute energy flow direction per conduit cell using the PowerGraph BFS tree
+- Animate pulses traveling FROM generator cells TOWARD powered buildings
+- Only recalculate directions when the power graph is invalidated
+
+**7. Selection and hover feedback (commandMode / game.ts)**
+- Selected units: draw elegant bracket corners (not just a circle)
+- Hovered buildings: draw a subtle warm outline highlight
+- Drag selection box: replace the plain rectangle with a polished semi-transparent box
+  with corner brackets
+
+**8. Range and targeting indicator polish (turret.ts / gameOverlays.ts)**
+- Gatling turret: draw a narrow scanning arc when no target is acquired
+- Exciter turret: add a brief targeting bracket animation around the lock-on target
+  before firing (currently only has the lock-on circle in High mode)
+- Mass driver turret: draw a heavy kinetic reticle with range ring
+
+**9. Warmer background atmosphere (nebula.ts)**
+- The current nebula is blue/purple/red. Add a golden/amber mid-section nebula
+  centered around the contested border zone
+- Add very subtle slow-moving dust particles in the background in High mode
+  (use the existing StarField's twinkling infrastructure for performance)
+
+### Low Priority / Stretch
+
+**10. Death spin for large ships**
+When a large ship (Synonymous nova bomber, player ship) dies, briefly emit a
+spinning angular fragment arc before the explosion.
+
+**11. Weapon charge-up feedback for player**
+When the laser is charging (RMB hold), add an expanding glow ring around the
+player ship that fills in as charge completes. Already has some charge visuals
+but could be dramatically improved.
+
+**12. Warm ambient scan-line for buildings**
+Add a very slow vertical "scan" highlight that travels up each powered building,
+suggesting an active status readout. Should be on a ~4-second cycle and very subtle.
+
+---
+
+
 
 This PR (Build 020) addressed the most critical breakage in the Terran enemy AI
 base-construction system.

@@ -247,6 +247,8 @@ export class Game {
     this.spaceFluid.setLowGraphicsMode(this.visualPreset.fluidLowGraphics);
     this.glowLayer.configure(this.visualPreset.glowEnabled, this.visualPreset.glowScale);
     this.state?.ringEffects.setMaxLive(quality === 'low' ? 32 : quality === 'medium' ? 64 : 96);
+    this.state?.particles.setParticleScale(this.visualPreset.particleScale);
+    this.starfield.setShootingStarsEnabled(this.visualPreset.shootingStarsEnabled);
     this.mainMenu.visualQuality = quality;
     saveVisualQuality(quality);
   }
@@ -450,6 +452,16 @@ export class Game {
       this.hud.showMessage(`Research complete: ${researchDisplayName(item)}`, Colors.researchlab_detail, 4);
     }
 
+    // Emit build-completion particle effect for any building that just finished
+    // constructing this tick.  The flag is set by Building.update() and cleared
+    // here so the burst fires exactly once.
+    for (const b of this.state.buildings) {
+      if (b.completionEffectPending) {
+        b.completionEffectPending = false;
+        this.state.particles.emitBuildEffect(b.position);
+      }
+    }
+
     // Detect player damage events to trigger the screen damage flash.
     if (this.state.player.alive) {
       const curHealth = this.state.player.health;
@@ -474,6 +486,15 @@ export class Game {
 
     // Camera follows the living ship, or the ghost spectator while dead.
     this.camera.update(this.ghostSpectatorPos ?? this.state.player.position, DT);
+
+    // Drain accumulated shake requests from the game state and apply to camera
+    // if the current quality preset has camera shake enabled.
+    if (this.state.pendingShakeMagnitude > 0) {
+      if (this.visualPreset.cameraShakeEnabled) {
+        this.camera.addShake(this.state.pendingShakeMagnitude);
+      }
+      this.state.pendingShakeMagnitude = 0;
+    }
 
     // Emit exhaust particles when the player is thrusting (any WASD key).
     // Exhaust trails opposite the actual thrust direction, which under the new
@@ -2283,6 +2304,16 @@ export class Game {
       (cx, cy, team) => this.state.power.isCellEnergized(team, cx, cy),
       this.visualPreset.conduitShimmer,
     );
+    if (this.visualPreset.conduitPulseEnabled) {
+      this.state.grid.drawConduitPulses(
+        ctx,
+        this.camera,
+        w,
+        h,
+        this.state.gameTime,
+        (cx, cy, team) => this.state.power.isCellEnergized(team, cx, cy),
+      );
+    }
     this.state.drawEntities(ctx, this.camera);
     drawMergedShipBlockerOutlines(ctx, this.camera, this.state);
     drawGhostSpectator(ctx, this.camera, this.state, this.ghostSpectatorPos);

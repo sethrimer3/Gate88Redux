@@ -98,6 +98,12 @@ export class GameState {
   explosionGlows: ExplosionGlow[] = [];
   /** Ring/blackout pulse effects (PR9). */
   ringEffects: RingEffectSystem = new RingEffectSystem();
+  /**
+   * Accumulated screen-shake magnitude from explosions this frame.
+   * Consumed and reset by game.ts each tick via camera.addShake().
+   * Quality-gated: game.ts only passes it through if cameraShakeEnabled.
+   */
+  pendingShakeMagnitude: number = 0;
   /** PR3: universal world grid storing painted conduits. */
   grid: WorldGrid = new WorldGrid();
   /** PR5: graph-based power network (lazy, dirty-flag cached). */
@@ -460,6 +466,8 @@ export class GameState {
       this.recentlyDamaged.add(target.id);
       if (!target.alive) {
         this.particles.emitExplosion(target.position, target.radius);
+        // Larger targets add screen shake
+        this.pendingShakeMagnitude = Math.min(Camera.MAX_SHAKE, this.pendingShakeMagnitude + Math.min(4, target.radius * 0.12));
         // Explosion sound — size depends on entity type
         const playerDist = this.player.position.distanceTo(target.position);
         if (
@@ -486,8 +494,9 @@ export class GameState {
           Audio.playSoundAt('explode0', playerDist);
         }
       } else {
-        // Non-fatal hit — play hit sound and emit spark
-        this.particles.emitSpark(target.position);
+        // Non-fatal hit — play hit sound, emit directional impact sparks
+        const hitAngle = Math.atan2(proj.velocity.y, proj.velocity.x);
+        this.particles.emitImpact(target.position, hitAngle);
         const playerDist = this.player.position.distanceTo(target.position);
         Audio.playSoundAt('bhit0', playerDist);
       }
@@ -811,9 +820,11 @@ export class GameState {
     this.recentlyDamaged.add(target.id);
     if (!target.alive) {
       this.particles.emitExplosion(target.position, target.radius);
+      this.pendingShakeMagnitude = Math.min(Camera.MAX_SHAKE, this.pendingShakeMagnitude + Math.min(4, target.radius * 0.12));
       this.playEntityExplosionSound(target);
     } else {
-      this.particles.emitSpark(target.position);
+      const hitAngle = Math.atan2(proj.velocity.y, proj.velocity.x);
+      this.particles.emitImpact(target.position, hitAngle);
       const playerDist = this.player.position.distanceTo(target.position);
       Audio.playSoundAt('bhit0', playerDist);
     }
@@ -842,6 +853,8 @@ export class GameState {
     this.spawnExplosionGlow(pos, blastRadius);
     this.ringEffects.spawn('shockwave', pos, blastRadius * 0.08, blastRadius * 1.08, 0.55, 1.35);
     this.ringEffects.spawn('blackout_wave', pos, blastRadius * 0.2, blastRadius * 0.78, 0.36, 0.5);
+    // Larger blasts contribute more shake
+    this.pendingShakeMagnitude = Math.min(Camera.MAX_SHAKE, this.pendingShakeMagnitude + Math.min(7, blastRadius * 0.07));
     const playerDist = this.player.position.distanceTo(pos);
     Audio.playSoundAt(blastRadius > 70 ? 'explode2' : 'explode1', playerDist);
   }

@@ -30,12 +30,28 @@ export abstract class BuildingBase extends Entity {
   deleting = false;
   synonymousVisualKind: 'base' | 'factory' | 'researchlab' | 'laserturret' | 'minelayer' | 'shipyard' | null = null;
   animationTime = 0;
+  /**
+   * Set to `true` by `update()` the moment `buildProgress` first reaches 1.
+   * Cleared externally (e.g. by game.ts) after the completion effect is emitted
+   * so the effect fires exactly once per construction event.
+   */
+  completionEffectPending = false;
 
   constructor(type: EntityType, team: Team, position: Vec2, health: number, radius: number = ENTITY_RADIUS.building) {
     super(type, team, position, health, radius);
     this.velocity.set(0, 0);
   }
-  update(dt: number): void { if (!this.alive) return; this.animationTime += dt; if (this.buildProgress < 1) this.buildProgress = this.buildDurationSeconds <= 0 ? 1 : Math.min(1, this.buildProgress + dt / this.buildDurationSeconds); if (this.deleting) this.deletionProgress = Math.min(1, this.deletionProgress + dt / this.deletionDurationSeconds); }
+  update(dt: number): void {
+    if (!this.alive) return;
+    this.animationTime += dt;
+    if (this.buildProgress < 1) {
+      this.buildProgress = this.buildDurationSeconds <= 0 ? 1 : Math.min(1, this.buildProgress + dt / this.buildDurationSeconds);
+      if (this.buildProgress >= 1) {
+        this.completionEffectPending = true;
+      }
+    }
+    if (this.deleting) this.deletionProgress = Math.min(1, this.deletionProgress + dt / this.deletionDurationSeconds);
+  }
   startDeleting(): void { if (!this.deleting) { this.deleting = true; this.deletionProgress = 0; } }
 
   protected getBaseVisual(camera: Camera): BaseVisual {

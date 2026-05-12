@@ -141,6 +141,67 @@ export class WorldGrid {
     }
   }
 
+  /**
+   * Draw traveling energy-pulse dots along energized conduits.
+   * Only called in High graphics mode (conduitPulseEnabled).
+   * Renders a hard-capped number of animated circles per frame.
+   */
+  drawConduitPulses(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    screenW: number,
+    screenH: number,
+    time: number,
+    isEnergized?: (cx: number, cy: number, team: Team) => boolean,
+  ): void {
+    // Visible cell range
+    const tl = camera.screenToWorld(new Vec2(0, 0));
+    const br = camera.screenToWorld(new Vec2(screenW, screenH));
+    const cxMin = Math.floor(tl.x / GRID_CELL_SIZE) - 1;
+    const cxMax = Math.floor(br.x / GRID_CELL_SIZE) + 1;
+    const cyMin = Math.floor(tl.y / GRID_CELL_SIZE) - 1;
+    const cyMax = Math.floor(br.y / GRID_CELL_SIZE) + 1;
+    const cellPx = GRID_CELL_SIZE * camera.zoom;
+    const dotR = Math.max(1.5, cellPx * 0.12);
+    // Hard cap on dots drawn per frame
+    const MAX_DOTS = 80;
+    let dotsDrawn = 0;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    for (const [key, entry] of this.conduits) {
+      if (dotsDrawn >= MAX_DOTS) break;
+      const comma = key.indexOf(',');
+      const cx = Number(key.slice(0, comma));
+      const cy = Number(key.slice(comma + 1));
+      if (cx < cxMin || cx > cxMax || cy < cyMin || cy > cyMax) continue;
+      const energized = isEnergized ? isEnergized(cx, cy, entry.team) : true;
+      if (!energized) continue;
+
+      // Each conduit cell gets a unique offset so pulses don't all align.
+      const cellOffset = hash01(cx, cy, 0xf5c4d8);
+      // Pulse phase: 0.0 → 1.0 cycling with time
+      const phase = ((time * 0.65 + cellOffset) % 1.0);
+      // Only draw dot when it's in the "active" portion of the cycle
+      if (phase > 0.15) continue;
+      const dotAlpha = Math.max(0, 0.55 - phase * 3.5) * (0.7 + cellOffset * 0.3);
+      if (dotAlpha < 0.02) continue;
+
+      const c = camera.worldToScreen(cellCenter(cx, cy));
+      const color = entry.team === Team.Player
+        ? `rgba(140,240,255,${dotAlpha})`
+        : `rgba(255,160,80,${dotAlpha})`;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, dotR, 0, Math.PI * 2);
+      ctx.fill();
+      dotsDrawn++;
+    }
+
+    ctx.restore();
+  }
+
   // -- Pending conduit queue -------------------------------------------------
 
   /**
