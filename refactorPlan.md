@@ -10,7 +10,7 @@ refactor is completed or a new large file is identified.
 
 | File | Lines | Status |
 |------|-------|--------|
-| `src/game.ts` | ~3,110 | 🔴 in progress |
+| `src/game.ts` | ~2,392 | 🔴 in progress |
 | `src/menu.ts` | 2,272 | 🔴 planned; online Supabase setup pass added more lobby/auth UI |
 | `src/gamestate.ts` | ~1,731 | 🟡 planned |
 
@@ -88,44 +88,28 @@ Lines removed from `game.ts`: ~100.  New file `src/combatUtils.ts`: ~95 lines.
 | `src/lan/` directory | LAN transport, client, protocol | `game.ts` (setup wired in) |
 | `src/online/` directory | WebRTC transport, signalling, lobby | `game.ts` (setup wired in) |
 
----
+### `src/game.ts` — Build 026 (this PR)
 
-## Planned splits (not yet started)
+**Extracted → `src/gameOverlays.ts`** (~517 lines)
 
-### Current monolith follow-up
+- `drawGhostSpectator`, `drawLossOverlay`, `drawMergedShipBlockerOutlines`,
+  `drawCommandModeOverlay`, `drawBuildingHoverHitpoints`, `buildingEffectRange`,
+  `drawGlowLayer` (with `speedGlowFactor`, `fighterMaxSpeed` private helpers),
+  `drawScreenOverlays`.
+- Introduces `OverlayCache` interface + `createOverlayCache()` to bundle cached
+  canvas gradients/patterns; replaces 7 private fields on `Game` with one
+  `private overlayCache: OverlayCache`.
 
-- `src/game.ts` is 3,116 lines after the ship-blocker outline change. Keep the
-  next overlay extraction focused on `drawMergedShipBlockerOutlines`,
-  `drawCommandModeOverlay`, `drawBuildingHoverHitpoints`, `drawGlowLayer`,
-  `drawGhostSpectator`, `drawLossOverlay`, and `drawScreenOverlays`.
+**Extracted → `src/weaponFiring.ts`** (~415 lines)
 
-### `src/game.ts` (remaining ~3,110 lines)
+- `updatePlayerFiring`, `updateGuidedMissileControl` (public entry points),
+  `fireSelectedPrimary`, `handleWeaponSpecial`, `handleGatlingSpecial`,
+  `handleLaserSpecial`, `handleRocketSwarmSpecial`, `handleCannonHomingSpecial`.
+- Both public functions return the updated `GuidedMissile | null` reference
+  so `Game` can store it in `this.activeGuidedMissile`.
 
-The `Game` class is the largest remaining monolith.  Suggested extractions
-in rough priority order:
-
-1. **`src/weaponFiring.ts`** (~250 lines)
-   - `updatePlayerFiring`, `handleWeaponSpecial`, `handleGatlingSpecial`,
-     `handleLaserSpecial`, `handleRocketSwarmSpecial`, `handleCannonHomingSpecial`,
-     `fireSelectedPrimary`, `updateGuidedMissileControl`.
-   - All need `state: GameState`, `hud: HUD`; a small `WeaponFiringCtx` value
-     object can carry these together with `activeGuidedMissile`.
-   - `activeGuidedMissile` is a `Game`-level field; the extracted functions
-     can return the new missile reference so the `Game` can store it.
-
-2. **`src/gameOverlays.ts`** (~300 lines)
-   - `drawMergedWallOutlines`, `drawCommandModeOverlay`,
-     `drawBuildingHoverHitpoints`, `drawGlowLayer`, `drawGhostSpectator`,
-     `drawLossOverlay`, `drawScreenOverlays`.
-   - Add to or extend `src/gameRender.ts`; pass an explicit context struct
-     rather than accessing `this.*`.
-
-3. **`src/commandMode.ts`** (~260 lines)
-   - `updateCommandMode`, `updateNumberGroupHotkeys`,
-     `updateNumberGroupTapOrders`, `updatePlayerFighterOrderTargets`.
-   - Needs a `CommandModeCtx` carrying `state, camera, hud,
-     commandSelectedFighters, commandSelectedTurrets,
-     commandDragStart, commandDragCurrent, lastGroupTap`.
+Lines removed from `game.ts`: ~730 (3,110 → ~2,392).
+New files: `src/gameOverlays.ts` (~517 lines), `src/weaponFiring.ts` (~415 lines).
 
 Previously completed from `game.ts`:
 - ✅ `src/fluidForces.ts` — `injectFluidForces` (Build 023)
@@ -133,6 +117,24 @@ Previously completed from `game.ts`:
 - ✅ `src/fighterCombat.ts` — `updateFighterWeaponFire` (Build 023)
 - ✅ `src/combatUtils.ts` — laser damage helpers, `isHomingTarget`, `findClosestEnemy` (Build 023)
 - ✅ `src/gameRender.ts` — `drawWaypointMarkers`, `drawDebugOverlay`, `drawConfluenceTerritory`
+- ✅ `src/gameOverlays.ts` — overlay/glow drawing helpers (Build 026)
+- ✅ `src/weaponFiring.ts` — player weapon firing logic (Build 026)
+
+---
+
+## Planned splits (not yet started)
+
+### `src/game.ts` (remaining ~2,392 lines)
+
+The `Game` class is the largest remaining monolith.  Next extraction:
+
+1. **`src/commandMode.ts`** (~260 lines)
+   - `updateCommandMode`, `updateNumberGroupHotkeys`,
+     `updateNumberGroupTapOrders`, `updatePlayerFighterOrderTargets`.
+   - Needs a `CommandModeCtx` carrying `state, camera, hud,
+     commandSelectedFighters, commandSelectedTurrets,
+     commandDragStart, commandDragCurrent, lastGroupTap`.
+
 
 ### `src/menu.ts` (2,272 lines)
 

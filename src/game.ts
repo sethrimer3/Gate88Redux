@@ -1,6 +1,6 @@
 /** Main game coordinator for Gate88 */
 
-import { Vec2, randomRange } from './math.js';
+import { Vec2 } from './math.js';
 import { Input } from './input.js';
 import { Audio } from './audio.js';
 import { Camera } from './camera.js';
@@ -11,34 +11,28 @@ import { drawEdgeIndicators, drawRadarOverlay } from './radar.js';
 import { ActionMenu, MenuResult, researchDisplayName } from './actionmenu.js';
 import { HUD } from './hud.js';
 import { MainMenu, MenuAction } from './menu.js';
-import { Colors, TextColors, colorToCSS } from './colors.js';
+import { Colors, colorToCSS } from './colors.js';
 import { Team, EntityType, ShipGroup, Entity } from './entities.js';
-import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS, ACTIVE_RESEARCH_ITEMS, SHIP_STATS, COMMANDPOST_BUILD_RADIUS, POWERGENERATOR_COVERAGE_RADIUS } from './constants.js';
-import { GATLING_OVERDRIVE_DURATION_SECS, GATLING_OVERHEAT_DURATION_SECS, GATLING_OVERDRIVE_FIRE_RATE_DIVISOR } from './constants.js';
-import { LASER_MAX_CHARGE_SECS, LASER_CHARGE_COOLDOWN_SECS, LASER_BURST_BASE_MULTIPLIER, LASER_BURST_ENERGY_SCALING } from './constants.js';
-import { ROCKET_SWARM_COUNT, ROCKET_SWARM_SPREAD_DEGREES, ROCKET_SWARM_ENERGY_COST, ROCKET_SWARM_COOLDOWN_SECS } from './constants.js';
-import { CANNON_HOMING_ENERGY_COST, CANNON_HOMING_COOLDOWN_MULTIPLIER } from './constants.js';
-import { BuildingBase, CommandPost, Wall } from './building.js';
+import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WEAPON_STATS, ACTIVE_RESEARCH_ITEMS, SHIP_STATS } from './constants.js';
+import { BuildingBase, CommandPost } from './building.js';
 import { Shipyard } from './building.js';
 import { TurretBase } from './turret.js';
 import { FighterShip, BomberShip, SynonymousFighterShip, SynonymousNovaBomberShip } from './fighter.js';
-import { Bullet, GatlingBullet, Laser } from './projectile.js';
-import { GuidedMissile, BomberMissile, HomingBullet, SwarmMissile, ChargedLaserBurst } from './projectile.js';
+import { Bullet } from './projectile.js';
+import { GuidedMissile } from './projectile.js';
 import { PracticeMode } from './practicemode.js';
 import { cloneDefaultPracticeConfig } from './practiceconfig.js';
 import { TutorialMode } from './tutorial.js';
 import { AIShip, VsAIDirector } from './vsaibot.js';
-import { tryFireSpecial } from './special.js';
-import { GATLING_BATTERY_FIRE_COST, GUIDED_MISSILE_CONTROL_BATTERY_DRAIN, GUIDED_MISSILE_INITIAL_BATTERY_COST } from './ship.js';
-import { createBuildingFromDef, getBuildDef, buildDefForEntityType } from './builddefs.js';
+import { PlayerShip } from './ship.js';
+import { isHostile, isPlayableTeam, teamForSlot } from './teamutils.js';
 import { worldToCell, footprintCenter, GRID_CELL_SIZE } from './grid.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
 import { gameFont } from './fonts.js';
 import { createSpaceFluid, SpaceFluid } from './spacefluid.js';
 import type { LanClient } from './lan/lanClient.js';
 import type { MsgMatchStart, MsgRelayedInput, SerializedShip, SerializedBuilding, SerializedFighter, SerializedProjectile, SerializedTerritoryCircle } from './lan/protocol.js';
-import { PlayerShip } from './ship.js';
-import { isHostile, isPlayableTeam, teamForSlot } from './teamutils.js';
+import { createBuildingFromDef, getBuildDef, buildDefForEntityType } from './builddefs.js';
 import { isConfluenceFaction, isSynonymousFaction, resolveRaceSelection, type FactionType, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_BASE_RADIUS } from './confluence.js';
 import { SYNONYMOUS_BUILD_COST, SYNONYMOUS_CURRENCY_SYMBOL } from './synonymous.js';
 import { cloneDefaultVsAIConfig, rankedDifficultyName, VSAI_RANKED_SCORE_KEY } from './vsaiconfig.js';
@@ -47,11 +41,23 @@ import { DEFAULT_VISUAL_QUALITY, VISUAL_QUALITY_PRESETS, type VisualQuality, typ
 import { drawCombatTargetingDebug, drawConfluenceTerritory, drawDebugOverlay, drawWaypointMarkers, type ShipCommandGroup, type WaypointMarker } from './gameRender.js';
 import type { NetInputSnapshot, NetGameSnapshot } from './net/protocol.js';
 import type { WebRtcTransport } from './online/webrtcTransport.js';
-import { isHomingTarget, findClosestEnemy, damageLaserLine, damageLaserLineLimited } from './combatUtils.js';
+import { findClosestEnemy } from './combatUtils.js';
 import { injectFluidForces } from './fluidForces.js';
 import { fireTurretShots } from './turretCombat.js';
 import { updateFighterWeaponFire } from './fighterCombat.js';
-import { buildingBlocksShips } from './buildingCollision.js';
+import { updatePlayerFiring, updateGuidedMissileControl } from './weaponFiring.js';
+import {
+  type OverlayCache,
+  createOverlayCache,
+  buildingEffectRange,
+  drawGhostSpectator,
+  drawLossOverlay,
+  drawMergedShipBlockerOutlines,
+  drawCommandModeOverlay,
+  drawBuildingHoverHitpoints,
+  drawGlowLayer,
+  drawScreenOverlays,
+} from './gameOverlays.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 
@@ -93,13 +99,7 @@ export class Game {
   private glowLayer: GlowLayer;
   private visualQuality: VisualQuality = DEFAULT_VISUAL_QUALITY;
   private visualPreset: VisualQualityPreset = VISUAL_QUALITY_PRESETS[DEFAULT_VISUAL_QUALITY];
-  private vignetteGradient: CanvasGradient | null = null;
-  private scanlinePattern: CanvasPattern | null = null;
-  private fringeGradientL: CanvasGradient | null = null;
-  private fringeGradientR: CanvasGradient | null = null;
-  private flashGradient: CanvasGradient | null = null;
-  private overlayW = 0;
-  private overlayH = 0;
+  private overlayCache: OverlayCache = createOverlayCache();
   /** Counts down after the player takes damage; drives the red-edge damage flash. */
   private damageFlashTimer: number = 0;
   /** Player health at the end of the last fixed tick (used to detect damage events). */
@@ -235,11 +235,8 @@ export class Game {
     this.camera.setScreenSize(window.innerWidth, window.innerHeight);
     this.spaceFluid.resize(window.innerWidth, window.innerHeight);
     this.glowLayer.resize(window.innerWidth, window.innerHeight);
-    this.vignetteGradient = null;
-    this.scanlinePattern = null;
-    this.fringeGradientL = null;
-    this.fringeGradientR = null;
-    this.flashGradient = null;
+    // Invalidate overlay gradient cache so drawScreenOverlays rebuilds it at the new size.
+    this.overlayCache = createOverlayCache();
   }
 
   private applyVisualQuality(quality: VisualQuality): void {
@@ -546,8 +543,9 @@ export class Game {
     }
 
     // Player firing
-    this.updateGuidedMissileControl();
-    this.updatePlayerFiring();
+    const weaponCtx = { state: this.state, camera: this.camera, hud: this.hud, spaceFluid: this.spaceFluid, actionMenu: this.actionMenu };
+    this.activeGuidedMissile = updateGuidedMissileControl(weaponCtx, this.activeGuidedMissile);
+    this.activeGuidedMissile = updatePlayerFiring(weaponCtx, this.activeGuidedMissile);
 
     // Player ship fighter spawning from shipyards
     this.updatePlayerShipyards();
@@ -861,215 +859,6 @@ export class Game {
     return best;
   }
 
-  private updatePlayerFiring(): void {
-    if (!this.state.player.alive) return;
-    const player = this.state.player;
-
-    if (Input.isDown('c') || this.actionMenu.open || this.actionMenu.placementMode) {
-      // Cancel laser charge if the player opened the menu while charging
-      if (player.isLaserCharging && !Input.mouse2Down) {
-        player.isLaserCharging = false;
-        player.laserChargeTimer = 0;
-      }
-      return;
-    }
-
-    const aimWorld = this.camera.screenToWorld(Input.mousePos);
-
-    // --- Gatling overdrive: auto-fires at extreme rate, no LMB required ---
-    if (player.gatlingOverdriveTimer > 0) {
-      // Overdrive fire rate is much faster than normal; divide the base interval
-      const overdriveCooldown =
-        WEAPON_STATS.gatling.fireRate * DT * player.fireCooldownMultiplier / GATLING_OVERDRIVE_FIRE_RATE_DIVISOR;
-      if (player.primaryFireTimer <= 0 && player.battery >= GATLING_BATTERY_FIRE_COST) {
-        player.consumePrimaryFire(overdriveCooldown, GATLING_BATTERY_FIRE_COST);
-        const spread = randomRange(-Math.PI / 36, Math.PI / 36);
-        this.state.addEntity(new GatlingBullet(
-          Team.Player, player.position.clone(), player.angle + spread, player,
-        ));
-        Audio.playSound('shortbullet');
-      }
-      player.gatlingOverdriveTimer -= DT;
-      if (player.gatlingOverdriveTimer <= 0) {
-        player.gatlingOverdriveTimer = 0;
-        player.gatlingOverheatTimer = GATLING_OVERHEAT_DURATION_SECS;
-        this.hud.showMessage('GATLING OVERHEAT — immobilised for 4s', Colors.alert1, 4.5);
-        Audio.playSound('explode0');
-      }
-      return; // no other firing during overdrive
-    }
-
-    // --- Gatling overheat lockdown: no movement or firing ---
-    if (player.gatlingOverheatTimer > 0) {
-      player.gatlingOverheatTimer -= DT;
-      if (player.gatlingOverheatTimer <= 0) {
-        player.gatlingOverheatTimer = 0;
-        this.hud.showMessage('System cooled', Colors.friendly_status, 2);
-      }
-      return; // no firing during overheat
-    }
-
-    // --- Primary fire (LMB) ---
-    if (Input.mouseDown && player.canFirePrimary()) {
-      this.fireSelectedPrimary(aimWorld);
-    }
-
-    // --- Weapon special ability (RMB) ---
-    this.handleWeaponSpecial(aimWorld);
-  }
-
-  /**
-   * Dispatch the right-click (RMB) special ability for the equipped weapon.
-   * Each weapon has its own unique ability; the fallback is the registered
-   * special ability from special.ts (homing missile).
-   */
-  private handleWeaponSpecial(aimWorld: Vec2): void {
-    const player = this.state.player;
-    const weapon = player.primaryWeaponId;
-
-    if (weapon === 'gatling' && this.state.researchedItems.has('weaponGatling')) {
-      this.handleGatlingSpecial();
-    } else if (weapon === 'laser' && this.state.researchedItems.has('weaponLaser')) {
-      this.handleLaserSpecial(aimWorld);
-    } else if (weapon === 'guidedmissile' && this.state.researchedItems.has('weaponGuidedMissile')) {
-      this.handleRocketSwarmSpecial(aimWorld);
-    } else if (weapon === 'cannon') {
-      this.handleCannonHomingSpecial(aimWorld);
-    } else {
-      // Fallback: registered special ability (missile)
-      if (Input.mouse2Down) {
-        tryFireSpecial(this.state, player, aimWorld);
-      }
-    }
-  }
-
-  /**
-   * Gatling gun special (RMB): enter overdrive — extreme auto-fire for
-   * GATLING_OVERDRIVE_DURATION_SECS, then GATLING_OVERHEAT_DURATION_SECS of
-   * complete immobility.
-   */
-  private handleGatlingSpecial(): void {
-    const player = this.state.player;
-    if (!Input.mouse2Pressed) return;
-    if (player.gatlingOverdriveTimer > 0 || player.gatlingOverheatTimer > 0) return;
-    if (player.battery < GATLING_BATTERY_FIRE_COST) return;
-
-    player.gatlingOverdriveTimer = GATLING_OVERDRIVE_DURATION_SECS;
-    this.hud.showMessage('GATLING OVERDRIVE!', Colors.alert2, 2.5);
-    Audio.playSound('shortbullet');
-  }
-
-  /**
-   * Laser special (RMB): hold to charge, release to fire a wide energy burst.
-   * Consumes all current battery; damage and beam width scale with charge
-   * fraction and energy spent.
-   */
-  private handleLaserSpecial(aimWorld: Vec2): void {
-    const player = this.state.player;
-
-    if (player.weaponSpecialCooldown > 0) {
-      if (player.isLaserCharging && !Input.mouse2Down) {
-        player.isLaserCharging = false;
-        player.laserChargeTimer = 0;
-      }
-      return;
-    }
-
-    if (Input.mouse2Down) {
-      if (!player.isLaserCharging) {
-        if (player.battery > 0) {
-          player.isLaserCharging = true;
-          player.laserChargeTimer = 0;
-        }
-      } else {
-        player.laserChargeTimer = Math.min(player.laserChargeTimer + DT, LASER_MAX_CHARGE_SECS);
-      }
-    }
-
-    if (player.isLaserCharging && !Input.mouse2Down) {
-      player.isLaserCharging = false;
-      if (player.battery > 0 && player.laserChargeTimer > 0.15) {
-        const energySpent = player.battery;
-        const chargeFraction = Math.min(1, player.laserChargeTimer / LASER_MAX_CHARGE_SECS);
-        // Damage scales with both energy available and charge fraction.
-        // LASER_BURST_BASE_MULTIPLIER is the floor at empty battery / no charge;
-        // LASER_BURST_ENERGY_SCALING adds up to 8× extra at full battery + full charge.
-        const burstDamage =
-          WEAPON_STATS.laser.damage * (LASER_BURST_BASE_MULTIPLIER + (energySpent / player.maxBattery) * LASER_BURST_ENERGY_SCALING * chargeFraction);
-        const burstRange = WEAPON_STATS.laser.range * (1.5 + chargeFraction * 0.5);
-        const hitRadius = 2 + chargeFraction * 14; // wider beam hits larger area
-
-        player.battery = 0;
-        const start = player.position.clone();
-        const end = new Vec2(
-          start.x + Math.cos(player.angle) * burstRange,
-          start.y + Math.sin(player.angle) * burstRange,
-        );
-        this.state.addEntity(new ChargedLaserBurst(Team.Player, start, end, player, chargeFraction));
-        damageLaserLine(this.state, this.spaceFluid, player, start, end, burstDamage, hitRadius);
-        player.weaponSpecialCooldown = LASER_CHARGE_COOLDOWN_SECS;
-        player.laserChargeTimer = 0;
-        Audio.playSound('laser');
-      } else {
-        player.laserChargeTimer = 0;
-      }
-    }
-  }
-
-  /**
-   * Guided missile special (RMB): launch a spread swarm of
-   * ROCKET_SWARM_COUNT small blast missiles.  Each swarm missile has a blast
-   * radius, is interceptable by enemy bullets, and detonates on impact.
-   */
-  private handleRocketSwarmSpecial(aimWorld: Vec2): void {
-    const player = this.state.player;
-    if (!Input.mouse2Pressed) return;
-    if (player.weaponSpecialCooldown > 0) return;
-    if (player.battery < ROCKET_SWARM_ENERGY_COST) return;
-
-    player.battery -= ROCKET_SWARM_ENERGY_COST;
-    player.weaponSpecialCooldown = ROCKET_SWARM_COOLDOWN_SECS;
-
-    const baseAngle = player.position.angleTo(aimWorld);
-    const spreadRad = ROCKET_SWARM_SPREAD_DEGREES * (Math.PI / 180);
-    const count = ROCKET_SWARM_COUNT;
-
-    for (let i = 0; i < count; i++) {
-      // Spread missiles evenly across the fan angle
-      const t = count > 1 ? i / (count - 1) - 0.5 : 0;
-      const angle = baseAngle + t * spreadRad;
-      this.state.addEntity(new SwarmMissile(Team.Player, player.position.clone(), angle, player));
-    }
-    Audio.playSound('missile');
-    this.hud.showMessage('Missile swarm!', Colors.alert2, 1.5);
-  }
-
-  /**
-   * Cannon special (RMB): fire a homing bullet that steers toward the nearest
-   * enemy.  Costs CANNON_HOMING_ENERGY_COST (3× normal cannon shot).
-   */
-  private handleCannonHomingSpecial(aimWorld: Vec2): void {
-    const player = this.state.player;
-    if (!Input.mouse2Down) return;
-    if (player.weaponSpecialCooldown > 0) return;
-    if (player.battery < CANNON_HOMING_ENERGY_COST) return;
-
-    // Find nearest enemy within lock-on range
-    let target: Entity | null = null;
-    let bestDist = 600;
-    for (const e of this.state.getEnemiesOf(Team.Player)) {
-      if (!isHomingTarget(e)) continue;
-      const d = player.position.distanceTo(e.position);
-      if (d < bestDist) { bestDist = d; target = e; }
-    }
-
-    player.battery -= CANNON_HOMING_ENERGY_COST;
-    player.weaponSpecialCooldown = WEAPON_STATS.fire.fireRate * DT * player.fireCooldownMultiplier * CANNON_HOMING_COOLDOWN_MULTIPLIER;
-    const launchAngle = target ? player.position.angleTo(target.position) : player.position.angleTo(aimWorld);
-    this.state.addEntity(new HomingBullet(Team.Player, player.position.clone(), launchAngle, player, target));
-    Audio.playSound('fire');
-  }
-
   private updatePlayerShipyards(): void {
     for (const b of this.state.buildings) {
       if (!b.alive || b.team !== Team.Player) continue;
@@ -1112,111 +901,6 @@ export class Game {
         }
       }
     }
-  }
-
-  private fireSelectedPrimary(aimWorld: Vec2): void {
-    const weapon = this.state.player.primaryWeaponId;
-    if (weapon === 'gatling' && this.state.researchedItems.has('weaponGatling')) {
-      this.state.player.consumePrimaryFire(
-        WEAPON_STATS.gatling.fireRate * DT * this.state.player.fireCooldownMultiplier,
-        GATLING_BATTERY_FIRE_COST,
-      );
-      const spread = randomRange(-Math.PI / 60, Math.PI / 60);
-      this.state.addEntity(new GatlingBullet(
-        Team.Player,
-        this.state.player.position.clone(),
-        this.state.player.angle + spread,
-        this.state.player,
-      ));
-      Audio.playSound('shortbullet');
-      return;
-    }
-    if (weapon === 'guidedmissile' && this.state.researchedItems.has('weaponGuidedMissile')) {
-      if (this.activeGuidedMissile?.alive) return;
-      if (this.state.player.battery < GUIDED_MISSILE_INITIAL_BATTERY_COST) return;
-      this.state.player.consumePrimaryFire(
-        WEAPON_STATS.guidedmissile.fireRate * DT * this.state.player.fireCooldownMultiplier,
-        GUIDED_MISSILE_INITIAL_BATTERY_COST,
-      );
-      const missile = new GuidedMissile(
-        Team.Player,
-        this.state.player.position.clone(),
-        this.state.player.angle,
-        this.state.player,
-      );
-      missile.steerToward(aimWorld);
-      this.activeGuidedMissile = missile;
-      this.state.addEntity(missile);
-      Audio.playSound('missile');
-      return;
-    }
-    if (weapon === 'laser' && this.state.researchedItems.has('weaponLaser')) {
-      this.state.player.consumePrimaryFire(WEAPON_STATS.laser.fireRate * DT * this.state.player.fireCooldownMultiplier);
-      const start = this.state.player.position.clone();
-      const end = new Vec2(
-        start.x + Math.cos(this.state.player.angle) * WEAPON_STATS.laser.range,
-        start.y + Math.sin(this.state.player.angle) * WEAPON_STATS.laser.range,
-      );
-      this.state.addEntity(new Laser(Team.Player, start, end, this.state.player));
-      damageLaserLine(this.state, this.spaceFluid, this.state.player, start, end, WEAPON_STATS.laser.damage);
-      Audio.playSound('laser');
-      return;
-    }
-    if (weapon === 'synonymousLaser' && isSynonymousFaction(this.state.factionByTeam, Team.Player)) {
-      const player = this.state.player;
-      const cooldown = player.synonymousLaserCooldown(WEAPON_STATS.synonymousLaser.fireRate * DT);
-      player.consumePrimaryFire(cooldown);
-      player.synonymousMuzzleFlash = 0.22;
-      const start = player.position.clone();
-      const end = new Vec2(
-        start.x + Math.cos(player.angle) * WEAPON_STATS.synonymousLaser.range,
-        start.y + Math.sin(player.angle) * WEAPON_STATS.synonymousLaser.range,
-      );
-      this.state.addEntity(new Laser(Team.Player, start, end, player));
-      damageLaserLineLimited(
-        this.state,
-        this.spaceFluid,
-        start,
-        end,
-        WEAPON_STATS.synonymousLaser.damage,
-        5,
-        WEAPON_STATS.synonymousLaser.pierce * player.synonymousPierceMultiplier,
-        player,
-      );
-      Audio.playSound('laser');
-      return;
-    }
-
-    this.state.player.consumePrimaryFire(PLAYER_FIRE_COOLDOWN * this.state.player.fireCooldownMultiplier);
-    this.state.addEntity(new Bullet(
-      Team.Player,
-      this.state.player.position.clone(),
-      this.state.player.angle,
-      this.state.player,
-      findClosestEnemy(this.state, this.state.player.position, Team.Player, 520),
-    ));
-    Audio.playSound('fire');
-  }
-
-  private updateGuidedMissileControl(): void {
-    const missile = this.activeGuidedMissile;
-    if (!missile) return;
-    if (!missile.alive) {
-      this.activeGuidedMissile = null;
-      return;
-    }
-    if (!Input.mouseDown || Input.isDown('c') || this.actionMenu.open || this.actionMenu.placementMode) {
-      missile.release();
-      this.activeGuidedMissile = null;
-      return;
-    }
-    const stillPowered = this.state.player.drainBattery(GUIDED_MISSILE_CONTROL_BATTERY_DRAIN * DT);
-    if (!stillPowered) {
-      missile.release();
-      this.activeGuidedMissile = null;
-      return;
-    }
-    missile.steerToward(this.camera.screenToWorld(Input.mousePos));
   }
 
   private handleActionResult(result: MenuResult): void {
@@ -2586,11 +2270,11 @@ export class Game {
       this.visualPreset.conduitShimmer,
     );
     this.state.drawEntities(ctx, this.camera);
-    this.drawMergedShipBlockerOutlines(ctx);
-    this.drawGhostSpectator(ctx);
+    drawMergedShipBlockerOutlines(ctx, this.camera, this.state);
+    drawGhostSpectator(ctx, this.camera, this.state, this.ghostSpectatorPos);
     drawWaypointMarkers(ctx, this.camera, this.state, this.waypointMarkers);
-    this.drawCommandModeOverlay(ctx, w, h);
-    this.drawGlowLayer();
+    drawCommandModeOverlay(ctx, w, this.camera, this.state, this.commandSelectedFighters, this.commandSelectedTurrets, this.commandDragStart, this.commandDragCurrent);
+    drawGlowLayer(this.glowLayer, this.camera, this.state, this.visualPreset);
     this.glowLayer.compositeTo(ctx);
 
     // Edge indicators (always)
@@ -2601,8 +2285,8 @@ export class Game {
       drawRadarOverlay(ctx, this.state, w, h);
     }
 
-    this.drawScreenOverlays(ctx, w, h);
-    this.drawLossOverlay(ctx, w);
+    drawScreenOverlays(ctx, w, h, this.camera, this.visualPreset, this.damageFlashTimer, this.overlayCache);
+    drawLossOverlay(ctx, w, this.playerLoss);
 
     // Action menu
     this.actionMenu.draw(ctx, this.state, this.camera, w, h);
@@ -2610,7 +2294,7 @@ export class Game {
     // HUD
     this.hud.draw(ctx, w, h);
     this.hud.drawAIChat(ctx, w, h);
-    this.drawBuildingHoverHitpoints(ctx);
+    drawBuildingHoverHitpoints(ctx, this.camera, this.state);
     const synonymousPlayer = isSynonymousFaction(this.state.factionByTeam, Team.Player);
     this.hud.drawResources(
       ctx,
@@ -2693,226 +2377,6 @@ export class Game {
     );
   }
 
-  private drawGhostSpectator(ctx: CanvasRenderingContext2D): void {
-    if (this.state.player.alive || !this.ghostSpectatorPos) return;
-    const screen = this.camera.worldToScreen(this.ghostSpectatorPos);
-    const pulse = 0.55 + 0.25 * Math.sin(this.state.gameTime * 5);
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.35 + pulse * 0.35);
-    ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.08 + pulse * 0.08);
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(screen.x, screen.y, 18, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.strokeStyle = colorToCSS(TextColors.normal, 0.55);
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(screen.x - 24, screen.y);
-    ctx.lineTo(screen.x - 8, screen.y);
-    ctx.moveTo(screen.x + 8, screen.y);
-    ctx.lineTo(screen.x + 24, screen.y);
-    ctx.moveTo(screen.x, screen.y - 24);
-    ctx.lineTo(screen.x, screen.y - 8);
-    ctx.moveTo(screen.x, screen.y + 8);
-    ctx.lineTo(screen.x, screen.y + 24);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  private drawLossOverlay(ctx: CanvasRenderingContext2D, w: number): void {
-    if (!this.playerLoss) return;
-    ctx.save();
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.font = 'bold 42px "Poiret One", sans-serif';
-    ctx.shadowColor = colorToCSS(Colors.alert1, 0.8);
-    ctx.shadowBlur = 18;
-    ctx.fillStyle = colorToCSS(Colors.alert1, 0.95);
-    ctx.fillText('Loss.', w * 0.5, 18);
-    ctx.restore();
-  }
-
-  private drawMergedShipBlockerOutlines(ctx: CanvasRenderingContext2D): void {
-    const blockers = this.state.buildings.filter((b) =>
-      b.alive && b.buildProgress >= 1 && buildingBlocksShips(b),
-    );
-    if (blockers.length === 0) return;
-
-    const cells = new Set<string>();
-    const entries: Array<{ x: number; y: number; team: Team; shielded: boolean }> = [];
-    for (const building of blockers) {
-      const size = footprintForBuildingType(building.type);
-      const cx = Math.floor(building.position.x / GRID_CELL_SIZE);
-      const cy = Math.floor(building.position.y / GRID_CELL_SIZE);
-      const originX = cx - Math.floor(size / 2);
-      const originY = cy - Math.floor(size / 2);
-      for (let y = originY; y < originY + size; y++) {
-        for (let x = originX; x < originX + size; x++) {
-          cells.add(`${building.team}:${x},${y}`);
-          entries.push({
-            x,
-            y,
-            team: building.team,
-            shielded: building instanceof Wall && building.maxShield > 0,
-          });
-        }
-      }
-    }
-
-    const pulse = 0.6 + 0.4 * Math.sin(this.state.gameTime * 5);
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    ctx.lineWidth = 2.5;
-    ctx.lineCap = 'square';
-    for (const e of entries) {
-      const wx = e.x * GRID_CELL_SIZE;
-      const wy = e.y * GRID_CELL_SIZE;
-      const p1 = this.camera.worldToScreen(new Vec2(wx, wy));
-      const p2 = this.camera.worldToScreen(new Vec2(wx + GRID_CELL_SIZE, wy + GRID_CELL_SIZE));
-      const left = p1.x, top = p1.y, right = p2.x, bottom = p2.y;
-      const color = e.shielded ? Colors.radar_friendly_status : Colors.powergenerator_detail;
-      ctx.strokeStyle = colorToCSS(e.team === Team.Enemy ? Colors.enemyfire : color, 0.58 + pulse * 0.22);
-      ctx.beginPath();
-      if (!cells.has(`${e.team}:${e.x},${e.y - 1}`)) { ctx.moveTo(left, top); ctx.lineTo(right, top); }
-      if (!cells.has(`${e.team}:${e.x + 1},${e.y}`)) { ctx.moveTo(right, top); ctx.lineTo(right, bottom); }
-      if (!cells.has(`${e.team}:${e.x},${e.y + 1}`)) { ctx.moveTo(right, bottom); ctx.lineTo(left, bottom); }
-      if (!cells.has(`${e.team}:${e.x - 1},${e.y}`)) { ctx.moveTo(left, bottom); ctx.lineTo(left, top); }
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  private drawCommandModeOverlay(ctx: CanvasRenderingContext2D, w: number, _h: number): void {
-    const active = Input.isDown('c');
-    if (!active && this.commandSelectedFighters.size === 0 && this.commandSelectedTurrets.size === 0) return;
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    for (const f of this.state.fighters) {
-      if (!this.commandSelectedFighters.has(f.id) || !f.alive) continue;
-      const p = this.camera.worldToScreen(f.position);
-      ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, active ? 0.9 : 0.45);
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, Math.max(9, f.radius * this.camera.zoom * 1.55), 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    for (const b of this.state.buildings) {
-      if (!this.commandSelectedTurrets.has(b.id) || !b.alive || !(b instanceof TurretBase)) continue;
-      const p = this.camera.worldToScreen(b.position);
-      const s = footprintForBuildingType(b.type) * GRID_CELL_SIZE * this.camera.zoom;
-      ctx.strokeStyle = colorToCSS(Colors.alert2, active ? 0.9 : 0.45);
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(p.x - s * 0.58, p.y - s * 0.58, s * 1.16, s * 1.16);
-      if (b.commandTarget?.alive) {
-        const t = this.camera.worldToScreen(b.commandTarget.position);
-        ctx.strokeStyle = colorToCSS(Colors.alert1, 0.42);
-        ctx.beginPath();
-        ctx.moveTo(p.x, p.y);
-        ctx.lineTo(t.x, t.y);
-        ctx.stroke();
-      }
-    }
-    if (active && this.commandDragStart && this.commandDragCurrent) {
-      const x = Math.min(this.commandDragStart.x, this.commandDragCurrent.x);
-      const y = Math.min(this.commandDragStart.y, this.commandDragCurrent.y);
-      const rw = Math.abs(this.commandDragStart.x - this.commandDragCurrent.x);
-      const rh = Math.abs(this.commandDragStart.y - this.commandDragCurrent.y);
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.10);
-      ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.85);
-      ctx.lineWidth = 1;
-      ctx.fillRect(x, y, rw, rh);
-      ctx.strokeRect(x + 0.5, y + 0.5, Math.max(0, rw - 1), Math.max(0, rh - 1));
-    }
-    if (active) {
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.font = 'bold 15px "Poiret One", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.82);
-      ctx.fillText('COMMAND MODE', w * 0.5, 58);
-    }
-    ctx.restore();
-  }
-
-  private drawBuildingHoverHitpoints(ctx: CanvasRenderingContext2D): void {
-    const world = this.camera.screenToWorld(Input.mousePos);
-    const fadeRadius = GRID_CELL_SIZE * 6;
-    const maxOverlayAlpha = 0.3;
-
-    for (const b of this.state.buildings) {
-      if (!b.alive) continue;
-      const d = Math.hypot(world.x - b.position.x, world.y - b.position.y);
-      if (d > fadeRadius) continue;
-
-      const hoverAlpha = maxOverlayAlpha * (1 - d / fadeRadius);
-      const screen = this.camera.worldToScreen(b.position);
-      const range = this.buildingEffectRange(b);
-      const tint = b.team === Team.Player ? Colors.radar_friendly_status : Colors.enemyfire;
-      if (range > 0) {
-        const radius = range * this.camera.zoom;
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.fillStyle = colorToCSS(tint, 0.08 * hoverAlpha);
-        ctx.strokeStyle = colorToCSS(tint, hoverAlpha);
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([8, 6]);
-        ctx.beginPath();
-        ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.restore();
-      }
-
-      const text = `${Math.ceil(b.health)}/${Math.ceil(b.maxHealth)}`;
-      const shieldText = b instanceof Wall && b.maxShield > 0
-        ? `${Math.ceil(b.shield)}/${Math.ceil(b.maxShield)}`
-        : '';
-      ctx.save();
-      ctx.font = 'bold 14px "Poiret One", sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      const metrics = ctx.measureText(shieldText || text);
-      const padX = 8;
-      const boxW = metrics.width + padX * 2;
-      const boxH = shieldText ? 38 : 22;
-      const x = screen.x;
-      const y = screen.y - b.radius * this.camera.zoom - 18;
-      ctx.fillStyle = colorToCSS(Colors.friendly_background, hoverAlpha * 0.72);
-      ctx.strokeStyle = colorToCSS(tint, hoverAlpha);
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.roundRect(x - boxW / 2, y - boxH / 2, boxW, boxH, 4);
-      ctx.fill();
-      ctx.stroke();
-      if (shieldText) {
-        ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, hoverAlpha);
-        ctx.fillText(shieldText, x, y - 8);
-        ctx.fillStyle = colorToCSS(b.team === Team.Enemy ? Colors.enemyfire : Colors.general_building, hoverAlpha);
-        ctx.fillText(text, x, y + 10);
-      } else {
-        ctx.fillStyle = colorToCSS(b.team === Team.Enemy ? Colors.enemyfire : Colors.general_building, hoverAlpha);
-        ctx.fillText(text, x, y + 1);
-      }
-      ctx.restore();
-    }
-  }
-
-  private buildingEffectRange(building: BuildingBase): number {
-    if (building instanceof TurretBase) return building.range;
-    if (building.type === EntityType.CommandPost) return COMMANDPOST_BUILD_RADIUS;
-    if (building.type === EntityType.PowerGenerator) return POWERGENERATOR_COVERAGE_RADIUS;
-    return 0;
-  }
-
-  private speedGlowFactor(speed: number, maxSpeed: number): number {
-    const normalized = maxSpeed > 0 ? Math.min(1, Math.max(0, speed / maxSpeed)) : 0;
-    return 0.1 + normalized * 0.9;
-  }
-
   private playerSpeedFraction(): number {
     const speed = Math.hypot(this.state.player.velocity.x, this.state.player.velocity.y);
     const maxSpeed = this.state.player.maxSpeed * (this.state.player.isBoosting ? 1.8 : 1);
@@ -2923,201 +2387,6 @@ export class Game {
     return fighter instanceof BomberShip || fighter instanceof SynonymousNovaBomberShip
       ? SHIP_STATS.bomber.speed
       : SHIP_STATS.fighter.speed;
-  }
-
-  private drawGlowLayer(): void {
-    if (!this.visualPreset.glowEnabled) return;
-    const glow = this.glowLayer;
-    for (const fire of this.state.explosionGlows) {
-      if (!this.camera.isOnScreen(fire.center, fire.radius * 1.7)) continue;
-      const t = 1 - fire.lifeSeconds / fire.totalSeconds;
-      const fade = Math.max(0, 1 - t);
-      const bloom = fire.intensity * fade;
-      glow.circleWorld(this.camera, fire.center, fire.radius * 1.45, Colors.alert1, 0.10 * bloom);
-      glow.circleWorld(this.camera, fire.center, fire.radius * 1.08, Colors.explosion, 0.20 * bloom);
-      glow.circleWorld(this.camera, fire.center, fire.radius * 0.48, Colors.alert2, 0.24 * bloom);
-      glow.circleWorld(this.camera, fire.center, Math.max(10, fire.radius * 0.18), Colors.particles_switch, 0.20 * bloom);
-    }
-
-    for (const p of this.state.projectiles) {
-      if (!p.alive || !this.camera.isOnScreen(p.position, 180)) continue;
-      if (p instanceof Laser || p instanceof ChargedLaserBurst) {
-        const target = p.targetPos;
-        const color = p.team === Team.Player ? Colors.friendlyfire : Colors.enemyfire;
-        const alpha = p instanceof ChargedLaserBurst ? 0.34 + p.chargeFraction * 0.2 : 0.22;
-        const width = p instanceof ChargedLaserBurst ? 18 + p.chargeFraction * 22 : 10;
-        glow.lineWorld(this.camera, p.position, target, color, alpha, width);
-        glow.circleWorld(this.camera, target, p instanceof ChargedLaserBurst ? 18 : 8, Colors.particles_switch, alpha * 0.65);
-      } else if (p instanceof GuidedMissile || p instanceof BomberMissile || p instanceof SwarmMissile) {
-        const blastRadius = 'blastRadius' in p ? (p as { blastRadius: number }).blastRadius : 0;
-        if (blastRadius > 0) {
-          glow.circleWorld(this.camera, p.position, Math.min(34, blastRadius * 0.24), Colors.explosion, 0.10);
-          glow.circleWorld(this.camera, p.position, Math.min(18, blastRadius * 0.12), Colors.alert2, 0.12);
-        }
-        const exhaust = p.position.add(new Vec2(Math.cos(p.angle + Math.PI) * p.radius, Math.sin(p.angle + Math.PI) * p.radius));
-        glow.circleWorld(this.camera, exhaust, p.radius * 2.4, Colors.alert2, 0.18);
-        glow.circleWorld(this.camera, exhaust, p.radius * 4.2, Colors.explosion, 0.08);
-      } else {
-        const blastRadius = 'blastRadius' in p ? (p as { blastRadius: number }).blastRadius : 0;
-        if (blastRadius > 0) {
-          glow.circleWorld(this.camera, p.position, Math.min(40, blastRadius * 0.32), Colors.explosion, 0.12);
-          glow.circleWorld(this.camera, p.position, Math.min(20, blastRadius * 0.16), Colors.alert2, 0.14);
-        }
-      }
-    }
-
-    for (const b of this.state.buildings) {
-      if (!b.alive || b.buildProgress < 1 || !this.camera.isOnScreen(b.position, 180)) continue;
-      const powered = b.type === EntityType.CommandPost || b.type === EntityType.PowerGenerator || b.powered;
-      if (!powered) continue;
-      const friendly = b.team === Team.Player;
-      const color = friendly ? Colors.radar_friendly_status : Colors.enemyfire;
-      const pulse = 0.75 + 0.25 * Math.sin(this.state.gameTime * 2.2 + b.id * 0.37);
-      glow.circleWorld(this.camera, b.position, b.radius * 1.9, color, 0.035 * pulse);
-      if (
-        b.type === EntityType.MissileTurret ||
-        b.type === EntityType.TimeBomb ||
-        b.type === EntityType.ExciterTurret ||
-        b.type === EntityType.MassDriverTurret ||
-        b.type === EntityType.RegenTurret
-      ) {
-        glow.circleWorld(this.camera, b.position, b.radius * 1.25, color, 0.045 * pulse, false, 2);
-      }
-    }
-
-    for (const ship of this.state.playerShips.values()) {
-      if (!ship.alive || !this.camera.isOnScreen(ship.position, 220)) continue;
-      const r = ship.radius;
-      if (ship.isBoosting || ship.gatlingOverdriveTimer > 0) {
-        glow.circleWorld(this.camera, ship.position, r * 2.9, Colors.alert2, 0.11);
-      }
-      if (ship.gatlingOverheatTimer > 0) {
-        glow.circleWorld(this.camera, ship.position, r * 3.1, Colors.alert1, 0.12);
-      }
-      if (ship.shieldUnlocked && ship.shield > 0) {
-        glow.circleWorld(this.camera, ship.position, r * 1.8, Colors.radar_allied_status, 0.10, false, 5);
-      }
-      // Engine exhaust glow: speed controls both size and opacity.
-      if (this.visualPreset.engineGlow) {
-        const speedFactor = this.speedGlowFactor(Math.hypot(ship.velocity.x, ship.velocity.y), ship.maxSpeed * 1.8);
-        const exhaustColor = ship.team === Team.Player ? Colors.particles_friendly_exhaust : Colors.particles_enemy_exhaust;
-        const exhaustAlpha = (ship.isBoosting ? 0.22 : 0.14) * speedFactor;
-        glow.circleWorld(this.camera, ship.position, r * 2.4 * speedFactor, exhaustColor, exhaustAlpha);
-        glow.circleWorld(this.camera, ship.position, r * 1.1, Colors.particles_switch, exhaustAlpha * 0.4);
-      }
-    }
-
-    // Fighter engine glow — a soft colored bloom behind each airborne fighter.
-    if (this.visualPreset.engineGlow) {
-      for (const f of this.state.fighters) {
-        if (!f.alive || f.docked || !this.camera.isOnScreen(f.position, 60)) continue;
-        const r = f.radius;
-        const exhaustColor = f.team === Team.Player ? Colors.particles_friendly_exhaust : Colors.particles_enemy_exhaust;
-        const speed = Math.hypot(f.velocity.x, f.velocity.y);
-        const speedFactor = this.speedGlowFactor(speed, this.fighterMaxSpeed(f));
-        glow.circleWorld(this.camera, f.position, r * 2.8 * speedFactor, exhaustColor, 0.14 * speedFactor);
-      }
-    }
-
-    // Bullet glow — ramps up with projectile age and keeps screen conversion work low.
-    if (this.visualPreset.bulletGlow) {
-      for (const p of this.state.projectiles) {
-        if (!p.alive || !this.camera.isOnScreen(p.position, 26)) continue;
-        if (p instanceof Laser || p instanceof ChargedLaserBurst) continue; // already handled above
-        if (p instanceof GuidedMissile || p instanceof BomberMissile || p instanceof SwarmMissile) continue; // handled above
-        const lifeProgress = p.maxLifetime > 0 ? Math.min(1, Math.max(0, 1 - p.lifetime / p.maxLifetime)) : 1;
-        if (lifeProgress <= 0.02) continue;
-        const bulletColor = p.team === Team.Player ? Colors.friendlyfire : Colors.enemyfire;
-        const speed = Math.hypot(p.velocity.x, p.velocity.y);
-        const speedFactor = Math.min(1, speed / 520);
-        const screen = this.camera.worldToScreen(p.position);
-        const zoom = this.camera.zoom;
-        const glowFactor = lifeProgress * lifeProgress;
-        const trailLen = p.radius * (7.5 + speedFactor * 7.5) * zoom * glowFactor;
-        const tail = new Vec2(
-          screen.x - Math.cos(p.angle) * trailLen,
-          screen.y - Math.sin(p.angle) * trailLen,
-        );
-        // Additive line bloom acts like a tiny post-process streak without per-pixel shaders.
-        glow.lineScreen(tail, screen, bulletColor, (0.045 + speedFactor * 0.06) * glowFactor, p.radius * (2.8 + speedFactor * 1.5) * zoom * glowFactor);
-        glow.circleScreen(screen, p.radius * (5.2 + speedFactor * 1.6) * zoom * glowFactor, bulletColor, (0.055 + speedFactor * 0.03) * glowFactor);
-        glow.circleScreen(screen, p.radius * (2.1 + speedFactor * 0.4) * zoom * glowFactor, Colors.particles_switch, 0.06 * glowFactor);
-      }
-    }
-  }
-
-
-  private drawScreenOverlays(ctx: CanvasRenderingContext2D, w: number, h: number): void {
-    if (this.overlayW !== w || this.overlayH !== h || !this.vignetteGradient) {
-      this.overlayW = w;
-      this.overlayH = h;
-      const cx = w * 0.5;
-      const cy = h * 0.5;
-      const outerR = Math.hypot(cx, cy);
-      this.vignetteGradient = ctx.createRadialGradient(cx, cy, outerR * 0.54, cx, cy, outerR);
-      this.vignetteGradient.addColorStop(0.0, 'rgba(0,0,0,0)');
-      this.vignetteGradient.addColorStop(1.0, 'rgba(0,0,0,0.42)');
-
-      // Flash gradient — cached at full alpha; actual alpha applied via globalAlpha.
-      this.flashGradient = ctx.createRadialGradient(cx, cy, outerR * 0.35, cx, cy, outerR * 1.05);
-      this.flashGradient.addColorStop(0, 'rgba(255,0,0,0)');
-      this.flashGradient.addColorStop(1, 'rgba(255,0,0,1)');
-
-      // Color-fringe gradients — cached since they are static strips.
-      const fringeW = Math.round(w * 0.12);
-      this.fringeGradientL = ctx.createLinearGradient(0, 0, fringeW, 0);
-      this.fringeGradientL.addColorStop(0, 'rgba(255,30,0,0.055)');
-      this.fringeGradientL.addColorStop(1, 'rgba(255,30,0,0)');
-      this.fringeGradientR = ctx.createLinearGradient(w, 0, w - fringeW, 0);
-      this.fringeGradientR.addColorStop(0, 'rgba(0,60,255,0.045)');
-      this.fringeGradientR.addColorStop(1, 'rgba(0,60,255,0)');
-    }
-
-    const territory = Math.max(-1, Math.min(1, this.camera.position.x / (WORLD_WIDTH * 0.42)));
-    ctx.save();
-    ctx.fillStyle = territory >= 0
-      ? `rgba(255,70,34,${0.018 + territory * 0.022})`
-      : `rgba(50,190,210,${0.018 + -territory * 0.018})`;
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = this.vignetteGradient!;
-    ctx.fillRect(0, 0, w, h);
-
-    // Damage flash — red vignette that fades quickly after the player is hit.
-    if (this.damageFlashTimer > 0 && this.flashGradient) {
-      const flashAlpha = Math.min(1, this.damageFlashTimer / 0.35) * 0.38;
-      ctx.globalAlpha = flashAlpha;
-      ctx.fillStyle = this.flashGradient;
-      ctx.fillRect(0, 0, w, h);
-      ctx.globalAlpha = 1;
-    }
-
-    // Color fringe — subtle lens-distortion color split at the screen edges.
-    // Two linear gradient strips (left edge → red, right edge → blue) at very
-    // low opacity give a CRT-style chromatic-aberration impression.
-    if (this.visualPreset.colorFringe && this.fringeGradientL && this.fringeGradientR) {
-      const fringeW = Math.round(w * 0.12);
-      ctx.fillStyle = this.fringeGradientL;
-      ctx.fillRect(0, 0, fringeW, h);
-      ctx.fillStyle = this.fringeGradientR;
-      ctx.fillRect(w - fringeW, 0, fringeW, h);
-    }
-
-    if (this.visualPreset.scanlines) {
-      if (!this.scanlinePattern) {
-        const p = document.createElement('canvas');
-        p.width = 1;
-        p.height = 4;
-        const pctx = p.getContext('2d')!;
-        pctx.fillStyle = 'rgba(255,255,255,0.035)';
-        pctx.fillRect(0, 0, 1, 1);
-        this.scanlinePattern = ctx.createPattern(p, 'repeat');
-      }
-      if (this.scanlinePattern) {
-        ctx.fillStyle = this.scanlinePattern;
-        ctx.fillRect(0, 0, w, h);
-      }
-    }
-    ctx.restore();
   }
 
 }
