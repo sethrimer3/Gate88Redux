@@ -74,7 +74,10 @@ export interface SupabaseOnlineDatabase {
     Functions: {
       join_lobby_by_code: {
         Args: { p_room_code: string };
-        Returns: SupabaseOnlineDatabase['public']['Tables']['lobbies']['Row'];
+        Returns: {
+          lobby: SupabaseOnlineDatabase['public']['Tables']['lobbies']['Row'];
+          assigned_slot: number;
+        };
       };
     };
     Enums: Record<string, never>;

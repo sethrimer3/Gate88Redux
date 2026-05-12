@@ -45,7 +45,7 @@ import {
 import { LanClient } from './lan/lanClient.js';
 import type { LobbyState, LobbySlot, AIDifficulty, MsgMatchStart, LanDiscoveredLobby } from './lan/protocol.js';
 import { factionLabel, RACE_SELECTIONS, type RaceSelection } from './confluence.js';
-import type { WebRtcTransport } from './online/webrtcTransport.js';
+import { WebRtcTransport, type WebRtcPeerConnectionState } from './online/webrtcTransport.js';
 import type { OnlineLobbyRow } from './online/onlineLobby.js';
 import {
   createSupabaseClient,
@@ -212,8 +212,14 @@ export class MainMenu {
   private _onlineLobbyHeartbeatTimer: number = 0;
   private static readonly ONLINE_HEARTBEAT_INTERVAL = 30_000;
 
-  /** Online host lobby: list of connected remote slot indices. */
-  private _onlineConnectedSlots: number[] = [];
+  /** Online host lobby: remote slots that have asked for WebRTC signaling. */
+  private _onlineRequestedSlots: number[] = [];
+
+  /** Online host lobby: remote slots whose WebRTC DataChannels are open. */
+  private _onlineReadySlots: number[] = [];
+
+  /** Concise online debug timeline shown in lobby screens. */
+  private _onlineDebugLines: string[] = [];
 
   /** Online host: seed for the match (set when starting). */
   private _onlineSeed: number = 0;
@@ -1912,28 +1918,70 @@ export class MainMenu {
       return;
     }
     this._onlineStatus = 'Signing in anonymously...';
+    this._onlineDebugLines = [];
+    this.addOnlineDebug('Supabase configured; signing in anonymously');
     this._onlineSeed = Math.random() * 0xFFFFFF | 0;
     const manager = new OnlineLobbyManager(client);
     ensureAnonymousSession(client).then(() => manager.createLobby(this._onlinePlayerName || 'Host')).then((row) => {
       this._onlineLobbyRow = row;
-      this._onlineConnectedSlots = [];
+      this._onlineRequestedSlots = [];
+      this._onlineReadySlots = [];
       this._onlineLobbyHeartbeatTimer = 0;
       const signaling = new SignalingClient(client, row.id, row.host_slot);
       this._onlineSignaling = signaling;
+      const transport = new WebRtcTransport(signaling, true, row.host_slot, row.host_slot);
+      this._onlineTransport = transport;
+      transport.onPeerConnectionStateChanged = (slot, state) => this.noteOnlinePeerState(slot, state);
+      transport.onPeerChannelsReady = (slot) => {
+        this._onlineReadySlots = transport.getReadyRemoteSlots();
+        this._onlineStatus = `Slot ${slot + 1} WebRTC channels ready.`;
+      };
       signaling.startPolling((signal) => {
+        this.addOnlineDebug(`Signal ${signal.type} from slot ${signal.from_slot + 1}`);
         if (signal.type === 'want_connect') {
           const slot = Number((signal.payload as { slot?: unknown }).slot ?? signal.from_slot);
-          if (Number.isInteger(slot) && slot >= 1 && slot <= 7 && !this._onlineConnectedSlots.includes(slot)) {
-            this._onlineConnectedSlots.push(slot);
+          if (Number.isInteger(slot) && slot >= 1 && slot <= 7 && !this._onlineRequestedSlots.includes(slot)) {
+            this._onlineRequestedSlots.push(slot);
           }
         }
+        transport.handleSignal(signal);
       });
-      this._onlineStatus = '';
+      this.addOnlineDebug(`Lobby ${row.room_code} created; host slot ${row.host_slot + 1}`);
+      this._onlineStatus = 'Waiting for players to connect.';
       this.setState('online_host_lobby');
     }).catch((e) => {
       console.error('[OnlineHost] createLobby failed:', e);
       this._onlineStatus = describeSupabaseError(e);
     });
+  }
+
+  private addOnlineDebug(line: string): void {
+    const text = line.length > 90 ? `${line.slice(0, 87)}...` : line;
+    this._onlineDebugLines.push(text);
+    if (this._onlineDebugLines.length > 8) this._onlineDebugLines.shift();
+    console.info(`[Online] ${line}`);
+  }
+
+  private noteOnlinePeerState(slot: number, state: WebRtcPeerConnectionState): void {
+    const label = state.replace(/_/g, ' ');
+    this.addOnlineDebug(`Slot ${slot + 1}: ${label}`);
+  }
+
+  private handleOnlineMatchStartMessage(msg: unknown, transport: WebRtcTransport, mySlot: number): boolean {
+    if (typeof msg !== 'object' || msg === null) return false;
+    const record = msg as Record<string, unknown>;
+    const raw = record['type'] === 'match_start' && record['matchStart']
+      ? record['matchStart']
+      : record['type'] === 'match_start'
+        ? record
+        : null;
+    if (!raw || typeof raw !== 'object') return false;
+    const matchStart = { ...(raw as MsgMatchStart), mySlot };
+    this._pendingOnlineMatchStart = { transport, matchStart };
+    this._onlineSignaling?.stopPolling();
+    this.addOnlineDebug(`Match start received for slot ${mySlot + 1}`);
+    this.pendingAction = 'start_online_client';
+    return true;
   }
 
   private drawOnlineHostLobby(ctx: CanvasRenderingContext2D, w: number, h: number): void {
@@ -1978,24 +2026,38 @@ export class MainMenu {
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.6);
       ctx.fillText('Waiting for players to join via "Join by Room Code"…', cx, 185);
 
-      const connectedCount = this._onlineConnectedSlots.length + 1; // +1 for host
+      const requestedCount = this._onlineRequestedSlots.length;
+      const readyCount = this._onlineReadySlots.length;
+      const connectedCount = readyCount + 1; // +1 for host
       ctx.font = gameFont(13);
       ctx.fillStyle = colorToCSS(Colors.general_building, 0.9);
-      ctx.fillText(`Connected: ${connectedCount} / ${row.max_players}`, cx, 215);
+      ctx.fillText(`Requested: ${requestedCount} | WebRTC ready: ${connectedCount} / ${row.max_players}`, cx, 215);
       if (this._onlineStatus) {
         ctx.font = gameFont(10);
         ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
         ctx.fillText(this._onlineStatus.slice(0, 96), cx, 242);
       }
+      if (this._onlineDebugLines.length > 0) {
+        ctx.font = gameFont(9);
+        ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.72);
+        const startY = 266;
+        for (let i = 0; i < Math.min(5, this._onlineDebugLines.length); i++) {
+          ctx.fillText(this._onlineDebugLines[this._onlineDebugLines.length - 1 - i], cx, startY + i * 14);
+        }
+      }
 
-      // Start Match button (only if at least 2 players)
-      if (connectedCount >= 1) {
+      // Start Match button requires at least one fully opened WebRTC peer.
+      if (readyCount >= 1) {
         this.drawButtonRow(ctx, [
           {
             label: `Start Match (${connectedCount} player${connectedCount !== 1 ? 's' : ''})`,
             action: () => this.startOnlineHostMatch(),
           },
         ], cx, h * 0.68);
+      } else {
+        ctx.font = gameFont(10);
+        ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.65);
+        ctx.fillText('Start Match enables after a remote client opens control, input, and snapshot channels.', cx, h * 0.68);
       }
     }
 
@@ -2017,6 +2079,8 @@ export class MainMenu {
           this._onlineSignaling = null;
           this._onlineTransport?.disconnect();
           this._onlineTransport = null;
+          this._onlineRequestedSlots = [];
+          this._onlineReadySlots = [];
           this.setState('online_multiplayer');
         },
       },
@@ -2026,6 +2090,13 @@ export class MainMenu {
   private startOnlineHostMatch(): void {
     const row = this._onlineLobbyRow;
     if (!row) return;
+    const transport = this._onlineTransport;
+    const readySlots = transport?.getReadyRemoteSlots() ?? [];
+    if (!transport || readySlots.length < 1) {
+      this._onlineStatus = 'Waiting for at least one remote WebRTC connection to finish.';
+      this.addOnlineDebug('Start blocked: no remote slot has all DataChannels open');
+      return;
+    }
 
     // Build a synthetic MsgMatchStart matching the LAN format.
     const mkSlot = (slotIndex: number, playerName: string): LobbySlot => ({
@@ -2039,7 +2110,7 @@ export class MainMenu {
     const lobby: LobbyState = {
       slots: [
         mkSlot(0, this._onlinePlayerName || 'Host'),
-        ...this._onlineConnectedSlots.map((slot) => mkSlot(slot, `Player ${slot + 1}`)),
+        ...readySlots.map((slot) => mkSlot(slot, `Player ${slot + 1}`)),
       ],
       hostClientId: '',
       matchStarted: true,
@@ -2053,23 +2124,16 @@ export class MainMenu {
       lobby,
     };
 
-    // Signal match_start to all connected clients via signaling.
-    if (this._onlineSignaling) {
-      this._onlineSignaling.sendSignal(-1, 'match_start', matchStart).catch(console.warn);
-    }
+    const controlMessage = { type: 'match_start', matchStart };
 
-    // If no WebRTC transport is connected yet (single-player online test),
-    // create a minimal offline transport stub to satisfy game.ts.
-    if (!this._onlineTransport) {
-      this._pendingOnlineMatchStart = {
-        transport: { mode: 'online', isHost: true, mySlot: 0, hostSlot: 0, connected: true,
-          sendAuthoritativeSnapshot: () => {}, sendInputSnapshot: () => {}, disconnect: () => {} } as unknown as WebRtcTransport,
-        matchStart,
-      };
-    } else {
-      this._onlineTransport.sendControl('all', matchStart);
-      this._pendingOnlineMatchStart = { transport: this._onlineTransport, matchStart };
+    // Send match_start through WebRTC control first; signaling is only a fallback for clients still polling.
+    transport.sendControl('all', controlMessage);
+    this.addOnlineDebug(`Match start sent to ${readySlots.length} ready remote slot(s)`);
+
+    if (this._onlineSignaling) {
+      this._onlineSignaling.sendSignal(-1, 'match_start', controlMessage).catch(console.warn);
     }
+    this._pendingOnlineMatchStart = { transport, matchStart };
 
     // Mark started in Supabase.
     const client = createSupabaseClient();
@@ -2140,6 +2204,13 @@ export class MainMenu {
       ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
       ctx.fillText(this._onlineJoinStatus, cx, 234);
     }
+    if (this._onlineDebugLines.length > 0) {
+      ctx.font = gameFont(9);
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.72);
+      for (let i = 0; i < Math.min(5, this._onlineDebugLines.length); i++) {
+        ctx.fillText(this._onlineDebugLines[this._onlineDebugLines.length - 1 - i], cx, 258 + i * 14);
+      }
+    }
 
     // Handle typing into active field
     if (Input.typedChars) {
@@ -2183,7 +2254,9 @@ export class MainMenu {
       return;
     }
     const manager = new OnlineLobbyManager(client);
-    ensureAnonymousSession(client).then(() => manager.joinLobbyByCode(code)).then((row) => {
+    this._onlineDebugLines = [];
+    this.addOnlineDebug('Supabase configured; signing in anonymously');
+    ensureAnonymousSession(client).then(() => manager.joinLobbyByCode(code)).then(({ lobby: row, assignedSlot }) => {
       if (!row) {
         this._onlineJoinStatus = `No lobby found with code "${code}".`;
         return;
@@ -2193,34 +2266,26 @@ export class MainMenu {
         return;
       }
       // Assign a slot index (simple: slots 1–7 in order).
-      const mySlot = Math.max(1, Math.min(7, row.player_count - 1));
+      const mySlot = assignedSlot;
       const signalingClient = new SignalingClient(client, row.id, mySlot);
       this._onlineSignaling = signalingClient;
+      const transport = new WebRtcTransport(signalingClient, false, mySlot, row.host_slot);
+      this._onlineTransport = transport;
+      this.addOnlineDebug(`Lobby ${row.room_code} joined; assigned slot ${mySlot + 1}`);
+      transport.onPeerConnectionStateChanged = (slot, state) => {
+        this.noteOnlinePeerState(slot, state);
+        this._onlineJoinStatus = `Slot ${mySlot + 1}: ${state.replace(/_/g, ' ')}`;
+      };
+      transport.onPeerChannelsReady = () => {
+        this._onlineJoinStatus = 'WebRTC channels ready. Waiting for host start.';
+      };
+      transport.onControlMessage = (msg) => {
+        this.handleOnlineMatchStartMessage(msg, transport, mySlot);
+      };
       this._onlineJoinStatus = 'Connecting…';
 
-      // Start polling for signals (offer from host, match_start).
-      signalingClient.startPolling((signal) => {
-        if (signal.type === 'match_start') {
-          const matchData = signal.payload as MsgMatchStart & { type: 'match_start' };
-          // Patch mySlot since the payload uses host's view.
-          const matchStart: MsgMatchStart = { ...matchData, mySlot };
-          this._pendingOnlineMatchStart = {
-            transport: this._onlineTransport ?? {
-              mode: 'online', isHost: false, mySlot, hostSlot: 0, connected: true,
-              sendAuthoritativeSnapshot: () => {}, sendInputSnapshot: () => {}, disconnect: () => {},
-            } as unknown as WebRtcTransport,
-            matchStart,
-          };
-          signalingClient.stopPolling();
-          this.pendingAction = 'start_online_client';
-        }
-      });
-
-      // Signal host we want to connect.
-      signalingClient.sendSignal(0, 'want_connect', { slot: mySlot }).catch((e) => {
-        this._onlineJoinStatus = describeSupabaseError(e).slice(0, 90);
-        console.warn(e);
-      });
+      this._onlineJoinStatus = `Joined as slot ${mySlot + 1}. Connecting WebRTC...`;
+      transport.startSignaling([row.host_slot]);
     }).catch((e) => {
       this._onlineJoinStatus = describeSupabaseError(e).slice(0, 90);
     });

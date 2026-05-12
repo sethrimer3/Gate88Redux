@@ -13,7 +13,7 @@ Supabase is used only for low-frequency setup traffic:
 
 - lobby discovery
 - lobby heartbeat and stale-lobby cleanup
-- WebRTC signaling: `want_connect`, `offer`, `answer`, `ice`, `match_start`
+- WebRTC signaling: `want_connect`, `offer`, `answer`, `ice`, optional fallback `match_start`
 
 Supabase is not used for high-frequency gameplay traffic. Gameplay snapshots
 and player inputs must go through WebRTC DataChannels.
@@ -57,8 +57,10 @@ creates:
 - check constraints for room codes, slot ranges, player counts, signal types,
   and payload size
 - RLS policies for anonymous Auth users
-- `join_lobby_by_code(p_room_code text)` for atomic joins
-- `clean_stale_lobbies()` and `clean_old_signals()`
+- `join_lobby_by_code(p_room_code text)` for atomic joins that return both
+  the lobby row and the caller's assigned slot
+- private cleanup functions for stale lobbies and old signals, plus public
+  admin/manual wrappers that are not granted to browser anonymous users
 
 Do not use the old embedded sample schema from earlier revisions; it created
 only `lobbies` and did not match the TypeScript signaling client.
@@ -70,24 +72,26 @@ Cleanup functions do not run automatically just because they exist.
 For manual testing, run:
 
 ```sql
-select public.clean_stale_lobbies();
-select public.clean_old_signals();
+select private.clean_stale_lobbies();
+select private.clean_old_signals();
 ```
 
-For a public prototype, call those functions from a trusted scheduled job, or
-use `pg_cron` if your Supabase project supports it. Example schedule:
+Cleanup functions do not run automatically and are not executable by anonymous
+browser players. For a public prototype, call those functions from a trusted
+scheduled job, or use `pg_cron` if your Supabase project supports it. Example
+schedule:
 
 ```sql
 select cron.schedule(
   'gate88-clean-stale-lobbies',
   '* * * * *',
-  $$select public.clean_stale_lobbies();$$
+  $$select private.clean_stale_lobbies();$$
 );
 
 select cron.schedule(
   'gate88-clean-old-signals',
   '* * * * *',
-  $$select public.clean_old_signals();$$
+  $$select private.clean_old_signals();$$
 );
 ```
 
@@ -106,11 +110,46 @@ session exists. RLS policies target `authenticated`, not unauthenticated anon
 requests.
 
 `OnlineLobbyManager.joinLobbyByCode()` uses the `join_lobby_by_code` RPC rather
-than allowing joiners to update `player_count` directly. Hosts can heartbeat,
-mark started, and delete only their own lobby rows.
+than allowing joiners to update `player_count` directly. The RPC returns:
+
+- `lobby`: the current lobby row
+- `assigned_slot`: the exact slot inserted in `lobby_participants`
+
+The joiner passes that assigned slot into `SignalingClient` and
+`WebRtcTransport`. The client must not infer its slot from `player_count`.
+Hosts can heartbeat, mark started, and delete only their own lobby rows.
 
 `SignalingClient` inserts and polls rows in `signals`. Signal traffic is
 intended only for WebRTC setup, not gameplay state.
+
+## Connection Readiness
+
+`want_connect` means only that a browser wants an offer. It does not mean the
+peer is playable. The online host lobby tracks:
+
+- requested/signaling seen
+- offer sent
+- answer received
+- ICE connected
+- control channel open
+- inputs channel open
+- snapshots channel open
+
+The host Start Match button enables only after at least one remote slot has all
+three WebRTC DataChannels open. The lobby screen shows concise status lines so
+testers can see whether the flow stopped at Supabase auth, slot assignment,
+signaling, ICE, channel open, or match start.
+
+## Match Start
+
+The host creates one authoritative `MsgMatchStart`, stores it locally, and sends
+`{ type: 'match_start', matchStart }` over the reliable ordered `control`
+DataChannel. Joined clients parse that control message, store their own pending
+match start with their assigned slot, and transition into `start_online_client`.
+
+A broadcast Supabase `match_start` signal may also be sent as a fallback for
+clients still polling, but gameplay inputs and snapshots remain on WebRTC
+DataChannels only.
 
 ## Failure Messages
 
@@ -127,8 +166,9 @@ LAN and offline modes do not require Supabase configuration.
 ## TURN / NAT
 
 The WebRTC transport uses public STUN servers. Some NATs require a TURN server
-for reliable peer-to-peer connections. Add TURN credentials to the WebRTC ICE
-server configuration before treating online multiplayer as broadly reliable.
+for reliable peer-to-peer connections. `src/online/webrtcTransport.ts` has an
+`ICE_SERVERS` TODO hook for adding project-owned TURN servers later. Do not
+hardcode paid or private TURN credentials in committed browser code.
 
 ## Testing Checklist
 
@@ -141,9 +181,17 @@ server configuration before treating online multiplayer as broadly reliable.
 - [ ] Online screen shows a useful missing-config message with no env vars
 - [ ] Host can create a lobby and see a room code
 - [ ] Joiner can join by room code through `join_lobby_by_code`
-- [ ] `signals` rows are created for `want_connect`, offer/answer/ICE, and match start
-- [ ] `select public.clean_stale_lobbies();` removes old unstarted lobbies
-- [ ] `select public.clean_old_signals();` removes old signaling rows
+- [ ] Joiner sees its assigned slot from the RPC result
+- [ ] Host sees the requested remote slot
+- [ ] `signals` rows are created for `want_connect`, offer/answer/ICE, and optional match start
+- [ ] WebRTC control, inputs, and snapshots channels open
+- [ ] Host Start Match enables only after the channels are open
+- [ ] Host starts the match
+- [ ] Client receives match start and enters the match
+- [ ] Host receives client input snapshots over WebRTC
+- [ ] Client receives authoritative snapshots over WebRTC
+- [ ] `select private.clean_stale_lobbies();` removes old unstarted lobbies when run by an admin/scheduled job
+- [ ] `select private.clean_old_signals();` removes old signaling rows when run by an admin/scheduled job
 - [ ] Offline single-player still starts
 - [ ] Vs AI still starts
 - [ ] LAN hosting and joining still work
@@ -153,9 +201,11 @@ server configuration before treating online multiplayer as broadly reliable.
 - Added a dedicated Supabase setup file at `supabase/schema.sql`.
 - Added anonymous Supabase Auth sign-in through `@supabase/supabase-js`.
 - Aligned lobby and signal RLS with authenticated anonymous users.
-- Replaced direct joiner-side `player_count` updates with an atomic RPC.
+- Replaced direct joiner-side `player_count` updates with an atomic RPC that
+  returns the assigned participant slot.
+- Gated online match start on real WebRTC DataChannel readiness.
+- Sent match start over the reliable WebRTC control channel.
 - Kept Supabase scoped to lobby discovery, heartbeat, cleanup, and signaling.
 
-Remaining limitations: online multiplayer is still prototype-grade, slot
-negotiation is minimal, TURN is not configured, and cleanup must be scheduled or
-called manually.
+Remaining limitations: online multiplayer is still prototype-grade, TURN is not
+configured, and cleanup must be scheduled or called manually by trusted code.

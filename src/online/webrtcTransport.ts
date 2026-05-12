@@ -19,11 +19,25 @@ import type { MultiplayerTransport } from '../net/transport.js';
 import type { NetInputSnapshot, NetGameSnapshot } from '../net/protocol.js';
 import type { SignalingClient, SignalRow } from './signalingClient.js';
 
-/** Free STUN servers used for ICE gathering. */
+/** Free STUN servers used for ICE gathering. Add TURN entries here for production reliability. */
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
+  // TODO: Add project-owned TURN servers here, for example:
+  // { urls: 'turns:turn.example.com:5349', username: '...', credential: '...' },
 ];
+
+export type WebRtcPeerConnectionState =
+  | 'requested'
+  | 'offer_sent'
+  | 'answer_received'
+  | 'ice_connected'
+  | 'control_open'
+  | 'inputs_open'
+  | 'snapshots_open'
+  | 'channels_ready'
+  | 'disconnected'
+  | 'failed';
 
 interface PeerEntry {
   pc: RTCPeerConnection;
@@ -49,9 +63,13 @@ export class WebRtcTransport implements MultiplayerTransport {
   onInputSnapshot?: (fromSlot: number, input: NetInputSnapshot) => void;
   onAuthoritativeSnapshot?: (snapshot: NetGameSnapshot) => void;
   onDisconnect?: (reason: string) => void;
+  onControlMessage?: (msg: unknown, fromSlot: number) => void;
+  onPeerConnectionStateChanged?: (remoteSlot: number, state: WebRtcPeerConnectionState) => void;
+  onPeerChannelsReady?: (remoteSlot: number) => void;
 
   /** Map from remoteSlot → peer data. */
   private readonly peers: Map<number, PeerEntry> = new Map();
+  private readonly readyRemoteSlots = new Set<number>();
 
   constructor(
     private readonly signalingClient: SignalingClient,
@@ -83,6 +101,7 @@ export class WebRtcTransport implements MultiplayerTransport {
       this.signalingClient
         .sendSignal(this.hostSlot, 'want_connect', { slot: this.mySlot })
         .catch((e) => console.error('[WebRtcTransport] want_connect error:', e));
+      this.emitPeerState(this.hostSlot, 'requested');
     }
   }
 
@@ -101,8 +120,11 @@ export class WebRtcTransport implements MultiplayerTransport {
       maxRetransmits: 0,
     });
 
-    controlChannel.onopen = () => { this.onChannelOpen(); };
+    controlChannel.onopen = () => { this.onChannelOpen(remoteSlot, 'control'); };
     controlChannel.onerror = (e) => console.warn('[WebRtcTransport] control error:', e);
+    controlChannel.onmessage = (ev) => this.handleControlMessage(ev.data as string, remoteSlot);
+    snapshotsChannel.onopen = () => { this.onChannelOpen(remoteSlot, 'snapshots'); };
+    snapshotsChannel.onerror = (e) => console.warn('[WebRtcTransport] snapshots error:', e);
 
     const entry: PeerEntry = { pc, controlChannel, snapshotsChannel, inputsChannel: null };
     this.peers.set(remoteSlot, entry);
@@ -113,6 +135,7 @@ export class WebRtcTransport implements MultiplayerTransport {
       sdp: offer.sdp,
       type: offer.type,
     });
+    this.emitPeerState(remoteSlot, 'offer_sent');
   }
 
   /** Client: receive offer from host and send back an answer. */
@@ -126,11 +149,12 @@ export class WebRtcTransport implements MultiplayerTransport {
       if (!entry) return;
       if (ch.label === 'control') {
         entry.controlChannel = ch;
-        ch.onopen = () => { this.onChannelOpen(); };
+        ch.onopen = () => { this.onChannelOpen(fromSlot, 'control'); };
         ch.onerror = (e) => console.warn('[WebRtcTransport] control error:', e);
-        ch.onmessage = (ev) => this.handleControlMessage(ev.data as string);
+        ch.onmessage = (ev) => this.handleControlMessage(ev.data as string, fromSlot);
       } else if (ch.label === 'snapshots') {
         entry.snapshotsChannel = ch;
+        ch.onopen = () => { this.onChannelOpen(fromSlot, 'snapshots'); };
         ch.onmessage = (ev) => this.handleSnapshotMessage(ev.data as string);
         ch.onerror = (e) => console.warn('[WebRtcTransport] snapshots error:', e);
       }
@@ -138,6 +162,7 @@ export class WebRtcTransport implements MultiplayerTransport {
 
     // Client creates its own inputs channel (goes to host).
     const inputsChannel = pc.createDataChannel('inputs', { ordered: true });
+    inputsChannel.onopen = () => { this.onChannelOpen(fromSlot, 'inputs'); };
     inputsChannel.onerror = (e) => console.warn('[WebRtcTransport] inputs error:', e);
 
     const entry: PeerEntry = { pc, controlChannel: null, snapshotsChannel: null, inputsChannel };
@@ -150,6 +175,7 @@ export class WebRtcTransport implements MultiplayerTransport {
       sdp: answer.sdp,
       type: answer.type,
     });
+    this.emitPeerState(fromSlot, 'answer_received');
   }
 
   /** Host: receive answer from a remote client. */
@@ -157,6 +183,7 @@ export class WebRtcTransport implements MultiplayerTransport {
     const entry = this.peers.get(fromSlot);
     if (!entry) return;
     await entry.pc.setRemoteDescription(new RTCSessionDescription({ type: sdpType, sdp }));
+    this.emitPeerState(fromSlot, 'answer_received');
   }
 
   /** Both sides: add an ICE candidate from a remote peer. */
@@ -236,7 +263,12 @@ export class WebRtcTransport implements MultiplayerTransport {
       entry.pc.close();
     }
     this.peers.clear();
+    this.readyRemoteSlots.clear();
     this.connected = false;
+  }
+
+  getReadyRemoteSlots(): number[] {
+    return Array.from(this.readyRemoteSlots).sort((a, b) => a - b);
   }
 
   // ---------------------------------------------------------------------------
@@ -260,7 +292,14 @@ export class WebRtcTransport implements MultiplayerTransport {
 
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState;
+      if (state === 'connected') {
+        this.emitPeerState(remoteSlot, 'ice_connected');
+        this.checkPeerReady(remoteSlot);
+      }
       if (state === 'disconnected' || state === 'failed') {
+        this.readyRemoteSlots.delete(remoteSlot);
+        this.connected = this.readyRemoteSlots.size > 0;
+        this.emitPeerState(remoteSlot, state);
         this.onDisconnect?.(
           `WebRTC connection to slot ${remoteSlot} ${state}`,
         );
@@ -275,6 +314,7 @@ export class WebRtcTransport implements MultiplayerTransport {
           const entry = this.peers.get(remoteSlot);
           if (entry) {
             entry.inputsChannel = ch;
+            ch.onopen = () => { this.onChannelOpen(remoteSlot, 'inputs'); };
             ch.onmessage = (ev) => this.handleInputMessage(ev.data as string, remoteSlot);
             ch.onerror = (e) => console.warn('[WebRtcTransport] inputs error:', e);
           }
@@ -285,16 +325,20 @@ export class WebRtcTransport implements MultiplayerTransport {
     return pc;
   }
 
-  private onChannelOpen(): void {
-    // Mark as connected when at least one control channel is open.
-    this.connected = true;
+  private onChannelOpen(remoteSlot: number, channel: 'control' | 'inputs' | 'snapshots'): void {
+    this.emitPeerState(
+      remoteSlot,
+      channel === 'control' ? 'control_open' : channel === 'inputs' ? 'inputs_open' : 'snapshots_open',
+    );
+    this.checkPeerReady(remoteSlot);
   }
 
-  private handleControlMessage(data: string): void {
-    // Control messages (match_start, etc.) are handled by the caller via
-    // onAuthoritativeSnapshot / SignalingClient match_start signal.
-    // Future: parse and dispatch control messages here.
-    void data;
+  private handleControlMessage(data: string, fromSlot: number): void {
+    try {
+      this.onControlMessage?.(JSON.parse(data), fromSlot);
+    } catch (e) {
+      console.warn('[WebRtcTransport] control parse error:', e);
+    }
   }
 
   private handleSnapshotMessage(data: string): void {
@@ -317,13 +361,14 @@ export class WebRtcTransport implements MultiplayerTransport {
     }
   }
 
-  private handleSignal(signal: SignalRow): void {
+  handleSignal(signal: SignalRow): void {
     const { type, from_slot } = signal;
     const p = signal.payload as Record<string, unknown>;
 
     switch (type) {
       case 'want_connect':
         if (this.isHost) {
+          this.emitPeerState(from_slot, 'requested');
           this.createOffer(from_slot).catch((e) =>
             console.error('[WebRtcTransport] createOffer error:', e),
           );
@@ -363,12 +408,31 @@ export class WebRtcTransport implements MultiplayerTransport {
       }
 
       case 'match_start':
-        // Handled externally by the menu/lobby state machine.
+        this.onControlMessage?.(signal.payload, from_slot);
         break;
 
       default:
         break;
     }
+  }
+
+  private checkPeerReady(remoteSlot: number): void {
+    const entry = this.peers.get(remoteSlot);
+    if (!entry) return;
+    const ready =
+      entry.controlChannel?.readyState === 'open' &&
+      entry.inputsChannel?.readyState === 'open' &&
+      entry.snapshotsChannel?.readyState === 'open';
+    if (!ready || this.readyRemoteSlots.has(remoteSlot)) return;
+    this.readyRemoteSlots.add(remoteSlot);
+    this.connected = true;
+    this.emitPeerState(remoteSlot, 'channels_ready');
+    this.onPeerChannelsReady?.(remoteSlot);
+  }
+
+  private emitPeerState(remoteSlot: number, state: WebRtcPeerConnectionState): void {
+    this.onPeerConnectionStateChanged?.(remoteSlot, state);
+    console.debug(`[WebRtcTransport] slot ${remoteSlot}: ${state}`);
   }
 }
 

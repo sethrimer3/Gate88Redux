@@ -2,6 +2,7 @@
 -- Run this file in the Supabase SQL editor for a project with Anonymous Auth enabled.
 
 create extension if not exists pgcrypto;
+create schema if not exists private;
 
 create table if not exists public.lobbies (
   id uuid primary key default gen_random_uuid(),
@@ -66,7 +67,7 @@ create index if not exists signals_lobby_from_created_idx
 create index if not exists signals_created_at_idx
   on public.signals (created_at);
 
-create or replace function public.set_lobby_updated_at()
+create or replace function private.set_lobby_updated_at()
 returns trigger
 language plpgsql
 as $$
@@ -80,13 +81,13 @@ drop trigger if exists trg_lobbies_updated_at on public.lobbies;
 create trigger trg_lobbies_updated_at
 before update on public.lobbies
 for each row
-execute function public.set_lobby_updated_at();
+execute function private.set_lobby_updated_at();
 
-create or replace function public.add_host_as_participant()
+create or replace function private.add_host_as_participant()
 returns trigger
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, private
 as $$
 begin
   insert into public.lobby_participants (lobby_id, user_id, slot)
@@ -100,13 +101,13 @@ drop trigger if exists trg_lobbies_add_host_participant on public.lobbies;
 create trigger trg_lobbies_add_host_participant
 after insert on public.lobbies
 for each row
-execute function public.add_host_as_participant();
+execute function private.add_host_as_participant();
 
 create or replace function public.join_lobby_by_code(p_room_code text)
-returns public.lobbies
+returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, private
 as $$
 declare
   v_lobby public.lobbies;
@@ -137,7 +138,10 @@ begin
       and user_id = auth.uid();
 
   if found then
-    return v_lobby;
+    return jsonb_build_object(
+      'lobby', to_jsonb(v_lobby),
+      'assigned_slot', v_slot
+    );
   end if;
 
   if v_lobby.player_count >= v_lobby.max_players then
@@ -168,11 +172,14 @@ begin
     where id = v_lobby.id
     returning * into v_lobby;
 
-  return v_lobby;
+  return jsonb_build_object(
+    'lobby', to_jsonb(v_lobby),
+    'assigned_slot', v_slot
+  );
 end;
 $$;
 
-create or replace function public.clean_stale_lobbies()
+create or replace function private.clean_stale_lobbies()
 returns int
 language sql
 security definer
@@ -190,7 +197,7 @@ as $$
   select count(*)::int from deleted;
 $$;
 
-create or replace function public.clean_old_signals()
+create or replace function private.clean_old_signals()
 returns int
 language sql
 security definer
@@ -202,6 +209,24 @@ as $$
     returning 1
   )
   select count(*)::int from deleted;
+$$;
+
+create or replace function public.clean_stale_lobbies()
+returns int
+language sql
+security definer
+set search_path = public, private
+as $$
+  select private.clean_stale_lobbies();
+$$;
+
+create or replace function public.clean_old_signals()
+returns int
+language sql
+security definer
+set search_path = public, private
+as $$
+  select private.clean_old_signals();
 $$;
 
 alter table public.lobbies enable row level security;
@@ -294,9 +319,10 @@ create policy "hosts can delete lobby signals"
   );
 
 grant usage on schema public to authenticated;
+revoke all on schema private from public, anon, authenticated;
 grant select, insert, update, delete on public.lobbies to authenticated;
 grant select on public.lobby_participants to authenticated;
 grant select, insert, delete on public.signals to authenticated;
+revoke all on function public.clean_stale_lobbies() from public, anon, authenticated;
+revoke all on function public.clean_old_signals() from public, anon, authenticated;
 grant execute on function public.join_lobby_by_code(text) to authenticated;
-grant execute on function public.clean_stale_lobbies() to authenticated;
-grant execute on function public.clean_old_signals() to authenticated;

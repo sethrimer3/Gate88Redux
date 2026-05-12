@@ -16,6 +16,11 @@ export interface OnlineLobbyRow {
   updated_at: string;
 }
 
+export interface JoinedOnlineLobby {
+  lobby: OnlineLobbyRow;
+  assignedSlot: number;
+}
+
 function generateRoomCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
@@ -74,14 +79,19 @@ export class OnlineLobbyManager {
     return data;
   }
 
-  async joinLobbyByCode(code: string): Promise<OnlineLobbyRow> {
+  async joinLobbyByCode(code: string): Promise<JoinedOnlineLobby> {
     await ensureAnonymousSession(this.client);
     const { data, error } = await this.client.rpc('join_lobby_by_code', {
       p_room_code: code.trim().toUpperCase(),
     });
     if (error) throw new Error(`Supabase join lobby failed: ${error.message}`);
-    if (!data) throw new Error('Supabase join lobby failed: no lobby returned');
-    return data;
+    if (!data?.lobby || !Number.isInteger(data.assigned_slot)) {
+      throw new Error('Supabase join lobby failed: no assigned slot returned');
+    }
+    return {
+      lobby: data.lobby,
+      assignedSlot: data.assigned_slot,
+    };
   }
 
   async heartbeat(id: string): Promise<void> {
