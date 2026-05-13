@@ -21,6 +21,12 @@ export const SYNONYMOUS_BUILD_COST: Record<string, number> = {
   bomberyard: 120,
   missileturret: 50,
   synonymousminelayer: 65,
+  powergenerator: 30,
+  wall: 15,
+  gatlingturret: 55,
+  exciterturret: 80,
+  massdriverturret: 70,
+  regenturret: 85,
 };
 
 export type SynonymousShapeKind = 'swarm' | 'factory' | 'researchlab' | 'laserturret' | 'minelayer';

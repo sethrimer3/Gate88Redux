@@ -186,9 +186,37 @@ function isBuildDefAvailable(def: BuildDef, state: GameState): boolean {
   return !def.researchKey || state.researchedItems.has(def.researchKey);
 }
 
+/**
+ * Building keys available to The Synonymous faction.
+ * All others are Terran-only (conduit-powered structures).
+ */
+const SYNONYMOUS_BUILD_KEYS = new Set([
+  'commandpost',
+  'factory',
+  'researchlab',
+  'powergenerator',
+  'wall',
+  'gatlingturret',
+  'missileturret',
+  'synonymousminelayer',
+  'exciterturret',
+  'massdriverturret',
+  'regenturret',
+  'fighteryard',
+  'bomberyard',
+]);
+
+function isBuildDefForFaction(def: BuildDef, state: GameState): boolean {
+  if (isSynonymousFaction(state.factionByTeam, Team.Player)) {
+    return SYNONYMOUS_BUILD_KEYS.has(def.key);
+  }
+  return true;
+}
+
 function buildGeneralItems(state: GameState): RadialItem[] {
   const items: RadialItem[] = [];
   for (const def of defsByTier('structure')) {
+    if (!isBuildDefForFaction(def, state)) continue;
     // Hidden defs (e.g. command post) are only revealed when the player has
     // no command post — they own that placement slot.
     if (def.hidden) {
@@ -204,7 +232,7 @@ function buildGeneralItems(state: GameState): RadialItem[] {
 
 function buildTurretItems(state: GameState): RadialItem[] {
   return defsByTier('turret')
-    .filter((d) => isBuildDefAvailable(d, state))
+    .filter((d) => isBuildDefForFaction(d, state) && isBuildDefAvailable(d, state))
     .map((d) => defToRadialItem(d, state));
 }
 
@@ -215,21 +243,12 @@ function buildYardItems(state: GameState): RadialItem[] {
 }
 
 function availableBuildDefs(state: GameState): BuildDef[] {
-  const synonymousKeys = new Set([
-    'commandpost',
-    'factory',
-    'researchlab',
-    'missileturret',
-    'synonymousminelayer',
-    'fighteryard',
-    'bomberyard',
-  ]);
   return [
     ...defsByTier('structure'),
     ...defsByTier('turret'),
     ...defsByTier('yard'),
   ].filter((def) => {
-    if (isSynonymousFaction(state.factionByTeam, Team.Player) && !synonymousKeys.has(def.key)) return false;
+    if (!isBuildDefForFaction(def, state)) return false;
     if (def.hidden) return def.key === 'commandpost' && !state.getPlayerCommandPost() && state.player.alive;
     return isBuildDefAvailable(def, state);
   });
@@ -270,7 +289,7 @@ function buildResearchRoot(state: GameState): RadialItem[] {
       category('Ship', ['synonymousSpeed', 'synonymousVitality']),
       category('Weapons', ['synonymousPierce', nextFireSpeed]),
       category('Fighters', ['advancedFighters']),
-      category('Structures', ['synonymousminelayer', 'bomberyard']),
+      category('Structures', ['synonymousminelayer', 'exciterturret', 'massdriverturret', 'regenturret', 'bomberyard']),
     ];
   }
   return [
@@ -1070,9 +1089,12 @@ class ShipMenu {
     ctx.font = '18px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
     drawDecodedText(ctx, 'Weapons', x + 12, weaponsY, 18, this.openedAt);
-    const rowH = Math.max(34, Math.min(62, (y + panelH - weaponsY - 54) / SHIP_WEAPON_OPTIONS.length - 6));
-    for (let i = 0; i < SHIP_WEAPON_OPTIONS.length; i++) {
-      const weapon = SHIP_WEAPON_OPTIONS[i];
+    const factionWeapons = SHIP_WEAPON_OPTIONS.filter((w) =>
+      isPlayerSynonymous(state) ? w.id === 'synonymousLaser' : w.id !== 'synonymousLaser',
+    );
+    const rowH = Math.max(34, Math.min(62, (y + panelH - weaponsY - 54) / factionWeapons.length - 6));
+    for (let i = 0; i < factionWeapons.length; i++) {
+      const weapon = factionWeapons[i];
       const wy = weaponsY + 20 + i * (rowH + 6);
       const selected = ship.primaryWeaponId === weapon.id;
       const unlocked = this.weaponUnlocked(state, weapon.id);

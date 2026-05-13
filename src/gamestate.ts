@@ -215,6 +215,10 @@ export class GameState {
         else if (entity.type === EntityType.ResearchLab) entity.synonymousVisualKind = 'researchlab';
         else if (entity.type === EntityType.FighterYard || entity.type === EntityType.BomberYard) entity.synonymousVisualKind = 'shipyard';
         else if (entity.type === EntityType.MissileTurret) entity.synonymousVisualKind = 'laserturret';
+        else if (entity.type === EntityType.GatlingTurret) entity.synonymousVisualKind = 'laserturret';
+        else if (entity.type === EntityType.ExciterTurret) entity.synonymousVisualKind = 'laserturret';
+        else if (entity.type === EntityType.MassDriverTurret) entity.synonymousVisualKind = 'laserturret';
+        else if (entity.type === EntityType.RegenTurret) entity.synonymousVisualKind = 'laserturret';
         else if (entity.type === EntityType.TimeBomb) entity.synonymousVisualKind = 'minelayer';
       }
       this.buildings.push(entity);
