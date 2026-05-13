@@ -2389,6 +2389,7 @@ export class Game {
 
     // HUD
     this.hud.draw(ctx, w, h);
+    Input.drawTouchJoysticks(ctx);
     this.hud.drawAIChat(ctx, w, h);
     drawBuildingHoverHitpoints(ctx, this.camera, this.state);
     const synonymousPlayer = isSynonymousFaction(this.state.factionByTeam, Team.Player);

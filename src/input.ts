@@ -32,6 +32,19 @@ class InputManager {
   mouse3Released = false;
   wheelDelta = 0;
 
+  private readonly touchPrimaryId: number | null = null;
+  private readonly touchSecondaryId: number | null = null;
+  private touchMoveVec = new Vec2(0, 0);
+  private touchFireVec = new Vec2(0, 0);
+  private touchPrimaryCenter = new Vec2(0, 0);
+  private touchSecondaryCenter = new Vec2(0, 0);
+  private touchPrimaryActive = false;
+  private touchSecondaryActive = false;
+  private touchPrimaryIdMutable: number | null = null;
+  private touchSecondaryIdMutable: number | null = null;
+  private readonly touchDeadZone = 0.2;
+  private readonly touchStickMaxRadiusPx = 72;
+
   constructor() {
     if (typeof window !== 'undefined') {
       window.addEventListener('keydown', this.onKeyDown);
@@ -41,8 +54,76 @@ class InputManager {
       window.addEventListener('mouseup', this.onMouseUp);
       window.addEventListener('wheel', this.onWheel, { passive: false });
       window.addEventListener('contextmenu', (e) => e.preventDefault());
+      window.addEventListener('touchstart', this.onTouchStart, { passive: false });
+      window.addEventListener('touchmove', this.onTouchMove, { passive: false });
+      window.addEventListener('touchend', this.onTouchEnd, { passive: false });
+      window.addEventListener('touchcancel', this.onTouchEnd, { passive: false });
     }
   }
+
+  private get isMobileLike(): boolean {
+    if (typeof navigator === 'undefined') return false;
+    return navigator.maxTouchPoints > 0;
+  }
+
+  private clampStickVector(dx: number, dy: number): Vec2 {
+    const mag = Math.hypot(dx, dy);
+    if (mag <= 0) return new Vec2(0, 0);
+    const clamped = Math.min(1, mag / this.touchStickMaxRadiusPx);
+    return new Vec2((dx / mag) * clamped, (dy / mag) * clamped);
+  }
+
+  private onTouchStart = (e: TouchEvent): void => {
+    if (!this.isMobileLike) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches.item(i);
+      if (!t) continue;
+      if (this.touchPrimaryIdMutable === null) {
+        this.touchPrimaryIdMutable = t.identifier;
+        this.touchPrimaryCenter.set(t.clientX, t.clientY);
+        this.touchMoveVec.set(0, 0);
+        this.touchPrimaryActive = true;
+      } else if (this.touchSecondaryIdMutable === null) {
+        this.touchSecondaryIdMutable = t.identifier;
+        this.touchSecondaryCenter.set(t.clientX, t.clientY);
+        this.touchFireVec.set(0, 0);
+        this.touchSecondaryActive = true;
+      }
+    }
+    e.preventDefault();
+  };
+
+  private onTouchMove = (e: TouchEvent): void => {
+    if (!this.isMobileLike) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches.item(i);
+      if (!t) continue;
+      if (t.identifier === this.touchPrimaryIdMutable) {
+        this.touchMoveVec = this.clampStickVector(t.clientX - this.touchPrimaryCenter.x, t.clientY - this.touchPrimaryCenter.y);
+      } else if (t.identifier === this.touchSecondaryIdMutable) {
+        this.touchFireVec = this.clampStickVector(t.clientX - this.touchSecondaryCenter.x, t.clientY - this.touchSecondaryCenter.y);
+      }
+    }
+    e.preventDefault();
+  };
+
+  private onTouchEnd = (e: TouchEvent): void => {
+    if (!this.isMobileLike) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches.item(i);
+      if (!t) continue;
+      if (t.identifier === this.touchPrimaryIdMutable) {
+        this.touchPrimaryIdMutable = null;
+        this.touchMoveVec.set(0, 0);
+        this.touchPrimaryActive = false;
+      } else if (t.identifier === this.touchSecondaryIdMutable) {
+        this.touchSecondaryIdMutable = null;
+        this.touchFireVec.set(0, 0);
+        this.touchSecondaryActive = false;
+      }
+    }
+    e.preventDefault();
+  };
 
   /**
    * Normalize a key name so that modifier-shifted letter keys (e.g. 'W' when
@@ -129,7 +210,45 @@ class InputManager {
 
   /** True while the key is held down. */
   isDown(key: string): boolean {
+    if (this.isMobileLike) {
+      const k = this.normalizeKey(key);
+      const x = this.touchMoveVec.x;
+      const y = this.touchMoveVec.y;
+      if (k === 'a') return x < -this.touchDeadZone;
+      if (k === 'd') return x > this.touchDeadZone;
+      if (k === 'w') return y < -this.touchDeadZone;
+      if (k === 's') return y > this.touchDeadZone;
+    }
     return this.keysDown.has(this.normalizeKey(key));
+  }
+
+  getMoveVector(): Vec2 {
+    return this.touchMoveVec.clone();
+  }
+
+  drawTouchJoysticks(ctx: CanvasRenderingContext2D): void {
+    if (!this.isMobileLike) return;
+    const drawStick = (center: Vec2, vec: Vec2, color: string): void => {
+      const baseR = this.touchStickMaxRadiusPx;
+      const knobR = 28;
+      const knobX = center.x + vec.x * baseR;
+      const knobY = center.y + vec.y * baseR;
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.fillStyle = `${color}33`;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(center.x, center.y, baseR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = `${color}99`;
+      ctx.beginPath();
+      ctx.arc(knobX, knobY, knobR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    };
+    if (this.touchPrimaryActive) drawStick(this.touchPrimaryCenter, this.touchMoveVec, '#52d0ff');
+    if (this.touchSecondaryActive) drawStick(this.touchSecondaryCenter, this.touchFireVec, '#ff7a52');
   }
 
   /** True only on the frame the key was first pressed. */
@@ -182,6 +301,17 @@ class InputManager {
 
   /** Call once per frame after processing input to reset per-frame states. */
   update(): void {
+
+    if (this.isMobileLike) {
+      const fireMag = Math.hypot(this.touchFireVec.x, this.touchFireVec.y);
+      this.mouseDown = this.touchSecondaryActive && fireMag > this.touchDeadZone;
+      if (this.touchSecondaryActive) {
+        this.mousePos.set(
+          this.touchSecondaryCenter.x + this.touchFireVec.x * this.touchStickMaxRadiusPx,
+          this.touchSecondaryCenter.y + this.touchFireVec.y * this.touchStickMaxRadiusPx,
+        );
+      }
+    }
     this.keysPressed.clear();
     this.keysReleased.clear();
     this.doubleTapped.clear();
@@ -204,9 +334,12 @@ class InputManager {
       window.removeEventListener('mousedown', this.onMouseDown);
       window.removeEventListener('mouseup', this.onMouseUp);
       window.removeEventListener('wheel', this.onWheel);
+      window.removeEventListener('touchstart', this.onTouchStart);
+      window.removeEventListener('touchmove', this.onTouchMove);
+      window.removeEventListener('touchend', this.onTouchEnd);
+      window.removeEventListener('touchcancel', this.onTouchEnd);
     }
   }
 }
 
 export const Input = new InputManager();
-
