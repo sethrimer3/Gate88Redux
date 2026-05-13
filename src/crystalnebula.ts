@@ -106,7 +106,7 @@ interface CrystalMote {
 // Disturbance
 // ---------------------------------------------------------------------------
 
-const MAX_DISTURBANCES = 32;
+const MAX_DISTURBANCES = 96;
 
 interface Disturbance {
   x: number;
@@ -143,6 +143,7 @@ const ANGULAR_DAMPING = 0.87;
 const ACTIVITY_DECAY = 1.2;
 /** Shine decay rate (1/s). Higher means ship-triggered glints cool faster. */
 const SHINE_DECAY = 2.6;
+const VELOCITY_GLOW_SPEED = 120;
 
 // ---------------------------------------------------------------------------
 // CrystalNebula — main class
@@ -212,6 +213,44 @@ export class CrystalNebula {
     const d = this.pendingDist[this.pendingDistCount++];
     d.x = x; d.y = y; d.vx = vx; d.vy = vy;
     d.radius = radius; d.strength = strength; d.isExplosion = false;
+  }
+
+  /**
+   * Add several directional disturbances along a beam/laser path.
+   * This lets instant line weapons push a full corridor through the crystals.
+   */
+  addBeamDisturbance(
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number,
+    radius: number,
+    strength: number,
+    maxSamples: number = 8,
+  ): void {
+    if (!this.enabled || this.pendingDistCount >= MAX_DISTURBANCES) return;
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const len = Math.hypot(dx, dy);
+    if (len <= 0.001) {
+      this.addDisturbance(startX, startY, 0, 0, radius, strength);
+      return;
+    }
+    const samples = Math.max(2, Math.min(maxSamples, Math.ceil(len / Math.max(80, radius * 1.6))));
+    const vx = (dx / len) * 950;
+    const vy = (dy / len) * 950;
+    for (let i = 0; i < samples && this.pendingDistCount < MAX_DISTURBANCES; i++) {
+      const t = samples === 1 ? 0 : i / (samples - 1);
+      const falloff = 1 - Math.abs(t - 0.5) * 0.45;
+      this.addDisturbance(
+        startX + dx * t,
+        startY + dy * t,
+        vx,
+        vy,
+        radius,
+        strength * falloff,
+      );
+    }
   }
 
   /**
@@ -286,23 +325,28 @@ export class CrystalNebula {
           const distLen = Math.sqrt(dist2) + 0.001;
           const falloff = 1 - distLen / distR;
           const pushStr = dist.strength * falloff * iScale;
+          const nx = dpx / distLen;
+          const ny = dpy / distLen;
+          const wakeSpeed = Math.min(1.8, Math.hypot(dist.vx, dist.vy) / 360);
 
           if (dist.isExplosion) {
             // Radial outward push
-            const nx = dpx / distLen;
-            const ny = dpy / distLen;
             p.vx += nx * pushStr * 320 * dt;
             p.vy += ny * pushStr * 320 * dt;
             p.angularVel += (Math.random() * 2 - 1) * pushStr * 10 * dt;
             p.activity = Math.min(1, p.activity + pushStr * 0.9);
             p.shine = Math.min(1, p.shine + pushStr * 0.75);
           } else {
-            // Directional wake from ship / projectile velocity
-            p.vx += dist.vx * pushStr * 0.09 * dt;
-            p.vy += dist.vy * pushStr * 0.09 * dt;
-            p.angularVel += (dist.vx + dist.vy) * pushStr * 0.0022 * dt;
-            p.activity = Math.min(1, p.activity + pushStr * 0.38);
-            p.shine = Math.min(1, p.shine + pushStr * 0.62);
+            // Directional wake: shove motes aside while a little forward drag
+            // gives the cloud a trailing wake behind ships and weapon fire.
+            const radialPush = 230 + wakeSpeed * 150;
+            p.vx += nx * pushStr * radialPush * dt;
+            p.vy += ny * pushStr * radialPush * dt;
+            p.vx += dist.vx * pushStr * 0.052 * dt;
+            p.vy += dist.vy * pushStr * 0.052 * dt;
+            p.angularVel += (dist.vx * ny - dist.vy * nx) * pushStr * 0.0045 * dt;
+            p.activity = Math.min(1, p.activity + pushStr * (0.34 + wakeSpeed * 0.12));
+            p.shine = Math.min(1, p.shine + pushStr * (0.48 + wakeSpeed * 0.18));
           }
         }
 
@@ -387,16 +431,17 @@ export class CrystalNebula {
         const sx = (p.x - camX) * zoom + hw;
         const sy = (p.y - camY) * zoom + hh;
         const sr = Math.max(0.4, p.size * zoom);
+        const velocityGlow = Math.min(1, Math.hypot(p.vx, p.vy) / VELOCITY_GLOW_SPEED);
 
         // Sparkle: brightness oscillates with phase; activity/shine add a boost.
         const sparkle   = 0.68 + 0.32 * Math.sin(time * p.sparkleRate + p.sparklePhase);
         const shinePulse = p.shine * (0.72 + 0.28 * Math.sin(time * 10.0 + p.sparklePhase * 1.7));
-        const actBoost  = 1 + p.activity * 1.5 + shinePulse * 2.4;
+        const actBoost  = 1 + p.activity * 1.35 + shinePulse * 2.15 + velocityGlow * 2.1;
         const alpha     = Math.min(0.96, p.brightness * sparkle * actBoost);
         if (alpha < 0.02) continue;
 
         const colorStr = p.colorPrefix + alpha.toFixed(3) + ')';
-        const hotAlpha = Math.min(0.92, shinePulse * 0.72 + p.activity * 0.18);
+        const hotAlpha = Math.min(0.92, shinePulse * 0.64 + p.activity * 0.16 + velocityGlow * 0.58);
         const ca = Math.cos(p.angle);
         const sa = Math.sin(p.angle);
 
@@ -413,10 +458,10 @@ export class CrystalNebula {
           ctx.stroke();
 
           // Route brightest glints into the glow layer
-          if (glowCtx && (alpha > 0.50 || hotAlpha > 0.18)) {
-            glowCtx.fillStyle = p.colorPrefix + Math.min(0.44, alpha * 0.20 + hotAlpha * 0.34).toFixed(3) + ')';
+          if (glowCtx && (alpha > 0.50 || hotAlpha > 0.18 || velocityGlow > 0.16)) {
+            glowCtx.fillStyle = p.colorPrefix + Math.min(0.52, alpha * 0.18 + hotAlpha * 0.30 + velocityGlow * 0.18).toFixed(3) + ')';
             glowCtx.beginPath();
-            glowCtx.arc(sx, sy, sr * (3.0 + hotAlpha * 2.4), 0, Math.PI * 2);
+            glowCtx.arc(sx, sy, sr * (3.0 + hotAlpha * 2.2 + velocityGlow * 3.2), 0, Math.PI * 2);
             glowCtx.fill();
           }
         } else {
@@ -453,11 +498,11 @@ export class CrystalNebula {
           }
 
           // Route highly active diamonds into glow
-          if (glowCtx && (p.activity > 0.45 || p.shine > 0.12) && alpha > 0.34) {
-            const ga = Math.min(0.48, alpha * p.activity * 0.18 + hotAlpha * 0.38);
+          if (glowCtx && (p.activity > 0.45 || p.shine > 0.12 || velocityGlow > 0.12) && alpha > 0.30) {
+            const ga = Math.min(0.54, alpha * p.activity * 0.16 + hotAlpha * 0.34 + velocityGlow * 0.22);
             glowCtx.fillStyle = p.colorPrefix + ga.toFixed(3) + ')';
             glowCtx.beginPath();
-            glowCtx.arc(sx, sy, sr * (2.2 + hotAlpha * 3.0), 0, Math.PI * 2);
+            glowCtx.arc(sx, sy, sr * (2.2 + hotAlpha * 2.8 + velocityGlow * 3.4), 0, Math.PI * 2);
             glowCtx.fill();
           }
         }

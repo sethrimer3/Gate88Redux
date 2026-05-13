@@ -9,9 +9,9 @@
 
 import { Team } from './entities.js';
 import { GameState } from './gamestate.js';
-import { Bullet } from './projectile.js';
+import { Bullet, ProjectileBase } from './projectile.js';
 import { BomberMissile, GuidedMissile } from './projectile.js';
-import { GatlingBullet, Laser } from './projectile.js';
+import { ChargedLaserBurst, ExciterBeam, GatlingBullet, Laser } from './projectile.js';
 import { SpaceFluid } from './spacefluid.js';
 import { CrystalNebula } from './crystalnebula.js';
 
@@ -96,12 +96,12 @@ export function injectFluidForces(state: GameState, spaceFluid: SpaceFluid): voi
  * and projectiles so the crystal-mote clouds react to movement and combat.
  *
  * Disturbance sizing / strength rules:
- *  - Player/AI main ships:   radius 130, strength 1.05
- *  - Fighters:               radius 55, strength 0.55
- *  - Cannon/turret bullets:  radius 22, strength 0.45 (thin fast wake)
- *  - Gatling rounds:         radius 16, strength 0.35 (very narrow)
- *  - Guided/bomber missiles: radius 65, strength 0.75 (turbulent)
- *  - Lasers:                 radius 28, strength 0.40 (energizes along beam)
+ *  - Player/AI main ships:   radius 150, strength 1.20
+ *  - Fighters:               radius 70, strength 0.72
+ *  - Cannon/turret bullets:  radius 34, strength 0.72 (thin fast wake)
+ *  - Gatling rounds:         radius 24, strength 0.55 (very narrow)
+ *  - Guided/bomber missiles: radius 82, strength 0.95 (turbulent)
+ *  - Lasers:                 radius 36+, strength 0.75+ (sampled along beam)
  */
 export function injectCrystalDisturbances(state: GameState, crystalNebula: CrystalNebula): void {
   // ── Player ship ──────────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ export function injectCrystalDisturbances(state: GameState, crystalNebula: Cryst
     const pv = state.player.velocity;
     crystalNebula.addDisturbance(
       state.player.position.x, state.player.position.y,
-      pv.x, pv.y, 130, 1.05,
+      pv.x, pv.y, 150, 1.20,
     );
   }
 
@@ -117,28 +117,56 @@ export function injectCrystalDisturbances(state: GameState, crystalNebula: Cryst
   if (state.aiPlayerShip?.alive) {
     const ais = state.aiPlayerShip;
     const sv = ais.velocity;
-    crystalNebula.addDisturbance(ais.position.x, ais.position.y, sv.x, sv.y, 130, 1.05);
+    crystalNebula.addDisturbance(ais.position.x, ais.position.y, sv.x, sv.y, 150, 1.20);
   }
 
   // ── All live fighters ────────────────────────────────────────────────────
   for (const f of state.fighters) {
     if (!f.alive || f.docked) continue;
     const fv = f.velocity;
-    crystalNebula.addDisturbance(f.position.x, f.position.y, fv.x, fv.y, 55, 0.55);
+    crystalNebula.addDisturbance(f.position.x, f.position.y, fv.x, fv.y, 70, 0.72);
   }
 
   // ── Projectiles ──────────────────────────────────────────────────────────
   for (const e of state.allEntities()) {
     if (!e.alive) continue;
     const ev = e.velocity;
-    if (e instanceof GuidedMissile || e instanceof BomberMissile) {
-      crystalNebula.addDisturbance(e.position.x, e.position.y, ev.x, ev.y, 65, 0.75);
-    } else if (e instanceof GatlingBullet) {
-      crystalNebula.addDisturbance(e.position.x, e.position.y, ev.x, ev.y, 16, 0.35);
-    } else if (e instanceof Bullet) {
-      crystalNebula.addDisturbance(e.position.x, e.position.y, ev.x, ev.y, 22, 0.45);
+    if (e instanceof ChargedLaserBurst) {
+      crystalNebula.addBeamDisturbance(
+        e.position.x, e.position.y,
+        e.targetPos.x, e.targetPos.y,
+        58 + e.chargeFraction * 22,
+        1.05 + e.chargeFraction * 0.45,
+        14,
+      );
     } else if (e instanceof Laser) {
-      crystalNebula.addDisturbance(e.position.x, e.position.y, ev.x, ev.y, 28, 0.40);
+      crystalNebula.addBeamDisturbance(
+        e.position.x, e.position.y,
+        e.targetPos.x, e.targetPos.y,
+        36,
+        0.75,
+        10,
+      );
+    } else if (e instanceof ExciterBeam) {
+      crystalNebula.addBeamDisturbance(
+        e.position.x, e.position.y,
+        e.targetPos.x, e.targetPos.y,
+        42,
+        0.82,
+        10,
+      );
+    } else if (e instanceof GuidedMissile || e instanceof BomberMissile) {
+      crystalNebula.addDisturbance(e.position.x, e.position.y, ev.x, ev.y, 82, 0.95);
+    } else if (e instanceof GatlingBullet) {
+      crystalNebula.addDisturbance(e.position.x, e.position.y, ev.x, ev.y, 24, 0.55);
+    } else if (e instanceof Bullet) {
+      crystalNebula.addDisturbance(e.position.x, e.position.y, ev.x, ev.y, 34, 0.72);
+    } else if (e instanceof ProjectileBase) {
+      const speed = Math.hypot(ev.x, ev.y);
+      if (speed > 1) {
+        const speedT = Math.min(1, speed / 650);
+        crystalNebula.addDisturbance(e.position.x, e.position.y, ev.x, ev.y, 30 + speedT * 42, 0.58 + speedT * 0.30);
+      }
     }
   }
 }
