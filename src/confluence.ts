@@ -1,11 +1,11 @@
 import { Team } from './entities.js';
 import { GRID_CELL_SIZE } from './grid.js';
 
-export type FactionType = 'terran' | 'concentroid' | 'synonymous';
+export type FactionType = 'terran' | 'synonymous';
 export type RaceSelection = FactionType | 'random';
 
-export const FACTION_TYPES: FactionType[] = ['terran', 'concentroid', 'synonymous'];
-export const RACE_SELECTIONS: RaceSelection[] = ['terran', 'concentroid', 'synonymous', 'random'];
+export const FACTION_TYPES: FactionType[] = ['terran', 'synonymous'];
+export const RACE_SELECTIONS: RaceSelection[] = ['terran', 'synonymous', 'random'];
 
 export interface ConfluenceTerritoryCircle {
   id: string;
@@ -28,8 +28,8 @@ export const CONFLUENCE_PARENT_EXPAND_DURATION = 0.35;
 export const CONFLUENCE_NEW_CIRCLE_GROW_DURATION = 0.45;
 export const CONFLUENCE_INCLUDE_MARGIN = CONDUIT_LENGTH * 0.5;
 
-export function isConfluenceFaction(factionByTeam: Map<Team, FactionType>, team: Team): boolean {
-  return factionByTeam.get(team) === 'concentroid';
+export function isConfluenceFaction(_factionByTeam: Map<Team, FactionType>, _team: Team): boolean {
+  return false;
 }
 
 export function isSynonymousFaction(factionByTeam: Map<Team, FactionType>, team: Team): boolean {
@@ -39,7 +39,6 @@ export function isSynonymousFaction(factionByTeam: Map<Team, FactionType>, team:
 export function factionLabel(faction: RaceSelection): string {
   switch (faction) {
     case 'terran': return 'Terran';
-    case 'concentroid': return 'Concentroid';
     case 'synonymous': return 'The Synonymous';
     case 'random': return 'Random';
   }
@@ -47,5 +46,6 @@ export function factionLabel(faction: RaceSelection): string {
 
 export function resolveRaceSelection(selection: RaceSelection, salt: number = Math.random()): FactionType {
   if (selection !== 'random') return selection;
-  return FACTION_TYPES[Math.abs(Math.floor(salt * 9973)) % FACTION_TYPES.length];
+  const options: FactionType[] = ['terran', 'synonymous'];
+  return options[Math.abs(Math.floor(salt * 9973)) % options.length];
 }
