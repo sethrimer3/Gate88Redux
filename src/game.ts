@@ -47,6 +47,7 @@ import { injectFluidForces } from './fluidForces.js';
 import { injectCrystalDisturbances } from './fluidForces.js';
 import { CrystalNebula } from './crystalnebula.js';
 import { DistantSuns } from './suns.js';
+import { AsteroidField } from './asteroidField.js';
 import { fireTurretShots } from './turretCombat.js';
 import { updateFighterWeaponFire } from './fighterCombat.js';
 import { updatePlayerFiring, updateGuidedMissileControl } from './weaponFiring.js';
@@ -110,6 +111,7 @@ export class Game {
   private glowLayer: GlowLayer;
   private crystalNebula: CrystalNebula;
   private distantSuns: DistantSuns;
+  private asteroidField: AsteroidField;
   private visualQuality: VisualQuality = DEFAULT_VISUAL_QUALITY;
   private visualPreset: VisualQualityPreset = VISUAL_QUALITY_PRESETS[DEFAULT_VISUAL_QUALITY];
   private overlayCache: OverlayCache = createOverlayCache();
@@ -237,6 +239,8 @@ export class Game {
     this.glowLayer = new GlowLayer();
     this.crystalNebula = new CrystalNebula();
     this.distantSuns = new DistantSuns();
+    // Asteroid sprites are generated here (once). Placement is seeded and deterministic.
+    this.asteroidField = new AsteroidField();
     this.spaceFluid.resize(window.innerWidth, window.innerHeight);
     this.applyVisualQuality(loadVisualQuality());
 
@@ -264,6 +268,7 @@ export class Game {
     this.glowLayer.configure(this.visualPreset.glowEnabled, this.visualPreset.glowScale);
     this.crystalNebula.configure(this.visualPreset);
     this.distantSuns.configure(this.visualPreset);
+    this.asteroidField.configure(this.visualPreset);
     this.state?.ringEffects.setMaxLive(quality === 'low' ? 32 : quality === 'medium' ? 64 : 96);
     this.state?.particles.setParticleScale(this.visualPreset.particleScale);
     this.starfield.setShootingStarsEnabled(this.visualPreset.shootingStarsEnabled);
@@ -2339,6 +2344,10 @@ export class Game {
     this.distantSuns.draw(ctx, this.camera, w, h);
     this.nebula.draw(ctx, this.camera, w, h);
     this.starfield.draw(ctx, this.camera, w, h);
+    // Layer 2: asteroid field — dust haze + rim-lit asteroid silhouettes.
+    // Drawn after starfield so asteroids occlude stars; before crystal nebula
+    // so crystal motes float above the rocks.
+    this.asteroidField.draw(ctx, this.camera, w, h);
     // Crystal nebula clouds — behind gameplay entities, in front of starfield.
     this.crystalNebula.draw(ctx, this.camera, this.glowLayer, this.visualPreset);
     // Advance the fluid simulation by the frame delta and draw it under the game world.

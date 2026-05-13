@@ -73,6 +73,24 @@ export interface VisualQualityPreset {
    * Each glint is a tiny cross + dot that fades in and out.
    */
   readonly distantSunsGlints: boolean;
+
+  // --- Asteroid Field ---
+
+  /**
+   * Number of asteroid field parallax layers to render.
+   *   0 = disabled (Low quality)
+   *   2 = far + mid layers (Medium quality)
+   *   3 = far + mid + foreground (High quality)
+   * Sprites are always generated at startup; this only gates drawing.
+   */
+  readonly asteroidFieldLayers: number;
+
+  /**
+   * Enable the warm amber dust haze baked from an offscreen canvas.
+   * The haze is drawn with screen blend at low opacity in front of the
+   * starfield, simulating illuminated dust around the distant sun.
+   */
+  readonly dustHazeEnabled: boolean;
 }
 
 export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> = {
@@ -98,6 +116,8 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     distantSunsRays: false,
     distantSunsCorona: false,
     distantSunsGlints: false,
+    asteroidFieldLayers: 0,
+    dustHazeEnabled: false,
   },
   medium: {
     glowEnabled: true,
@@ -121,6 +141,8 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     distantSunsRays: true,
     distantSunsCorona: false,
     distantSunsGlints: false,
+    asteroidFieldLayers: 2,
+    dustHazeEnabled: true,
   },
   high: {
     glowEnabled: true,
@@ -144,6 +166,8 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     distantSunsRays: true,
     distantSunsCorona: true,
     distantSunsGlints: true,
+    asteroidFieldLayers: 3,
+    dustHazeEnabled: true,
   },
 };
 
