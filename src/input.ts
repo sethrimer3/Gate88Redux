@@ -110,7 +110,9 @@ class InputManager {
         this.touchSecondaryIdMutable = null;
         this.touchFireVec.set(0, 0);
         this.touchSecondaryActive = false;
-        // Stop firing immediately when the aim/fire finger lifts.
+        // Clear mouseDown immediately on finger-lift so fire stops the same
+        // frame rather than waiting until update() runs.  On a touch-only
+        // device the mouse button is never set by hardware, so this is safe.
         this.mouseDown = false;
       }
     }
