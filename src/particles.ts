@@ -14,6 +14,8 @@ import { renderBudget } from './renderBudget.js';
 const IMPACT_SPARK_COUNT = 6;
 /** Maximum sparks emitted per muzzle flash (scaled by particleScale). */
 const MUZZLE_SPARK_COUNT = 3;
+/** Share of player thrust particles that should originate from the ship rear. */
+const REAR_ENGINE_EXHAUST_CHANCE = 0.75;
 
 // ---------------------------------------------------------------------------
 // Single particle
@@ -178,7 +180,13 @@ export class ParticleSystem {
     pos: Vec2,
     angle: number,
     _team: Team,
-    options: { speedFraction?: number; scaleSizeWithSpeed?: boolean; varyLightness?: boolean; isBoosting?: boolean } = {},
+    options: {
+      speedFraction?: number;
+      scaleSizeWithSpeed?: boolean;
+      varyLightness?: boolean;
+      isBoosting?: boolean;
+      facingAngle?: number;
+    } = {},
   ): void {
     const isBoosting = options.isBoosting ?? false;
     // Warm thrust colour palette — randomly sampled for each particle.
@@ -202,7 +210,9 @@ export class ParticleSystem {
     // Even at top speed keep some randomized spread so exhaust isn't a rigid line.
     const spreadRange = (0.09 + 0.28 * (1 - speedFraction)) * boostSpreadMult;
     const sizeScale = options.scaleSizeWithSpeed ? 0.2 + 0.8 * speedFraction : 1;
-    const backAngle = angle + Math.PI;
+    const inputBackAngle = angle + Math.PI;
+    const hasFacingAngle = Number.isFinite(options.facingAngle);
+    const rearBackAngle = hasFacingAngle ? options.facingAngle! + Math.PI : inputBackAngle;
 
     for (let i = 0; i < count; i++) {
       const p = this.acquire();
@@ -210,15 +220,23 @@ export class ParticleSystem {
       p.isExhaust = true;
       p.additive  = true;
 
-      // Origin: slightly offset backward from ship center so particles start at engine nozzle.
-      const nozzleDist = 3 + Math.random() * 3;
-      p.x = pos.x + Math.cos(backAngle) * nozzleDist;
-      p.y = pos.y + Math.sin(backAngle) * nozzleDist;
+      const useRearEngine = hasFacingAngle && Math.random() < REAR_ENGINE_EXHAUST_CHANCE;
+      const exhaustAngle = useRearEngine ? rearBackAngle : inputBackAngle;
+
+      // Rear-engine particles stay anchored to the ship's physical nozzle;
+      // input particles keep the existing directional feedback plume.
+      const nozzleDist = useRearEngine
+        ? randomRange(5, 9)
+        : 3 + Math.random() * 3;
+      const lateralJitter = useRearEngine ? randomRange(-2.2, 2.2) : 0;
+      const lateralAngle = exhaustAngle + Math.PI / 2;
+      p.x = pos.x + Math.cos(exhaustAngle) * nozzleDist + Math.cos(lateralAngle) * lateralJitter;
+      p.y = pos.y + Math.sin(exhaustAngle) * nozzleDist + Math.sin(lateralAngle) * lateralJitter;
 
       const spread = randomRange(-spreadRange, spreadRange);
       const spd = randomRange(35, 90) * boostSpeedMult;
-      p.vx = Math.cos(backAngle + spread) * spd;
-      p.vy = Math.sin(backAngle + spread) * spd;
+      p.vx = Math.cos(exhaustAngle + spread) * spd;
+      p.vy = Math.sin(exhaustAngle + spread) * spd;
 
       // Select warm colour — occasional white-hot core
       if (Math.random() < coreChance) {

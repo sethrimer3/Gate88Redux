@@ -539,9 +539,8 @@ export class Game {
     }
 
     // Emit exhaust particles when the player is thrusting (any WASD key).
-    // Exhaust trails opposite the actual thrust direction, which under the new
-    // mouse-aim controls is decoupled from the ship's facing. When boosting
-    // (Shift held), emit extra particles for a more intense visual.
+    // Most particles stay tied to the physical rear engine, while a smaller
+    // plume preserves feedback for the active WASD thrust direction.
     if (this.state.player.alive && this.state.player.isThrusting && !this.actionMenu.open) {
       const td = this.state.player.thrustDir;
       const thrustAngle = Math.atan2(td.y, td.x);
@@ -554,7 +553,7 @@ export class Game {
         this.state.player.position,
         thrustAngle,
         Team.Player,
-        { speedFraction, varyLightness: true, isBoosting },
+        { speedFraction, varyLightness: true, isBoosting, facingAngle: this.state.player.angle },
       );
     }
 

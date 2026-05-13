@@ -96,7 +96,7 @@ export function injectFluidForces(state: GameState, spaceFluid: SpaceFluid): voi
  * and projectiles so the crystal-mote clouds react to movement and combat.
  *
  * Disturbance sizing / strength rules:
- *  - Player/AI main ships:   radius 90, strength 0.8
+ *  - Player/AI main ships:   radius 130, strength 1.05
  *  - Fighters:               radius 55, strength 0.55
  *  - Cannon/turret bullets:  radius 22, strength 0.45 (thin fast wake)
  *  - Gatling rounds:         radius 16, strength 0.35 (very narrow)
@@ -109,7 +109,7 @@ export function injectCrystalDisturbances(state: GameState, crystalNebula: Cryst
     const pv = state.player.velocity;
     crystalNebula.addDisturbance(
       state.player.position.x, state.player.position.y,
-      pv.x, pv.y, 90, 0.8,
+      pv.x, pv.y, 130, 1.05,
     );
   }
 
@@ -117,7 +117,7 @@ export function injectCrystalDisturbances(state: GameState, crystalNebula: Cryst
   if (state.aiPlayerShip?.alive) {
     const ais = state.aiPlayerShip;
     const sv = ais.velocity;
-    crystalNebula.addDisturbance(ais.position.x, ais.position.y, sv.x, sv.y, 90, 0.8);
+    crystalNebula.addDisturbance(ais.position.x, ais.position.y, sv.x, sv.y, 130, 1.05);
   }
 
   // ── All live fighters ────────────────────────────────────────────────────

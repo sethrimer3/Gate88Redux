@@ -27,6 +27,10 @@ const MUSIC_TRACKS = [
 export type MusicTrack = typeof MUSIC_TRACKS[number];
 
 const ASSET_BASE_URL = import.meta.env.BASE_URL;
+const MUSIC_DECIBEL_OFFSET = -6;
+const MUSIC_OUTPUT_GAIN = Math.pow(10, MUSIC_DECIBEL_OFFSET / 20);
+const SFX_DECIBEL_OFFSET = -6;
+const SFX_OUTPUT_GAIN = Math.pow(10, SFX_DECIBEL_OFFSET / 20);
 
 function assetUrl(path: string): string {
   const base = ASSET_BASE_URL.endsWith('/') ? ASSET_BASE_URL : `${ASSET_BASE_URL}/`;
@@ -42,7 +46,7 @@ class AudioManager {
 
   private currentTrackIndex = -1;
   private musicVolume = 0.5;
-  private sfxVolume = 0.7;
+  private sfxVolume = 0.5;
   private musicPlaylist: string[] = [];
   private isMenuMusic = false;
 
@@ -51,11 +55,11 @@ class AudioManager {
     if (!this.ctx) {
       this.ctx = new AudioContext();
       this.sfxGain = this.ctx.createGain();
-      this.sfxGain.gain.value = this.sfxVolume;
+      this.sfxGain.gain.value = this.effectiveSfxVolume();
       this.sfxGain.connect(this.ctx.destination);
 
       this.musicGain = this.ctx.createGain();
-      this.musicGain.gain.value = this.musicVolume;
+      this.musicGain.gain.value = this.effectiveMusicVolume();
       this.musicGain.connect(this.ctx.destination);
     }
     if (this.ctx.state === 'suspended') {
@@ -133,7 +137,7 @@ class AudioManager {
 
     const el = new globalThis.Audio(path);
     this.musicElement = el;
-    el.volume = this.musicVolume;
+    el.volume = this.effectiveMusicVolume();
     el.addEventListener('ended', () => {
       if (this.isMenuMusic) {
         this.musicElement?.play();
@@ -157,14 +161,15 @@ class AudioManager {
   }
 
   setSfxVolume(v: number): void {
-    this.sfxVolume = v;
-    if (this.sfxGain) this.sfxGain.gain.value = v;
+    this.sfxVolume = Math.max(0, Math.min(1, v));
+    if (this.sfxGain) this.sfxGain.gain.value = this.effectiveSfxVolume();
   }
 
   setMusicVolume(v: number): void {
-    this.musicVolume = v;
-    if (this.musicGain) this.musicGain.gain.value = v;
-    if (this.musicElement) this.musicElement.volume = v;
+    this.musicVolume = Math.max(0, Math.min(1, v));
+    const effectiveVolume = this.effectiveMusicVolume();
+    if (this.musicGain) this.musicGain.gain.value = effectiveVolume;
+    if (this.musicElement) this.musicElement.volume = effectiveVolume;
   }
 
   getSfxVolume(): number {
@@ -173,6 +178,14 @@ class AudioManager {
 
   getMusicVolume(): number {
     return this.musicVolume;
+  }
+
+  private effectiveMusicVolume(): number {
+    return Math.max(0, Math.min(1, this.musicVolume * MUSIC_OUTPUT_GAIN));
+  }
+
+  private effectiveSfxVolume(): number {
+    return Math.max(0, Math.min(1, this.sfxVolume * SFX_OUTPUT_GAIN));
   }
 
   // -----------------------------------------------------------------------

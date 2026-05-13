@@ -59,17 +59,17 @@ interface CloudDef {
 
 const CLOUD_DEFS: CloudDef[] = [
   // Player side (left) — cool cyan / ice-blue
-  { cx: WORLD_WIDTH * 0.12, cy: WORLD_HEIGHT * 0.22, radius: 1000, baseCount: 140, r: 120, g: 210, b: 255 },
-  { cx: WORLD_WIDTH * 0.20, cy: WORLD_HEIGHT * 0.68, radius: 820,  baseCount: 115, r: 140, g: 190, b: 255 },
-  { cx: WORLD_WIDTH * 0.08, cy: WORLD_HEIGHT * 0.50, radius: 650,  baseCount:  95, r: 160, g: 150, b: 255 },
+  { cx: WORLD_WIDTH * 0.12, cy: WORLD_HEIGHT * 0.22, radius: 1000, baseCount: 395, r: 120, g: 210, b: 255 },
+  { cx: WORLD_WIDTH * 0.20, cy: WORLD_HEIGHT * 0.68, radius: 820,  baseCount: 325, r: 140, g: 190, b: 255 },
+  { cx: WORLD_WIDTH * 0.08, cy: WORLD_HEIGHT * 0.50, radius: 650,  baseCount: 268, r: 160, g: 150, b: 255 },
   // Centre contested — pale violet / faint magenta
-  { cx: WORLD_WIDTH * 0.50, cy: WORLD_HEIGHT * 0.28, radius: 900,  baseCount: 130, r: 200, g: 140, b: 255 },
-  { cx: WORLD_WIDTH * 0.50, cy: WORLD_HEIGHT * 0.72, radius: 860,  baseCount: 120, r: 220, g: 120, b: 200 },
-  { cx: WORLD_WIDTH * 0.45, cy: WORLD_HEIGHT * 0.50, radius: 700,  baseCount: 110, r: 160, g: 200, b: 255 },
+  { cx: WORLD_WIDTH * 0.50, cy: WORLD_HEIGHT * 0.28, radius: 900,  baseCount: 367, r: 200, g: 140, b: 255 },
+  { cx: WORLD_WIDTH * 0.50, cy: WORLD_HEIGHT * 0.72, radius: 860,  baseCount: 339, r: 220, g: 120, b: 200 },
+  { cx: WORLD_WIDTH * 0.45, cy: WORLD_HEIGHT * 0.50, radius: 700,  baseCount: 310, r: 160, g: 200, b: 255 },
   // Enemy side (right) — warm amber / faint orange (sunlit)
-  { cx: WORLD_WIDTH * 0.80, cy: WORLD_HEIGHT * 0.28, radius: 950,  baseCount: 135, r: 255, g: 200, b: 100 },
-  { cx: WORLD_WIDTH * 0.90, cy: WORLD_HEIGHT * 0.72, radius: 820,  baseCount: 118, r: 255, g: 160, b:  80 },
-  { cx: WORLD_WIDTH * 0.65, cy: WORLD_HEIGHT * 0.82, radius: 680,  baseCount: 100, r: 255, g: 180, b: 140 },
+  { cx: WORLD_WIDTH * 0.80, cy: WORLD_HEIGHT * 0.28, radius: 950,  baseCount: 381, r: 255, g: 200, b: 100 },
+  { cx: WORLD_WIDTH * 0.90, cy: WORLD_HEIGHT * 0.72, radius: 820,  baseCount: 333, r: 255, g: 160, b:  80 },
+  { cx: WORLD_WIDTH * 0.65, cy: WORLD_HEIGHT * 0.82, radius: 680,  baseCount: 282, r: 255, g: 180, b: 140 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -90,6 +90,7 @@ interface CrystalMote {
   sparklePhase: number; // per-particle phase offset (radians)
   sparkleRate: number;  // oscillation frequency (rad / s)
   activity: number;     // 0 = calm, 1 = fully disturbed; decays each tick
+  shine: number;        // 0 = calm, 1 = bright refractive flare
   /** Pre-computed CSS color prefix: "rgba(r,g,b," — append alpha and ")" */
   colorPrefix: string;
   /**
@@ -140,6 +141,8 @@ const DAMPING = 0.90;
 const ANGULAR_DAMPING = 0.87;
 /** Activity decay rate (1/s). */
 const ACTIVITY_DECAY = 1.2;
+/** Shine decay rate (1/s). Higher means ship-triggered glints cool faster. */
+const SHINE_DECAY = 2.6;
 
 // ---------------------------------------------------------------------------
 // CrystalNebula — main class
@@ -236,6 +239,7 @@ export class CrystalNebula {
     const damping    = Math.pow(DAMPING, dt * 60);
     const angDamping = Math.pow(ANGULAR_DAMPING, dt * 60);
     const actDecay   = Math.exp(-ACTIVITY_DECAY * dt);
+    const shineDecay = Math.exp(-SHINE_DECAY * dt);
     const iScale     = this.interactionScale;
     const dc         = this.pendingDistCount;
     const dists      = this.pendingDist;
@@ -291,12 +295,14 @@ export class CrystalNebula {
             p.vy += ny * pushStr * 320 * dt;
             p.angularVel += (Math.random() * 2 - 1) * pushStr * 10 * dt;
             p.activity = Math.min(1, p.activity + pushStr * 0.9);
+            p.shine = Math.min(1, p.shine + pushStr * 0.75);
           } else {
             // Directional wake from ship / projectile velocity
-            p.vx += dist.vx * pushStr * 0.07 * dt;
-            p.vy += dist.vy * pushStr * 0.07 * dt;
-            p.angularVel += (dist.vx + dist.vy) * pushStr * 0.0015 * dt;
-            p.activity = Math.min(1, p.activity + pushStr * 0.25);
+            p.vx += dist.vx * pushStr * 0.09 * dt;
+            p.vy += dist.vy * pushStr * 0.09 * dt;
+            p.angularVel += (dist.vx + dist.vy) * pushStr * 0.0022 * dt;
+            p.activity = Math.min(1, p.activity + pushStr * 0.38);
+            p.shine = Math.min(1, p.shine + pushStr * 0.62);
           }
         }
 
@@ -310,6 +316,7 @@ export class CrystalNebula {
         p.vy *= damping;
         p.angularVel *= angDamping;
         p.activity  *= actDecay;
+        p.shine     *= shineDecay;
 
         // Advance sparkle phase (wraps naturally via sine)
         p.sparklePhase += p.sparkleRate * dt;
@@ -381,20 +388,22 @@ export class CrystalNebula {
         const sy = (p.y - camY) * zoom + hh;
         const sr = Math.max(0.4, p.size * zoom);
 
-        // Sparkle: brightness oscillates with phase; activity adds a boost
+        // Sparkle: brightness oscillates with phase; activity/shine add a boost.
         const sparkle   = 0.68 + 0.32 * Math.sin(time * p.sparkleRate + p.sparklePhase);
-        const actBoost  = 1 + p.activity * 1.8;
-        const alpha     = Math.min(0.90, p.brightness * sparkle * actBoost);
+        const shinePulse = p.shine * (0.72 + 0.28 * Math.sin(time * 10.0 + p.sparklePhase * 1.7));
+        const actBoost  = 1 + p.activity * 1.5 + shinePulse * 2.4;
+        const alpha     = Math.min(0.96, p.brightness * sparkle * actBoost);
         if (alpha < 0.02) continue;
 
         const colorStr = p.colorPrefix + alpha.toFixed(3) + ')';
+        const hotAlpha = Math.min(0.92, shinePulse * 0.72 + p.activity * 0.18);
         const ca = Math.cos(p.angle);
         const sa = Math.sin(p.angle);
 
         if (p.shape === 2) {
           // 4-point glint: two perpendicular line segments
           const len = sr * 2.4;
-          ctx.strokeStyle = colorStr;
+          ctx.strokeStyle = hotAlpha > 0.22 ? p.colorPrefix + Math.min(1, alpha + hotAlpha * 0.4).toFixed(3) + ')' : colorStr;
           ctx.lineWidth   = Math.max(0.4, sr * 0.55);
           ctx.beginPath();
           ctx.moveTo(sx - ca * len, sy - sa * len);
@@ -404,10 +413,10 @@ export class CrystalNebula {
           ctx.stroke();
 
           // Route brightest glints into the glow layer
-          if (glowCtx && alpha > 0.50) {
-            glowCtx.fillStyle = p.colorPrefix + (alpha * 0.28).toFixed(3) + ')';
+          if (glowCtx && (alpha > 0.50 || hotAlpha > 0.18)) {
+            glowCtx.fillStyle = p.colorPrefix + Math.min(0.44, alpha * 0.20 + hotAlpha * 0.34).toFixed(3) + ')';
             glowCtx.beginPath();
-            glowCtx.arc(sx, sy, sr * 3.0, 0, Math.PI * 2);
+            glowCtx.arc(sx, sy, sr * (3.0 + hotAlpha * 2.4), 0, Math.PI * 2);
             glowCtx.fill();
           }
         } else {
@@ -424,12 +433,31 @@ export class CrystalNebula {
           ctx.closePath();
           ctx.fill();
 
+          if (hotAlpha > 0.10) {
+            const edgeAlpha = Math.min(0.95, hotAlpha * 0.85);
+            const lineAlpha = Math.min(0.70, hotAlpha * 0.55);
+            ctx.fillStyle = `rgba(255,255,255,${edgeAlpha.toFixed(3)})`;
+            ctx.beginPath();
+            ctx.moveTo(sx + hw2 * ca, sy + hw2 * sa);
+            ctx.lineTo(sx + (hv2 * 0.18 - hv2) * sa, sy + (hv2 - hv2 * 0.18) * ca);
+            ctx.lineTo(sx + (hw2 * 0.18) * ca, sy + (hw2 * 0.18) * sa);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.strokeStyle = `rgba(255,255,255,${lineAlpha.toFixed(3)})`;
+            ctx.lineWidth = Math.max(0.35, sr * 0.22);
+            ctx.beginPath();
+            ctx.moveTo(sx + hw2 * ca, sy + hw2 * sa);
+            ctx.lineTo(sx - hw2 * ca, sy - hw2 * sa);
+            ctx.stroke();
+          }
+
           // Route highly active diamonds into glow
-          if (glowCtx && p.activity > 0.45 && alpha > 0.40) {
-            const ga = alpha * p.activity * 0.22;
+          if (glowCtx && (p.activity > 0.45 || p.shine > 0.12) && alpha > 0.34) {
+            const ga = Math.min(0.48, alpha * p.activity * 0.18 + hotAlpha * 0.38);
             glowCtx.fillStyle = p.colorPrefix + ga.toFixed(3) + ')';
             glowCtx.beginPath();
-            glowCtx.arc(sx, sy, sr * 2.2, 0, Math.PI * 2);
+            glowCtx.arc(sx, sy, sr * (2.2 + hotAlpha * 3.0), 0, Math.PI * 2);
             glowCtx.fill();
           }
         }
@@ -491,6 +519,7 @@ export class CrystalNebula {
           sparklePhase: rng() * Math.PI * 2,
           sparkleRate:  0.8 + rng() * 4.0,
           activity:     0,
+          shine:        0,
           colorPrefix:  `rgba(${cr},${cg},${cb},`,
           shape,
         });

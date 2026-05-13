@@ -113,9 +113,13 @@ interface BackgroundStar {
   speed: number;
   size: number;
   brightness: number;
+  hue: number;
 }
 
 const BG_STAR_COUNT = 160;
+const MENU_ACCENT_CYAN = 'rgba(112,244,255,';
+const MENU_ACCENT_GOLD = 'rgba(255,218,116,';
+const MENU_ACCENT_PINK = 'rgba(255,112,198,';
 
 function createBackgroundStars(screenW: number, screenH: number): BackgroundStar[] {
   const stars: BackgroundStar[] = [];
@@ -126,6 +130,7 @@ function createBackgroundStars(screenW: number, screenH: number): BackgroundStar
       speed: 8 + Math.random() * 35,
       size: 0.5 + Math.random() * 1.5,
       brightness: 0.15 + Math.random() * 0.85,
+      hue: Math.random(),
     });
   }
   return stars;
@@ -444,6 +449,8 @@ export class MainMenu {
             },
             description: 'Low / Medium / High — click to cycle',
           },
+          { label: 'Audio Settings', action: () => { /* sliders render below */ },
+            description: 'Music and sound effects volume' },
           { label: 'Quit to Menu', action: () => { this.pendingAction = 'quit_to_menu'; } },
         ];
       default:
@@ -500,17 +507,70 @@ export class MainMenu {
   // -------------------------------------------------------------------
 
   private drawBackground(ctx: CanvasRenderingContext2D, w: number, h: number): void {
-    const bg = ctx.createLinearGradient(0, 0, 0, h);
-    bg.addColorStop(0, '#04152d');
-    bg.addColorStop(1, '#120725');
+    const bg = ctx.createRadialGradient(w * 0.72, h * 0.18, 0, w * 0.5, h * 0.5, Math.max(w, h) * 0.78);
+    bg.addColorStop(0, '#082746');
+    bg.addColorStop(0.42, '#06142d');
+    bg.addColorStop(1, '#13051f');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, w, h);
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const drift = this.animTime * 18;
+    const auroraA = ctx.createLinearGradient(w * 0.08, h * 0.2, w * 0.92, h * 0.82);
+    auroraA.addColorStop(0, MENU_ACCENT_CYAN + '0)');
+    auroraA.addColorStop(0.35, MENU_ACCENT_CYAN + '0.10)');
+    auroraA.addColorStop(0.58, MENU_ACCENT_PINK + '0.08)');
+    auroraA.addColorStop(1, MENU_ACCENT_CYAN + '0)');
+    ctx.fillStyle = auroraA;
+    ctx.beginPath();
+    ctx.ellipse(w * 0.54 + Math.sin(this.animTime * 0.23) * 34, h * 0.56, w * 0.52, h * 0.20, -0.18, 0, Math.PI * 2);
+    ctx.fill();
+
+    const auroraB = ctx.createLinearGradient(w * 0.2, h * 0.84, w * 0.95, h * 0.2);
+    auroraB.addColorStop(0, MENU_ACCENT_GOLD + '0)');
+    auroraB.addColorStop(0.45, MENU_ACCENT_GOLD + '0.07)');
+    auroraB.addColorStop(1, MENU_ACCENT_CYAN + '0)');
+    ctx.fillStyle = auroraB;
+    ctx.beginPath();
+    ctx.ellipse(w * 0.72, h * 0.34 + Math.cos(this.animTime * 0.19) * 18, w * 0.44, h * 0.16, -0.42, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.055);
+    ctx.lineWidth = 1;
+    const grid = 48;
+    const ox = -((drift * 0.22) % grid);
+    const oy = -((drift * 0.08) % grid);
+    for (let x = ox; x < w; x += grid) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x + w * 0.12, h);
+      ctx.stroke();
+    }
+    for (let y = oy; y < h; y += grid) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y - h * 0.08);
+      ctx.stroke();
+    }
+    ctx.restore();
+
     for (const star of this.bgStars) {
-      ctx.fillStyle = colorToCSS(Colors.friendly_starfield, star.brightness * 0.78);
+      const twinkle = 0.55 + 0.45 * Math.sin(this.animTime * (1.6 + star.hue * 2.2) + star.x * 0.01);
+      ctx.fillStyle = star.hue > 0.82
+        ? MENU_ACCENT_GOLD + `${star.brightness * twinkle * 0.65})`
+        : colorToCSS(Colors.friendly_starfield, star.brightness * twinkle * 0.85);
       ctx.beginPath();
       ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    const vignette = ctx.createRadialGradient(w * 0.5, h * 0.48, Math.min(w, h) * 0.25, w * 0.5, h * 0.5, Math.max(w, h) * 0.72);
+    vignette.addColorStop(0, 'rgba(0,0,0,0)');
+    vignette.addColorStop(1, 'rgba(0,0,0,0.42)');
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, w, h);
   }
 
   /** Draw the build-number badge in the top-right corner. */
@@ -560,7 +620,9 @@ export class MainMenu {
     ctx.textBaseline = 'middle';
 
     const ruleW = 320;
-    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.5);
+    this.drawLuminousFrame(ctx, cx - 235, titleY - 68, 470, 136, 0.72);
+
+    ctx.strokeStyle = MENU_ACCENT_CYAN + '0.58)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(cx - ruleW * 0.5, titleY - 36);
@@ -568,10 +630,18 @@ export class MainMenu {
     ctx.stroke();
 
     ctx.font = 'bold 58px "Poiret One", sans-serif';
+    ctx.save();
+    ctx.shadowColor = MENU_ACCENT_CYAN + '0.95)';
+    ctx.shadowBlur = 24;
     ctx.fillStyle = colorToCSS(TextColors.titledark);
     ctx.fillText('SIGN 99', cx + 2, titleY + 2);
-    ctx.fillStyle = colorToCSS(TextColors.title);
+    const titleGrad = ctx.createLinearGradient(cx - 150, titleY - 28, cx + 150, titleY + 28);
+    titleGrad.addColorStop(0, colorToCSS(TextColors.title, 0.92));
+    titleGrad.addColorStop(0.5, 'rgba(247,255,230,1)');
+    titleGrad.addColorStop(1, MENU_ACCENT_CYAN + '0.95)');
+    ctx.fillStyle = titleGrad;
     ctx.fillText('SIGN 99', cx, titleY);
+    ctx.restore();
 
     ctx.beginPath();
     ctx.moveTo(cx - ruleW * 0.5, titleY + 36);
@@ -590,6 +660,46 @@ export class MainMenu {
     ctx.textAlign = 'center';
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.35);
     ctx.fillText('Click an option, or use \u2191 \u2193 + Enter', cx, h - 18);
+  }
+
+  private drawLuminousFrame(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    alpha: number,
+  ): void {
+    const pulse = 0.55 + 0.45 * Math.sin(this.animTime * 2.1);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const glow = ctx.createLinearGradient(x, y, x + w, y + h);
+    glow.addColorStop(0, MENU_ACCENT_CYAN + `${0.06 * alpha})`);
+    glow.addColorStop(0.55, MENU_ACCENT_PINK + `${0.04 * alpha})`);
+    glow.addColorStop(1, MENU_ACCENT_GOLD + `${0.05 * alpha})`);
+    ctx.fillStyle = glow;
+    ctx.fillRect(x, y, w, h);
+
+    ctx.strokeStyle = MENU_ACCENT_CYAN + `${(0.28 + pulse * 0.18) * alpha})`;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.strokeStyle = MENU_ACCENT_GOLD + `${0.32 * alpha})`;
+    const c = 22;
+    ctx.beginPath();
+    ctx.moveTo(x, y + c);
+    ctx.lineTo(x, y);
+    ctx.lineTo(x + c, y);
+    ctx.moveTo(x + w - c, y);
+    ctx.lineTo(x + w, y);
+    ctx.lineTo(x + w, y + c);
+    ctx.moveTo(x + w, y + h - c);
+    ctx.lineTo(x + w, y + h);
+    ctx.lineTo(x + w - c, y + h);
+    ctx.moveTo(x + c, y + h);
+    ctx.lineTo(x, y + h);
+    ctx.lineTo(x, y + h - c);
+    ctx.stroke();
+    ctx.restore();
   }
 
   // -------------------------------------------------------------------
@@ -637,8 +747,18 @@ export class MainMenu {
     ctx.lineTo(cx + tw * 0.5, headerY + 22);
     ctx.stroke();
 
+    const settingsX = cx - 220;
+    let y = headerY + 74;
+    const rowH = 34;
+    y = this.drawVolumeSliderRow(ctx, settingsX, y, rowH, 'Music Volume', Audio.getMusicVolume(), (v) => {
+      Audio.setMusicVolume(v);
+    });
+    this.drawVolumeSliderRow(ctx, settingsX, y, rowH, 'SFX Volume', Audio.getSfxVolume(), (v) => {
+      Audio.setSfxVolume(v);
+    });
+
     const opts = this.currentSimpleOptions()!;
-    this.drawClickableOptions(ctx, cx, h * 0.5, opts);
+    this.drawClickableOptions(ctx, cx, h * 0.63, opts);
   }
 
   // -------------------------------------------------------------------
@@ -677,14 +797,14 @@ export class MainMenu {
       }
 
       if (highlight) {
-        // Hover/selected glow
-        const alpha = 0.18 + (hovered ? 0.06 : 0) + 0.04 * Math.sin(this.animTime * 4);
-        ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, alpha);
+        const alpha = 0.20 + (hovered ? 0.08 : 0) + 0.05 * Math.sin(this.animTime * 4);
+        const fill = ctx.createLinearGradient(rect.x, rect.y, rect.x + rect.w, rect.y);
+        fill.addColorStop(0, MENU_ACCENT_CYAN + '0.04)');
+        fill.addColorStop(0.5, MENU_ACCENT_CYAN + `${alpha})`);
+        fill.addColorStop(1, MENU_ACCENT_GOLD + '0.05)');
+        ctx.fillStyle = fill;
         ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-
-        ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, hovered ? 0.7 : 0.4);
-        ctx.lineWidth = 1;
-        ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
+        this.drawLuminousFrame(ctx, rect.x, rect.y, rect.w, rect.h, hovered ? 0.92 : 0.62);
 
         ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.9);
         ctx.font = '24px "Poiret One", sans-serif';
@@ -704,6 +824,12 @@ export class MainMenu {
           drawDecodedText(ctx, options[i].description ?? '', cx, y + 18, 15, this.openedAt, 'center');
         }
       } else {
+        ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.20);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(rect.x + 18, y + lineH * 0.34);
+        ctx.lineTo(rect.x + rect.w - 18, y + lineH * 0.34);
+        ctx.stroke();
         ctx.font = '24px "Poiret One", sans-serif';
         ctx.fillStyle = colorToCSS(TextColors.normal, 0.68);
         ctx.textAlign = 'center';
@@ -921,6 +1047,12 @@ export class MainMenu {
       themeSettings.enemyColor = v;
       applyThemeColors();
     });
+    y = this.drawVolumeSliderRow(ctx, x, y, rowH, 'Music Volume', Audio.getMusicVolume(), (v) => {
+      Audio.setMusicVolume(v);
+    });
+    y = this.drawVolumeSliderRow(ctx, x, y, rowH, 'SFX Volume', Audio.getSfxVolume(), (v) => {
+      Audio.setSfxVolume(v);
+    });
 
     ctx.font = gameFont(16);
     ctx.textAlign = 'center';
@@ -1114,6 +1246,7 @@ export class MainMenu {
       ctx.fillStyle = `rgba(${r},${g},40,${0.10 + 0.10 * intensity})`;
       ctx.fillRect(bodyRect.x, bodyRect.y, bodyRect.w, bodyRect.h);
     }
+    this.drawControlWell(ctx, bodyRect, pointInRect(Input.mousePos.x, Input.mousePos.y, bodyRect), intensity);
 
     this.drawArrow(ctx, leftRect, '<');
     this.drawArrow(ctx, rightRect, '>');
@@ -1156,20 +1289,25 @@ export class MainMenu {
     const t = (value - min) / Math.max(1e-6, max - min);
     const knobX = sx + Math.max(0, Math.min(1, t)) * sw;
 
-    // Track
-    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.55);
-    ctx.lineWidth = 1;
-    ctx.strokeRect(track.x + 0.5, trackY - 0.5, track.w - 1, 1);
+    const hovered = pointInRect(Input.mousePos.x, Input.mousePos.y, track);
+    this.drawControlWell(ctx, { x: sx - 2, y: trackY - 8, w: sw + 4, h: 16 }, hovered, t);
 
     // Filled portion
-    ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.55);
-    ctx.fillRect(sx, trackY - 1, knobX - sx, 2);
+    const fill = ctx.createLinearGradient(sx, trackY, sx + sw, trackY);
+    fill.addColorStop(0, MENU_ACCENT_CYAN + '0.86)');
+    fill.addColorStop(1, MENU_ACCENT_GOLD + '0.76)');
+    ctx.fillStyle = fill;
+    ctx.fillRect(sx, trackY - 2, knobX - sx, 4);
 
     // Knob
+    ctx.save();
+    ctx.shadowColor = MENU_ACCENT_CYAN + '0.85)';
+    ctx.shadowBlur = hovered ? 18 : 10;
     ctx.fillStyle = colorToCSS(Colors.radar_friendly_status);
     ctx.beginPath();
-    ctx.arc(knobX, trackY, 5, 0, Math.PI * 2);
+    ctx.arc(knobX, trackY, hovered ? 7 : 5, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
 
     // Value
     ctx.font = '16px "Poiret One", sans-serif';
@@ -1192,6 +1330,30 @@ export class MainMenu {
     return y + h;
   }
 
+  private drawVolumeSliderRow(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    h: number,
+    label: string,
+    value: number,
+    onChange: (v: number) => void,
+  ): number {
+    return this.drawSliderRow(
+      ctx,
+      x,
+      y,
+      h,
+      label,
+      Math.round(Math.max(0, Math.min(1, value)) * 100),
+      0,
+      100,
+      5,
+      (v) => onChange(v / 100),
+      (v) => `${Math.round(v)}%`,
+    );
+  }
+
   private drawCheckboxRow(
     ctx: CanvasRenderingContext2D, x: number, y: number, h: number,
     label: string, value: boolean, onChange: (v: boolean) => void,
@@ -1199,11 +1361,9 @@ export class MainMenu {
     this.drawRowLabel(ctx, x, y, label);
 
     const box: HitRect = { x: x + 200, y: y - 9, w: 18, h: 18 };
-    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.8);
-    ctx.lineWidth = 1;
-    ctx.strokeRect(box.x + 0.5, box.y + 0.5, box.w - 1, box.h - 1);
+    this.drawControlWell(ctx, box, pointInRect(Input.mousePos.x, Input.mousePos.y, box), value ? 1 : 0);
     if (value) {
-      ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.85);
+      ctx.fillStyle = MENU_ACCENT_CYAN + '0.90)';
       ctx.fillRect(box.x + 4, box.y + 4, box.w - 8, box.h - 8);
     }
 
@@ -1225,10 +1385,7 @@ export class MainMenu {
     ctx: CanvasRenderingContext2D, rect: HitRect, glyph: string,
   ): void {
     const hovered = pointInRect(Input.mousePos.x, Input.mousePos.y, rect);
-    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines,
-      hovered ? 0.9 : 0.5);
-    ctx.lineWidth = 1;
-    ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
+    this.drawControlWell(ctx, rect, hovered, hovered ? 0.8 : 0);
 
     ctx.font = '18px "Poiret One", sans-serif';
     ctx.textAlign = 'center';
@@ -1238,6 +1395,18 @@ export class MainMenu {
       hovered ? 1.0 : 0.85,
     );
     ctx.fillText(glyph, rect.x + rect.w / 2, rect.y + rect.h / 2);
+  }
+
+  private drawControlWell(ctx: CanvasRenderingContext2D, rect: HitRect, hovered: boolean, intensity: number): void {
+    const fill = ctx.createLinearGradient(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
+    fill.addColorStop(0, `rgba(3,16,30,${hovered ? 0.72 : 0.52})`);
+    fill.addColorStop(0.55, MENU_ACCENT_CYAN + `${0.035 + intensity * 0.055})`);
+    fill.addColorStop(1, MENU_ACCENT_GOLD + `${hovered ? 0.065 : 0.025})`);
+    ctx.fillStyle = fill;
+    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    ctx.strokeStyle = hovered ? MENU_ACCENT_CYAN + '0.82)' : colorToCSS(Colors.radar_gridlines, 0.48);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
   }
 
   private drawButtonRow(
@@ -1254,11 +1423,13 @@ export class MainMenu {
       const rect: HitRect = { x: bx, y: y - 18, w: btnW, h: 36 };
       const hovered = pointInRect(Input.mousePos.x, Input.mousePos.y, rect);
 
-      const fill = b.emphasis
-        ? colorToCSS(Colors.radar_friendly_status, hovered ? 0.35 : 0.20)
-        : colorToCSS(Colors.radar_gridlines, hovered ? 0.30 : 0.15);
+      const fill = ctx.createLinearGradient(rect.x, rect.y, rect.x + rect.w, rect.y);
+      fill.addColorStop(0, b.emphasis ? MENU_ACCENT_CYAN + `${hovered ? 0.22 : 0.13})` : 'rgba(8,24,36,0.46)');
+      fill.addColorStop(0.65, b.emphasis ? MENU_ACCENT_GOLD + `${hovered ? 0.16 : 0.08})` : MENU_ACCENT_CYAN + `${hovered ? 0.08 : 0.035})`);
+      fill.addColorStop(1, MENU_ACCENT_PINK + `${hovered ? 0.11 : 0.035})`);
       ctx.fillStyle = fill;
       ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      if (b.emphasis || hovered) this.drawLuminousFrame(ctx, rect.x, rect.y, rect.w, rect.h, hovered ? 0.86 : 0.54);
 
       ctx.strokeStyle = colorToCSS(
         b.emphasis ? Colors.radar_friendly_status : Colors.radar_gridlines,

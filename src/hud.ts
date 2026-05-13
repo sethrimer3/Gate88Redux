@@ -41,6 +41,8 @@ const CHAT_LINE_HEIGHT = 22;
 const CHAT_MAX_ENTRIES = 5;
 const CHAT_DEFAULT_DURATION = 8.0;
 const CHAT_FADE_OUT = 1.2;
+const HUD_CYAN = 'rgba(118,242,255,';
+const HUD_GOLD = 'rgba(255,218,116,';
 
 // ---------------------------------------------------------------------------
 // HUD class
@@ -115,8 +117,13 @@ export class HUD {
       }
 
       const y = baseY + i * MESSAGE_LINE_HEIGHT;
+      const textW = ctx.measureText(msg.text).width;
+      this.drawGlassPanel(ctx, screenW * 0.5 - textW * 0.5 - 34, y - 19, textW + 68, 36, alpha * 0.72);
       ctx.fillStyle = colorToCSS(msg.color, alpha);
+      ctx.shadowColor = colorToCSS(msg.color, alpha * 0.72);
+      ctx.shadowBlur = 14;
       ctx.fillText(msg.text, screenW * 0.5, y);
+      ctx.shadowBlur = 0;
     }
   }
 
@@ -139,6 +146,8 @@ export class HUD {
     // Start just above the resources line (which is ~44px from bottom for
     // income text + another ~34px for the resource value).
     const bottomY = screenH - 90;
+    const panelH = this.chatEntries.length * CHAT_LINE_HEIGHT + 20;
+    this.drawGlassPanel(ctx, screenW - 430, bottomY - panelH + CHAT_LINE_HEIGHT - 6, 418, panelH, 0.62);
 
     for (let i = this.chatEntries.length - 1; i >= 0; i--) {
       const entry = this.chatEntries[i];
@@ -178,14 +187,24 @@ export class HUD {
     screenH: number,
     options: { currencySymbol?: string; symbolOnRight?: boolean; symbolFont?: 'menu' | 'main' } = {},
   ): void {
+    const panelW = 220;
+    const panelH = 70;
+    const panelX = screenW - panelW - 8;
+    const panelY = screenH - panelH - 8;
+    this.drawGlassPanel(ctx, panelX, panelY, panelW, panelH, 0.66);
+
     ctx.font = options.symbolFont === 'menu' ? menuFont(HUD_FONT_SIZE) : gameFont(HUD_FONT_SIZE);
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
-    ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
+    ctx.fillStyle = colorToCSS(Colors.general_building, 0.68);
     ctx.fillText(`(+${Math.round(incomePerSecond)}/sec)`, screenW - 10, screenH - 44);
     const symbol = options.currencySymbol ?? '$';
     const amount = Math.floor(resources);
+    ctx.shadowColor = HUD_GOLD + '0.55)';
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = colorToCSS(Colors.general_building, 0.92);
     ctx.fillText(options.symbolOnRight ? `${amount} ${symbol}` : `${symbol}${amount}`, screenW - 10, screenH - 10);
+    ctx.shadowBlur = 0;
   }
 
   /** Draw the player energy/battery indicator at the bottom-left. */
@@ -208,6 +227,8 @@ export class HUD {
     const barH = 14;
     const x = 10;
     const y = screenH - 24;
+    const panelY = maxShield > 0 ? y - 112 : y - 86;
+    this.drawGlassPanel(ctx, x - 8, panelY, barW + 18, y - panelY + 8, 0.68);
 
     // Label
     ctx.font = `${Math.floor(HUD_FONT_SIZE * 0.5)}px "Poiret One", sans-serif`;
@@ -234,10 +255,7 @@ export class HUD {
     const hpY = y - barH - 30;
     ctx.fillStyle = colorToCSS(Colors.healthbar, 0.9);
     ctx.fillText('HP', x, hpY - barH - 6);
-    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.2);
-    ctx.fillRect(x, hpY - barH, barW, barH);
-    ctx.fillStyle = colorToCSS(Colors.healthbar, 0.86);
-    ctx.fillRect(x, hpY - barH, barW * hpFrac, barH);
+    this.drawStatusBar(ctx, x, hpY - barH, barW, barH, hpFrac, colorToCSS(Colors.healthbar, 0.92), 'rgba(118,255,178,0.95)');
     if (healthRegenActive && hpFrac > 0) {
       const shimmerW = 42;
       const shimmerX = x + ((this.animTime * 78) % (barW + shimmerW)) - shimmerW;
@@ -258,34 +276,14 @@ export class HUD {
       ctx.strokeRect(x - 1, hpY - barH - 1, barW + 2, barH + 2);
       ctx.restore();
     }
-    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.35);
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x, hpY - barH, barW, barH);
-
     if (maxShield > 0) {
       const shieldY = hpY - barH - 22;
       ctx.fillStyle = colorToCSS(Colors.radar_allied_status, 0.86);
       ctx.fillText('SHIELD', x, shieldY - barH - 6);
-      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.2);
-      ctx.fillRect(x, shieldY - barH, barW, barH);
-      ctx.fillStyle = colorToCSS(Colors.radar_allied_status, 0.74);
-      ctx.fillRect(x, shieldY - barH, barW * shieldFrac, barH);
-      ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.35);
-      ctx.strokeRect(x, shieldY - barH, barW, barH);
+      this.drawStatusBar(ctx, x, shieldY - barH, barW, barH, shieldFrac, colorToCSS(Colors.radar_allied_status, 0.78), 'rgba(120,178,255,0.92)');
     }
 
-    // Background track
-    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.2);
-    ctx.fillRect(x, y - barH, barW, barH);
-
-    // Filled portion
-    ctx.fillStyle = barColor;
-    ctx.fillRect(x, y - barH, barW * frac, barH);
-
-    // Border
-    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.35);
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x, y - barH, barW, barH);
+    this.drawStatusBar(ctx, x, y - barH, barW, barH, frac, barColor, colorToCSS(Colors.alert2, 0.85));
   }
 
   /**
@@ -329,15 +327,78 @@ export class HUD {
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = colorToCSS(Colors.researchlab_detail, 0.75);
     ctx.fillText('RESEARCH', x, y - barH - 8);
-    ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.2);
-    ctx.fillRect(x, y - barH, barW, barH);
     const grad = ctx.createLinearGradient(x, 0, x + barW, 0);
     grad.addColorStop(0, colorToCSS(Colors.researchlab_detail, 0.58));
     grad.addColorStop(1, colorToCSS(Colors.radar_friendly_status, 0.88));
-    ctx.fillStyle = grad;
-    ctx.fillRect(x, y - barH, barW * frac, barH);
-    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.35);
+    this.drawStatusBar(ctx, x, y - barH, barW, barH, frac, grad, HUD_CYAN + '0.88)');
+  }
+
+  private drawGlassPanel(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    alpha: number,
+  ): void {
+    ctx.save();
+    const fill = ctx.createLinearGradient(x, y, x + w, y + h);
+    fill.addColorStop(0, `rgba(4,18,31,${0.42 * alpha})`);
+    fill.addColorStop(0.58, HUD_CYAN + `${0.055 * alpha})`);
+    fill.addColorStop(1, `rgba(2,8,18,${0.56 * alpha})`);
+    ctx.fillStyle = fill;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = HUD_CYAN + `${0.38 * alpha})`;
     ctx.lineWidth = 1;
-    ctx.strokeRect(x, y - barH, barW, barH);
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.strokeStyle = HUD_GOLD + `${0.22 * alpha})`;
+    ctx.beginPath();
+    ctx.moveTo(x + 8, y + h - 0.5);
+    ctx.lineTo(x + Math.min(w * 0.42, 110), y + h - 0.5);
+    ctx.moveTo(x + w - Math.min(w * 0.30, 86), y + 0.5);
+    ctx.lineTo(x + w - 8, y + 0.5);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private drawStatusBar(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    frac: number,
+    fillStyle: string | CanvasGradient,
+    glintColor: string,
+  ): void {
+    const f = Math.max(0, Math.min(1, frac));
+    ctx.fillStyle = 'rgba(2,10,18,0.72)';
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = fillStyle;
+    ctx.fillRect(x, y, w * f, h);
+    if (f > 0.02) {
+      const shimmerW = 36;
+      const shimmerX = x + ((this.animTime * 90) % (w + shimmerW)) - shimmerW;
+      const grad = ctx.createLinearGradient(shimmerX, 0, shimmerX + shimmerW, 0);
+      grad.addColorStop(0, 'rgba(255,255,255,0)');
+      grad.addColorStop(0.5, glintColor);
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x, y, w * f, h);
+      ctx.clip();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = grad;
+      ctx.fillRect(shimmerX, y - 3, shimmerW, h + 6);
+      ctx.restore();
+    }
+    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.48);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.strokeStyle = HUD_CYAN + '0.34)';
+    ctx.beginPath();
+    ctx.moveTo(x, y + h + 2);
+    ctx.lineTo(x + w * f, y + h + 2);
+    ctx.stroke();
   }
 }
