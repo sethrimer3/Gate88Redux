@@ -48,6 +48,7 @@ import { injectCrystalDisturbances } from './fluidForces.js';
 import { CrystalNebula } from './crystalnebula.js';
 import { DistantSuns } from './suns.js';
 import { AsteroidField } from './asteroidField.js';
+import { StarNestBackground } from './starNestBackground.js';
 import { fireTurretShots } from './turretCombat.js';
 import { updateFighterWeaponFire } from './fighterCombat.js';
 import { updatePlayerFiring, updateGuidedMissileControl } from './weaponFiring.js';
@@ -112,6 +113,7 @@ export class Game {
   private crystalNebula: CrystalNebula;
   private distantSuns: DistantSuns;
   private asteroidField: AsteroidField;
+  private starNest: StarNestBackground;
   private visualQuality: VisualQuality = DEFAULT_VISUAL_QUALITY;
   private visualPreset: VisualQualityPreset = VISUAL_QUALITY_PRESETS[DEFAULT_VISUAL_QUALITY];
   private overlayCache: OverlayCache = createOverlayCache();
@@ -245,6 +247,7 @@ export class Game {
     this.distantSuns = new DistantSuns();
     // Asteroid sprites are generated here (once). Placement is seeded and deterministic.
     this.asteroidField = new AsteroidField();
+    this.starNest = new StarNestBackground();
     this.spaceFluid.resize(window.innerWidth, window.innerHeight);
     this.applyVisualQuality(loadVisualQuality());
 
@@ -261,6 +264,7 @@ export class Game {
     this.spaceFluid.resize(window.innerWidth, window.innerHeight);
     this.glowLayer.resize(window.innerWidth, window.innerHeight);
     this.crystalNebula.resize(window.innerWidth, window.innerHeight);
+    this.starNest.resize(window.innerWidth, window.innerHeight);
     // Invalidate overlay gradient cache so drawScreenOverlays rebuilds it at the new size.
     this.overlayCache = createOverlayCache();
   }
@@ -273,6 +277,7 @@ export class Game {
     this.crystalNebula.configure(this.visualPreset);
     this.distantSuns.configure(this.visualPreset);
     this.asteroidField.configure(this.visualPreset);
+    this.starNest.configure(this.visualPreset);
     this.state?.ringEffects.setMaxLive(quality === 'low' ? 32 : quality === 'medium' ? 64 : 96);
     this.state?.particles.setParticleScale(this.visualPreset.particleScale);
     this.starfield.setShootingStarsEnabled(this.visualPreset.shootingStarsEnabled);
@@ -2348,6 +2353,11 @@ export class Game {
     }
     ctx.fillStyle = this.bgGradient;
     ctx.fillRect(0, 0, w, h);
+
+    // Star Nest volumetric background — rendered to an offscreen WebGL canvas
+    // and composited here, before all other scene layers.
+    this.starNest.update(this.lastFrameMs / 1000, this.camera);
+    this.starNest.drawTo(ctx, w, h);
 
     if (this.phase === 'menu') {
       this.mainMenu.draw(ctx, w, h);
