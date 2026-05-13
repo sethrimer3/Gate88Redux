@@ -9,6 +9,8 @@ import { ENTITY_RADIUS, WEAPON_STATS, SWARM_MISSILE_DAMAGE_MULTIPLIER } from './
 const BULLET_TRAIL_LIFETIME = 0.12;
 const BULLET_TRAIL_MIN_DISTANCE = 2;
 const GATLING_TRAIL_LIFETIME = 0.04;
+const COMET_TRAIL_LIFETIME = 0.28;
+const COMET_TRAIL_MAX_POINTS = 10;
 
 interface TrailPoint {
   pos: Vec2;
@@ -37,6 +39,9 @@ export abstract class ProjectileBase extends Entity {
   maxLifetime: number;
   source: Entity | null;
   protected trail: TrailPoint[] = [];
+  protected trailLifetime = BULLET_TRAIL_LIFETIME;
+  protected trailMinDistance = BULLET_TRAIL_MIN_DISTANCE;
+  protected trailMaxPoints = 5;
   /**
    * When true, enemy projectiles can collide with and destroy this projectile.
    * Used by SwarmMissile to make swarm missiles interceptable by enemy bullets.
@@ -72,12 +77,12 @@ export abstract class ProjectileBase extends Entity {
 
   protected updateTrail(dt: number): void {
     for (const point of this.trail) point.age += dt;
-    this.trail = this.trail.filter((point) => point.age <= BULLET_TRAIL_LIFETIME);
+    this.trail = this.trail.filter((point) => point.age <= this.trailLifetime);
     const last = this.trail[this.trail.length - 1];
-    if (!last || last.pos.distanceTo(this.position) >= BULLET_TRAIL_MIN_DISTANCE) {
+    if (!last || last.pos.distanceTo(this.position) >= this.trailMinDistance) {
       this.trail.push({ pos: this.position.clone(), age: 0 });
     }
-    if (this.trail.length > 5) this.trail.shift();
+    while (this.trail.length > this.trailMaxPoints) this.trail.shift();
   }
 
   protected drawTrail(
@@ -109,6 +114,51 @@ export abstract class ProjectileBase extends Entity {
     }
     ctx.restore();
   }
+
+  protected isPlayerShipFire(): boolean {
+    return this.source?.type === EntityType.PlayerShip && this.team === Team.Player;
+  }
+
+  protected enableCometTrail(minDistance: number = 2.5): void {
+    this.trailLifetime = COMET_TRAIL_LIFETIME;
+    this.trailMinDistance = minDistance;
+    this.trailMaxPoints = COMET_TRAIL_MAX_POINTS;
+  }
+
+  protected drawCometTrail(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    glowColor: string,
+    coreColor: string = 'rgba(255,255,255,0.92)',
+    width: number = 8,
+  ): void {
+    if (this.trail.length < 2) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    for (let layer = 0; layer < 3; layer++) {
+      const layerWidth = width * (layer === 0 ? 1 : layer === 1 ? 0.48 : 0.18);
+      ctx.lineWidth = Math.max(1, layerWidth * camera.zoom);
+      ctx.strokeStyle = layer === 2 ? coreColor : glowColor;
+      for (let i = 1; i < this.trail.length; i++) {
+        const a = this.trail[i - 1];
+        const b = this.trail[i];
+        const fade = 1 - Math.max(a.age, b.age) / this.trailLifetime;
+        if (fade <= 0) continue;
+        const from = camera.worldToScreen(a.pos);
+        const to = camera.worldToScreen(b.pos);
+        const headBias = i / Math.max(1, this.trail.length - 1);
+        ctx.globalAlpha = (layer === 0 ? 0.18 : layer === 1 ? 0.34 : 0.62) * fade * (0.45 + headBias * 0.55);
+        ctx.beginPath();
+        ctx.moveTo(from.x, from.y);
+        ctx.lineTo(to.x, to.y);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +187,7 @@ export class Bullet extends ProjectileBase {
       source,
     });
     this.targetEntity = target;
+    if (this.isPlayerShipFire()) this.enableCometTrail();
   }
 
   update(dt: number): void {
@@ -163,7 +214,11 @@ export class Bullet extends ProjectileBase {
     const trailColor = this.team === Team.Player
       ? colorToCSS(Colors.bullet_player_cannon, 0.55)
       : colorToCSS(Colors.bullet_enemy_cannon, 0.55);
-    this.drawTrail(ctx, camera, trailColor);
+    if (this.isPlayerShipFire()) {
+      this.drawCometTrail(ctx, camera, trailColor, 'rgba(255,255,255,0.95)', 7.5);
+    } else {
+      this.drawTrail(ctx, camera, trailColor);
+    }
 
     // Bright elongated streak
     const tail = this.velocity.normalize().scale(-5 * camera.zoom);
@@ -203,9 +258,14 @@ export class GatlingBullet extends ProjectileBase {
       source,
     });
     this.radius = ENTITY_RADIUS.bullet * 0.75;
+    if (this.isPlayerShipFire()) this.enableCometTrail(4);
   }
 
   protected override updateTrail(dt: number): void {
+    if (this.isPlayerShipFire()) {
+      super.updateTrail(dt);
+      return;
+    }
     for (const point of this.trail) point.age += dt;
     this.trail = this.trail.filter((point) => point.age <= GATLING_TRAIL_LIFETIME);
     const last = this.trail[this.trail.length - 1];
@@ -221,7 +281,11 @@ export class GatlingBullet extends ProjectileBase {
     const coreColor = this.team === Team.Player
       ? colorToCSS(Colors.bullet_player_gatling)
       : colorToCSS(Colors.bullet_enemy_gatling);
-    this.drawTrail(ctx, camera, coreColor, GATLING_TRAIL_LIFETIME, 1.25);
+    if (this.isPlayerShipFire()) {
+      this.drawCometTrail(ctx, camera, colorToCSS(Colors.bullet_player_gatling, 0.72), 'rgba(255,255,220,0.95)', 5.5);
+    } else {
+      this.drawTrail(ctx, camera, coreColor, GATLING_TRAIL_LIFETIME, 1.25);
+    }
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.fillStyle = coreColor;
@@ -391,6 +455,7 @@ export class GuidedMissile extends ProjectileBase {
       source,
     });
     this.radius = ENTITY_RADIUS.missile * 1.7;
+    if (this.isPlayerShipFire()) this.enableCometTrail(3.5);
   }
 
   steerToward(target: Vec2): void {
@@ -418,7 +483,11 @@ export class GuidedMissile extends ProjectileBase {
     if (!this.alive) return;
     const screen = camera.worldToScreen(this.position);
     const r = this.radius * camera.zoom;
-    this.drawTrail(ctx, camera, colorToCSS(Colors.alert2, 0.9), 0.14, 4);
+    if (this.isPlayerShipFire()) {
+      this.drawCometTrail(ctx, camera, colorToCSS(Colors.alert2, 0.82), 'rgba(255,255,255,0.96)', 9);
+    } else {
+      this.drawTrail(ctx, camera, colorToCSS(Colors.alert2, 0.9), 0.14, 4);
+    }
     ctx.save();
     ctx.translate(screen.x, screen.y);
     ctx.rotate(this.angle);
@@ -1050,6 +1119,7 @@ export class HomingBullet extends ProjectileBase {
     });
     this.radius = ENTITY_RADIUS.bullet * 1.15;
     this.targetEntity = target;
+    if (this.isPlayerShipFire()) this.enableCometTrail();
   }
 
   update(dt: number): void {
@@ -1073,7 +1143,11 @@ export class HomingBullet extends ProjectileBase {
     const screen = camera.worldToScreen(this.position);
     // Blue/cyan trail to distinguish from normal green cannon bullets
     const bulletColor = colorToCSS(Colors.alliedfire, 0.9);
-    this.drawTrail(ctx, camera, bulletColor);
+    if (this.isPlayerShipFire()) {
+      this.drawCometTrail(ctx, camera, colorToCSS(Colors.alliedfire, 0.72), 'rgba(235,255,255,0.96)', 8.5);
+    } else {
+      this.drawTrail(ctx, camera, bulletColor);
+    }
 
     const tail = this.velocity.normalize().scale(-3 * camera.zoom);
     ctx.strokeStyle = bulletColor;

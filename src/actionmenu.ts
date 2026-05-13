@@ -31,13 +31,119 @@ const ITEM_RADIUS = 110;
 
 /** Radius (px) of each item circle. */
 const ITEM_CIRCLE_R = 40;
+const UI_CYAN = 'rgba(118,242,255,';
+const UI_GOLD = 'rgba(255,218,116,';
+const UI_PANEL_DARK = 'rgba(2,10,22,';
 
 function fillMenuPanel(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
-  const grad = ctx.createLinearGradient(0, y, 0, y + h);
-  grad.addColorStop(0, 'rgba(4,21,45,0.94)');
-  grad.addColorStop(1, 'rgba(18,7,37,0.94)');
+  const grad = ctx.createLinearGradient(x, y, x + w, y + h);
+  grad.addColorStop(0, 'rgba(4,18,31,0.86)');
+  grad.addColorStop(0.55, 'rgba(8,34,48,0.78)');
+  grad.addColorStop(1, 'rgba(2,8,18,0.92)');
   ctx.fillStyle = grad;
   ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = `${UI_CYAN}0.42)`;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  ctx.strokeStyle = `${UI_GOLD}0.24)`;
+  ctx.beginPath();
+  ctx.moveTo(x + 10, y + h - 0.5);
+  ctx.lineTo(x + Math.min(w * 0.45, 118), y + h - 0.5);
+  ctx.moveTo(x + w - Math.min(w * 0.34, 96), y + 0.5);
+  ctx.lineTo(x + w - 10, y + 0.5);
+  ctx.stroke();
+}
+
+function drawMenuBanner(
+  ctx: CanvasRenderingContext2D,
+  screenW: number,
+  y: number,
+  primary: string,
+  secondary: string,
+  openedAt: number,
+): void {
+  const w = Math.min(screenW - 32, 760);
+  const x = screenW * 0.5 - w * 0.5;
+  fillMenuPanel(ctx, x, y, w, 54);
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.font = '13px "Poiret One", sans-serif';
+  ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.9);
+  drawDecodedText(ctx, primary, screenW * 0.5, y + 10, 13, openedAt, 'center');
+  ctx.font = '10px "Poiret One", sans-serif';
+  ctx.fillStyle = colorToCSS(Colors.general_building, 0.68);
+  drawDecodedText(ctx, secondary, screenW * 0.5, y + 31, 10, openedAt, 'center');
+  ctx.restore();
+}
+
+function drawMenuRow(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  active: boolean,
+  disabled: boolean = false,
+): void {
+  const grad = ctx.createLinearGradient(x, y, x + w, y);
+  if (disabled) {
+    grad.addColorStop(0, `${UI_PANEL_DARK}0.42)`);
+    grad.addColorStop(1, 'rgba(14,26,34,0.26)');
+  } else if (active) {
+    grad.addColorStop(0, `${UI_CYAN}0.26)`);
+    grad.addColorStop(0.62, 'rgba(30,86,76,0.34)');
+    grad.addColorStop(1, `${UI_GOLD}0.12)`);
+  } else {
+    grad.addColorStop(0, `${UI_PANEL_DARK}0.66)`);
+    grad.addColorStop(1, 'rgba(8,32,44,0.54)');
+  }
+  ctx.fillStyle = grad;
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = disabled
+    ? colorToCSS(Colors.radar_gridlines, 0.20)
+    : active
+      ? `${UI_CYAN}0.82)`
+      : colorToCSS(Colors.radar_gridlines, 0.36);
+  ctx.lineWidth = active ? 1.5 : 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  if (active) {
+    ctx.fillStyle = `${UI_GOLD}0.78)`;
+    ctx.fillRect(x, y + 5, 2, h - 10);
+  }
+}
+
+function drawMenuOrb(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  active: boolean,
+  disabled: boolean,
+): void {
+  const grad = ctx.createRadialGradient(x - radius * 0.28, y - radius * 0.34, radius * 0.12, x, y, radius);
+  if (disabled) {
+    grad.addColorStop(0, colorToCSS(Colors.radar_gridlines, 0.18));
+    grad.addColorStop(1, 'rgba(2,10,18,0.70)');
+  } else if (active) {
+    grad.addColorStop(0, 'rgba(255,255,240,0.50)');
+    grad.addColorStop(0.38, `${UI_CYAN}0.36)`);
+    grad.addColorStop(1, 'rgba(10,46,40,0.82)');
+  } else {
+    grad.addColorStop(0, 'rgba(154,240,255,0.16)');
+    grad.addColorStop(1, 'rgba(4,18,31,0.76)');
+  }
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = disabled
+    ? colorToCSS(Colors.radar_gridlines, 0.24)
+    : active
+      ? `${UI_CYAN}0.94)`
+      : colorToCSS(Colors.radar_gridlines, 0.42);
+  ctx.lineWidth = active ? 2 : 1;
+  ctx.stroke();
 }
 
 /**
@@ -455,13 +561,7 @@ class HoldMenu {
     const cy = this.centre.y;
 
     // Central hub disc.
-    ctx.fillStyle = colorToCSS(Colors.menu_background, 0.78);
-    ctx.beginPath();
-    ctx.arc(cx, cy, 30, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.7);
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    drawMenuOrb(ctx, cx, cy, 30, true, false);
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -489,32 +589,18 @@ class HoldMenu {
       const hovered = i === this.hoveredIdx;
 
       // Connector line.
-      ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, hovered ? 0.45 : 0.18);
-      ctx.lineWidth = 1;
+      const connector = ctx.createLinearGradient(cx, cy, ix, iy);
+      connector.addColorStop(0, `${UI_CYAN}${hovered ? 0.34 : 0.14})`);
+      connector.addColorStop(1, `${UI_GOLD}${hovered ? 0.30 : 0.08})`);
+      ctx.strokeStyle = connector;
+      ctx.lineWidth = hovered ? 1.5 : 1;
       ctx.beginPath();
       ctx.moveTo(cx, cy);
       ctx.lineTo(ix, iy);
       ctx.stroke();
 
       // Item circle.
-      if (item.disabled) {
-        ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.15);
-      } else if (hovered) {
-        ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.5);
-      } else {
-        ctx.fillStyle = colorToCSS(Colors.menu_background, 0.5);
-      }
-      ctx.beginPath();
-      ctx.arc(ix, iy, ITEM_CIRCLE_R, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.strokeStyle = item.disabled
-        ? colorToCSS(Colors.radar_gridlines, 0.25)
-        : hovered
-          ? colorToCSS(Colors.radar_friendly_status, 0.95)
-          : colorToCSS(Colors.radar_gridlines, 0.45);
-      ctx.lineWidth = hovered ? 2 : 1;
-      ctx.stroke();
+      drawMenuOrb(ctx, ix, iy, ITEM_CIRCLE_R, hovered, !!item.disabled);
 
       // Label (split on '\n').
       ctx.font = '10px "Poiret One", sans-serif';
@@ -822,8 +908,6 @@ class LeftHoldMenu {
 
     ctx.save();
     fillMenuPanel(ctx, x, y, w, panelH);
-    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.55);
-    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, panelH - 1);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.font = '14px "Poiret One", sans-serif';
@@ -848,18 +932,7 @@ class LeftHoldMenu {
       const rowY = y + headerH + i * (rowH + gap);
       const active = i === this.selectedIdx || i === this.hoveredIdx;
       this.rowRects.push({ index: i, x: x + 10, y: rowY, w: w - 20, h: rowH });
-      ctx.fillStyle = item.disabled
-        ? colorToCSS(Colors.radar_gridlines, 0.13)
-        : active
-          ? colorToCSS(Colors.radar_friendly_status, 0.27)
-          : colorToCSS(Colors.friendly_background, 0.45);
-      ctx.fillRect(x + 10, rowY, w - 20, rowH);
-      ctx.strokeStyle = item.disabled
-        ? colorToCSS(Colors.radar_gridlines, 0.22)
-        : active
-          ? colorToCSS(Colors.radar_friendly_status, 0.95)
-          : colorToCSS(Colors.radar_gridlines, 0.45);
-      ctx.strokeRect(x + 10.5, rowY + 0.5, w - 21, rowH - 1);
+      drawMenuRow(ctx, x + 10, rowY, w - 20, rowH, active, !!item.disabled);
       ctx.font = '10px "Poiret One", sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
@@ -894,8 +967,6 @@ class LeftHoldMenu {
     const panelH = 38 + Math.max(1, shown.length) * (rowH + gap) + 9;
     ctx.save();
     fillMenuPanel(ctx, x, y, w, panelH);
-    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.45);
-    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, panelH - 1);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.86);
@@ -914,10 +985,7 @@ class LeftHoldMenu {
       const hovered = Input.mousePos.x >= x + 10 && Input.mousePos.x <= x + w - 10 &&
         Input.mousePos.y >= rowY && Input.mousePos.y <= rowY + rowH;
       this.queueRects.push({ index: i, item, x: x + 10, y: rowY, w: w - 20, h: rowH });
-      ctx.fillStyle = hovered ? colorToCSS(Colors.alert1, 0.24) : colorToCSS(Colors.friendly_background, 0.38);
-      ctx.fillRect(x + 10, rowY, w - 20, rowH);
-      ctx.strokeStyle = hovered ? colorToCSS(Colors.alert1, 0.75) : colorToCSS(Colors.radar_gridlines, 0.36);
-      ctx.strokeRect(x + 10.5, rowY + 0.5, w - 21, rowH - 1);
+      drawMenuRow(ctx, x + 10, rowY, w - 20, rowH, hovered, false);
       ctx.fillStyle = colorToCSS(Colors.general_building, 0.88);
       drawDecodedText(ctx, `${i + 1}. ${researchDisplayName(item)}`, x + 18, rowY + rowH * 0.5, 10, this.openedAt);
       ctx.textAlign = 'right';
@@ -1023,8 +1091,6 @@ class ShipMenu {
     const y = Math.max(18, Math.min(72, (screenH - panelH) * 0.5));
     ctx.save();
     fillMenuPanel(ctx, x, y, panelW, panelH);
-    ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.55);
-    ctx.strokeRect(x + 0.5, y + 0.5, panelW - 1, panelH - 1);
 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
@@ -1050,8 +1116,10 @@ class ShipMenu {
     ];
     ctx.font = '16px "Poiret One", sans-serif';
     for (let i = 0; i < stats.length; i++) {
+      const sy = statsY + i * 21;
+      drawMenuRow(ctx, x + 10, sy - 2, panelW - 20, 18, false, false);
       ctx.fillStyle = colorToCSS(Colors.general_building, 0.86);
-      drawDecodedText(ctx, stats[i], x + 12, statsY + i * 21, 16, this.openedAt);
+      drawDecodedText(ctx, stats[i], x + 18, sy, 16, this.openedAt);
     }
 
     const upgradeY = statsY + stats.length * 21 + 20;
@@ -1081,8 +1149,10 @@ class ShipMenu {
     } else {
       for (let i = 0; i < unlockedUpgrades.length; i++) {
         const [label] = unlockedUpgrades[i];
+        const uy = upgradeY + 26 + i * 20;
+        drawMenuRow(ctx, x + 10, uy - 1, panelW - 20, 17, false, false);
         ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.9);
-        drawDecodedText(ctx, `- ${label}`, x + 12, upgradeY + 26 + i * 20, 16, this.openedAt);
+        drawDecodedText(ctx, label, x + 18, uy, 16, this.openedAt);
       }
     }
 
@@ -1100,16 +1170,7 @@ class ShipMenu {
       const selected = ship.primaryWeaponId === weapon.id;
       const unlocked = this.weaponUnlocked(state, weapon.id);
       this.weaponRects.push({ id: weapon.id, x: x + 10, y: wy, w: panelW - 20, h: rowH });
-      ctx.fillStyle = selected
-        ? colorToCSS(Colors.radar_friendly_status, 0.28)
-        : unlocked
-          ? 'rgba(8,32,58,0.72)'
-          : 'rgba(8,18,32,0.58)';
-      ctx.fillRect(x + 10, wy, panelW - 20, rowH);
-      ctx.strokeStyle = selected
-        ? colorToCSS(Colors.radar_friendly_status, 0.9)
-        : colorToCSS(Colors.radar_gridlines, unlocked ? 0.42 : 0.22);
-      ctx.strokeRect(x + 10.5, wy + 0.5, panelW - 21, rowH - 1);
+      drawMenuRow(ctx, x + 10, wy, panelW - 20, rowH, selected, !unlocked);
       ctx.font = '16px "Poiret One", sans-serif';
       ctx.fillStyle = unlocked ? colorToCSS(Colors.general_building, 0.95) : colorToCSS(Colors.radar_gridlines, 0.48);
       drawDecodedText(ctx, weapon.label, x + 20, wy + 7, 16, this.openedAt);
@@ -1401,36 +1462,16 @@ class QuickBuildMenu {
     }
     this.drawPalette(ctx, state, palette);
 
-    ctx.font = '12px "Poiret One", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.85);
-    drawDecodedText(
-      ctx,
-      selected?.type === 'shape'
-        ? '[Q] Synonymous Shape - hold LMB to draw swarm trails - RMB recalls nearby drones'
-        : selected?.type === 'building'
+    const primaryHint = selected?.type === 'shape'
+      ? '[Q] Synonymous Shape - hold LMB to draw swarm trails - RMB recalls nearby drones'
+      : selected?.type === 'building'
         ? '[Q] Quick Build - wheel/click selects - LMB places - RMB deletes building - release Q to exit'
-        : `[Q] Quick Build - Conduit 2x2 brush $${CONDUIT_COST}/cell - LMB paint - RMB erase - wheel/click selects`,
-      screenW * 0.5,
-      24,
-      12,
-      this.openedAt,
-      'center',
-    );
-    ctx.font = '10px "Poiret One", sans-serif';
-    ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
-    drawDecodedText(
-      ctx,
+        : `[Q] Quick Build - Conduit 2x2 brush $${CONDUIT_COST}/cell - LMB paint - RMB erase - wheel/click selects`;
+    const secondaryHint =
       isSynonymousFaction(state.factionByTeam, Team.Player)
         ? `nanobots: ${state.synonymous.getUnallocatedCount(Team.Player)} ${SYNONYMOUS_CURRENCY_SYMBOL} / ${state.synonymous.totalDroneCount(Team.Player)} total - cell ${cell.cx},${cell.cy}`
-        : `conduits: ${state.grid.conduitCount()} - queued: ${state.grid.pendingConduitCount()} - cell ${cell.cx},${cell.cy} - resources: $${Math.floor(state.resources)}`,
-      screenW * 0.5,
-      40,
-      10,
-      this.openedAt,
-      'center',
-    );
+        : `conduits: ${state.grid.conduitCount()} - queued: ${state.grid.pendingConduitCount()} - cell ${cell.cx},${cell.cy} - resources: $${Math.floor(state.resources)}`;
+    drawMenuBanner(ctx, screenW, 18, primaryHint, secondaryHint, this.openedAt);
   }
 
   private drawConduitBrushCursor(
@@ -1568,6 +1609,8 @@ class QuickBuildMenu {
     const h = 30;
     const gap = 6;
     ctx.save();
+    const panelH = Math.max(1, palette.length) * (h + gap) + 16;
+    fillMenuPanel(ctx, x - 8, y0 - 10, w + 16, panelH);
     ctx.font = '10px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
@@ -1587,14 +1630,7 @@ class QuickBuildMenu {
           ? item.label
         : `${isPlayerSynonymous(state) && item.def.key === 'bomberyard' ? 'Nova Bombers' : item.def.label} ${item.def.footprintCells}x${item.def.footprintCells}`;
       this.iconRects.push({ index: i, x, y, w, h });
-      ctx.fillStyle = selected
-        ? colorToCSS(Colors.radar_friendly_status, 0.28)
-        : colorToCSS(Colors.menu_background, 0.55);
-      ctx.fillRect(x, y, w, h);
-      ctx.strokeStyle = selected
-        ? colorToCSS(Colors.radar_friendly_status, 0.95)
-        : colorToCSS(Colors.radar_gridlines, 0.45);
-      ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+      drawMenuRow(ctx, x, y, w, h, selected, false);
       ctx.fillStyle = item.type === 'shape' || canAffordAmount(cost, state)
         ? colorToCSS(Colors.general_building, selected ? 1.0 : 0.82)
         : colorToCSS(Colors.alert1, 0.7);
