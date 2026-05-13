@@ -37,6 +37,12 @@ interface Particle {
    * energy sparks in a space setting.
    */
   additive: boolean;
+  /**
+   * When true this particle is an engine exhaust/thrust particle.
+   * Exhaust particles are drawn in a separate underlay pass (before ship
+   * bodies) so the thrust visually sits behind the ship silhouette.
+   */
+  isExhaust: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -56,6 +62,7 @@ function createParticle(): Particle {
     size: 2,
     active: false,
     additive: false,
+    isExhaust: false,
   };
 }
 
@@ -152,13 +159,17 @@ export class ParticleSystem {
       const idx = this.freeStack.pop()!;
       this.activeIndices.push(idx);
       this.emittedThisFrame++;
-      return this.pool[idx];
+      const p = this.pool[idx];
+      p.isExhaust = false;
+      return p;
     }
     // Pool full — recycle the first active particle (arbitrary position in the active list, not guaranteed oldest)
     const idx = this.activeIndices[0];
     this.recycledCount++;
     this.emittedThisFrame++;
-    return this.pool[idx];
+    const p = this.pool[idx];
+    p.isExhaust = false;
+    return p;
   }
 
   // --- Emitters ---
@@ -166,40 +177,61 @@ export class ParticleSystem {
   emitExhaust(
     pos: Vec2,
     angle: number,
-    team: Team,
-    options: { speedFraction?: number; scaleSizeWithSpeed?: boolean; varyLightness?: boolean } = {},
+    _team: Team,
+    options: { speedFraction?: number; scaleSizeWithSpeed?: boolean; varyLightness?: boolean; isBoosting?: boolean } = {},
   ): void {
-    const count = 2;
-    let color: Color;
-    switch (team) {
-      case Team.Player:
-        color = Colors.particles_friendly_exhaust;
-        break;
-      case Team.Enemy:
-        color = Colors.particles_enemy_exhaust;
-        break;
-      default:
-        color = Colors.particles_neutral_exhaust;
-    }
+    const isBoosting = options.isBoosting ?? false;
+    // Warm thrust colour palette — randomly sampled for each particle.
+    const warmPalette: Color[] = [
+      Colors.thrust_warm_yellow,
+      Colors.thrust_warm_orange,
+      Colors.thrust_burnt_orange,
+      Colors.thrust_deep_red,
+    ];
+    // Occasional white-hot core burst at high intensity (fast or boosting).
     const speedFraction = Math.min(1, Math.max(0, options.speedFraction ?? 0));
-    const spreadRange = 0.06 + 0.24 * (1 - speedFraction);
+    const coreChance = speedFraction * (isBoosting ? 0.55 : 0.25);
+
+    const count = isBoosting ? 3 : 2;
+    // Boost increases spread (more chaos), size, speed, and lifetime.
+    const boostSpreadMult   = isBoosting ? 2.0 : 1.0;
+    const boostSizeMult     = isBoosting ? 1.55 : 1.0;
+    const boostSpeedMult    = isBoosting ? 1.35 : 1.0;
+    const boostLifeMult     = isBoosting ? 1.4  : 1.0;
+
+    // Even at top speed keep some randomized spread so exhaust isn't a rigid line.
+    const spreadRange = (0.09 + 0.28 * (1 - speedFraction)) * boostSpreadMult;
     const sizeScale = options.scaleSizeWithSpeed ? 0.2 + 0.8 * speedFraction : 1;
     const backAngle = angle + Math.PI;
+
     for (let i = 0; i < count; i++) {
       const p = this.acquire();
-      p.active = true;
-      p.x = pos.x;
-      p.y = pos.y;
+      p.active    = true;
+      p.isExhaust = true;
+      p.additive  = true;
+
+      // Origin: slightly offset backward from ship center so particles start at engine nozzle.
+      const nozzleDist = 3 + Math.random() * 3;
+      p.x = pos.x + Math.cos(backAngle) * nozzleDist;
+      p.y = pos.y + Math.sin(backAngle) * nozzleDist;
+
       const spread = randomRange(-spreadRange, spreadRange);
-      const spd = randomRange(30, 80);
+      const spd = randomRange(35, 90) * boostSpeedMult;
       p.vx = Math.cos(backAngle + spread) * spd;
       p.vy = Math.sin(backAngle + spread) * spd;
-      p.color = options.varyLightness ? lightenColor(color, randomRange(0, 0.34)) : color;
-      p.alpha = 1;
-      p.life = randomRange(0.2, 0.5);
+
+      // Select warm colour — occasional white-hot core
+      if (Math.random() < coreChance) {
+        p.color = Colors.thrust_core_hot;
+      } else {
+        const c = warmPalette[Math.floor(Math.random() * warmPalette.length)];
+        p.color = options.varyLightness ? lightenColor(c, randomRange(0, 0.25)) : c;
+      }
+
+      p.alpha   = isBoosting ? 0.92 : 0.78;
+      p.life    = randomRange(0.22, 0.55) * boostLifeMult;
       p.maxLife = p.life;
-      p.size = randomRange(1, 2.5) * sizeScale;
-      p.additive = false;
+      p.size    = randomRange(1.2, 2.8) * sizeScale * boostSizeMult;
     }
   }
 
@@ -209,36 +241,32 @@ export class ParticleSystem {
    * @param angle    Facing angle of the ship (radians)
    * @param sideSign -1 = strafing left (right-side thruster fires, exhaust exits rightward)
    *                 +1 = strafing right (left-side thruster fires, exhaust exits leftward)
-   * @param team     Used to select exhaust colour
+   * @param _team    (unused — all exhaust uses warm colours)
    */
   emitSideExhaust(
     pos: Vec2,
     angle: number,
     sideSign: number,
-    team: Team,
+    _team: Team,
     options: { speedFraction?: number; varyLightness?: boolean } = {},
   ): void {
     const count = 2;
-    let color: Color;
-    switch (team) {
-      case Team.Player:
-        color = Colors.particles_friendly_exhaust;
-        break;
-      case Team.Enemy:
-        color = Colors.particles_enemy_exhaust;
-        break;
-      default:
-        color = Colors.particles_neutral_exhaust;
-    }
+    const warmPalette: Color[] = [
+      Colors.thrust_warm_yellow,
+      Colors.thrust_warm_orange,
+      Colors.thrust_burnt_orange,
+    ];
     const speedFraction = Math.min(1, Math.max(0, options.speedFraction ?? 0));
-    const spreadRange = 0.06 + 0.24 * (1 - speedFraction);
+    const spreadRange = 0.09 + 0.28 * (1 - speedFraction);
     // Thruster is on the opposite side from the strafe direction.
     const thrusterSide = -sideSign;
     const offsetAngle = angle + (thrusterSide * Math.PI / 2);
     const exhaustAngle = angle + (thrusterSide * Math.PI / 2);
     for (let i = 0; i < count; i++) {
       const p = this.acquire();
-      p.active = true;
+      p.active    = true;
+      p.isExhaust = true;
+      p.additive  = true;
       const offsetDist = randomRange(3, 8);
       p.x = pos.x + Math.cos(offsetAngle) * offsetDist;
       p.y = pos.y + Math.sin(offsetAngle) * offsetDist;
@@ -246,12 +274,12 @@ export class ParticleSystem {
       const spd = randomRange(25, 60);
       p.vx = Math.cos(exhaustAngle + spread) * spd;
       p.vy = Math.sin(exhaustAngle + spread) * spd;
-      p.color = options.varyLightness ? lightenColor(color, randomRange(0, 0.34)) : color;
-      p.alpha = 0.9;
-      p.life = randomRange(0.15, 0.35);
+      const c = warmPalette[Math.floor(Math.random() * warmPalette.length)];
+      p.color = options.varyLightness ? lightenColor(c, randomRange(0, 0.25)) : c;
+      p.alpha   = 0.72;
+      p.life    = randomRange(0.15, 0.35);
       p.maxLife = p.life;
-      p.size = randomRange(0.8, 2.0);
-      p.additive = false;
+      p.size    = randomRange(0.8, 2.0);
     }
   }
 
@@ -506,6 +534,7 @@ export class ParticleSystem {
   /**
    * Draw all active particles with viewport culling.
    * Computes world-space viewport bounds once; iterates only the active list.
+   * Skips exhaust particles — those are drawn by drawExhaust() before ship bodies.
    */
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     const active = this.activeIndices;
@@ -531,10 +560,10 @@ export class ParticleSystem {
     let drawn = 0;
     let culled = 0;
 
-    // Pass 1 — normal blend (non-additive particles)
+    // Pass 1 — normal blend (non-additive, non-exhaust particles)
     for (let i = 0; i < len; i++) {
       const p = this.pool[active[i]];
-      if (p.additive || p.alpha <= 0) continue;
+      if (p.additive || p.alpha <= 0 || p.isExhaust) continue;
       if (p.x < vpMinX || p.x > vpMaxX || p.y < vpMinY || p.y > vpMaxY) { culled++; continue; }
 
       const sx = (p.x - camX) * zoom + hw;
@@ -548,11 +577,11 @@ export class ParticleSystem {
       drawn++;
     }
 
-    // Pass 2 — additive blend
+    // Pass 2 — additive blend (non-exhaust only)
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < len; i++) {
       const p = this.pool[active[i]];
-      if (!p.additive || p.alpha <= 0) continue;
+      if (!p.additive || p.alpha <= 0 || p.isExhaust) continue;
       if (p.x < vpMinX || p.x > vpMaxX || p.y < vpMinY || p.y > vpMaxY) { culled++; continue; }
 
       const sx = (p.x - camX) * zoom + hw;
@@ -575,5 +604,54 @@ export class ParticleSystem {
     renderBudget.culledParticles = culled;
     renderBudget.particleCapacity = POOL_SIZE;
   }
-}
 
+  /**
+   * Draw only engine exhaust / thrust particles.
+   * Call this BEFORE ship bodies are drawn so thrust visually sits underneath
+   * the ship silhouette.  Uses additive blending for a warm glow effect.
+   */
+  drawExhaust(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    const active = this.activeIndices;
+    const len = active.length;
+    if (len === 0) return;
+
+    const zoom = camera.zoom;
+    const camX = camera.position.x;
+    const camY = camera.position.y;
+    const sw = camera.screenW;
+    const sh = camera.screenH;
+    const hw = sw * 0.5;
+    const hh = sh * 0.5;
+
+    const margin = 30;
+    const marginW = margin / zoom;
+    const vpMinX = camX - hw / zoom - marginW;
+    const vpMaxX = camX + hw / zoom + marginW;
+    const vpMinY = camY - hh / zoom - marginW;
+    const vpMaxY = camY + hh / zoom + marginW;
+
+    // All exhaust particles use additive blending for a warm glow.
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < len; i++) {
+      const p = this.pool[active[i]];
+      if (!p.isExhaust || p.alpha <= 0) continue;
+      if (p.x < vpMinX || p.x > vpMaxX || p.y < vpMinY || p.y > vpMaxY) continue;
+
+      const sx = (p.x - camX) * zoom + hw;
+      const sy = (p.y - camY) * zoom + hh;
+      const r = Math.max(0.4, p.size * zoom);
+
+      ctx.fillStyle = colorToCSS(p.color, p.alpha);
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Soft warm glow halo around each exhaust particle.
+      ctx.fillStyle = colorToCSS(p.color, p.alpha * 0.22);
+      ctx.beginPath();
+      ctx.arc(sx, sy, r * 2.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}

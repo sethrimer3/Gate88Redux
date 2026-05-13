@@ -59,17 +59,17 @@ interface CloudDef {
 
 const CLOUD_DEFS: CloudDef[] = [
   // Player side (left) — cool cyan / ice-blue
-  { cx: WORLD_WIDTH * 0.12, cy: WORLD_HEIGHT * 0.22, radius: 900,  baseCount: 100, r: 120, g: 210, b: 255 },
-  { cx: WORLD_WIDTH * 0.20, cy: WORLD_HEIGHT * 0.68, radius: 700,  baseCount:  80, r: 140, g: 190, b: 255 },
-  { cx: WORLD_WIDTH * 0.08, cy: WORLD_HEIGHT * 0.50, radius: 550,  baseCount:  65, r: 160, g: 150, b: 255 },
+  { cx: WORLD_WIDTH * 0.12, cy: WORLD_HEIGHT * 0.22, radius: 1000, baseCount: 140, r: 120, g: 210, b: 255 },
+  { cx: WORLD_WIDTH * 0.20, cy: WORLD_HEIGHT * 0.68, radius: 820,  baseCount: 115, r: 140, g: 190, b: 255 },
+  { cx: WORLD_WIDTH * 0.08, cy: WORLD_HEIGHT * 0.50, radius: 650,  baseCount:  95, r: 160, g: 150, b: 255 },
   // Centre contested — pale violet / faint magenta
-  { cx: WORLD_WIDTH * 0.50, cy: WORLD_HEIGHT * 0.28, radius: 800,  baseCount:  90, r: 200, g: 140, b: 255 },
-  { cx: WORLD_WIDTH * 0.50, cy: WORLD_HEIGHT * 0.72, radius: 750,  baseCount:  85, r: 220, g: 120, b: 200 },
-  { cx: WORLD_WIDTH * 0.45, cy: WORLD_HEIGHT * 0.50, radius: 600,  baseCount:  75, r: 160, g: 200, b: 255 },
-  // Enemy side (right) — warm amber / faint orange
-  { cx: WORLD_WIDTH * 0.80, cy: WORLD_HEIGHT * 0.28, radius: 850,  baseCount:  95, r: 255, g: 200, b: 100 },
-  { cx: WORLD_WIDTH * 0.90, cy: WORLD_HEIGHT * 0.72, radius: 720,  baseCount:  82, r: 255, g: 160, b:  80 },
-  { cx: WORLD_WIDTH * 0.65, cy: WORLD_HEIGHT * 0.82, radius: 580,  baseCount:  68, r: 255, g: 180, b: 140 },
+  { cx: WORLD_WIDTH * 0.50, cy: WORLD_HEIGHT * 0.28, radius: 900,  baseCount: 130, r: 200, g: 140, b: 255 },
+  { cx: WORLD_WIDTH * 0.50, cy: WORLD_HEIGHT * 0.72, radius: 860,  baseCount: 120, r: 220, g: 120, b: 200 },
+  { cx: WORLD_WIDTH * 0.45, cy: WORLD_HEIGHT * 0.50, radius: 700,  baseCount: 110, r: 160, g: 200, b: 255 },
+  // Enemy side (right) — warm amber / faint orange (sunlit)
+  { cx: WORLD_WIDTH * 0.80, cy: WORLD_HEIGHT * 0.28, radius: 950,  baseCount: 135, r: 255, g: 200, b: 100 },
+  { cx: WORLD_WIDTH * 0.90, cy: WORLD_HEIGHT * 0.72, radius: 820,  baseCount: 118, r: 255, g: 160, b:  80 },
+  { cx: WORLD_WIDTH * 0.65, cy: WORLD_HEIGHT * 0.82, radius: 680,  baseCount: 100, r: 255, g: 180, b: 140 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -486,8 +486,8 @@ export class CrystalNebula {
           vx: 0, vy: 0,
           angle:        rng() * Math.PI * 2,
           angularVel:   0,
-          size:         0.7 + rng() * 1.9,
-          brightness:   0.16 + rng() * 0.52,
+          size:         0.9 + rng() * 2.4,
+          brightness:   0.28 + rng() * 0.58,
           sparklePhase: rng() * Math.PI * 2,
           sparkleRate:  0.8 + rng() * 4.0,
           activity:     0,

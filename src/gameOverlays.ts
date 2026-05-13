@@ -422,10 +422,14 @@ export function drawGlowLayer(
     }
     if (visualPreset.engineGlow) {
       const speedFactor = speedGlowFactor(Math.hypot(ship.velocity.x, ship.velocity.y), ship.maxSpeed * 1.8);
-      const exhaustColor = ship.team === Team.Player ? Colors.particles_friendly_exhaust : Colors.particles_enemy_exhaust;
-      const exhaustAlpha = (ship.isBoosting ? 0.22 : 0.14) * speedFactor;
-      glow.circleWorld(camera, ship.position, r * 2.4 * speedFactor, exhaustColor, exhaustAlpha);
-      glow.circleWorld(camera, ship.position, r * 1.1, Colors.particles_switch, exhaustAlpha * 0.4);
+      // Use warm orange/yellow for engine glow to match the warm thrust particles.
+      const exhaustAlpha = (ship.isBoosting ? 0.30 : 0.18) * speedFactor;
+      glow.circleWorld(camera, ship.position, r * 2.6 * speedFactor, Colors.thrust_warm_orange, exhaustAlpha);
+      glow.circleWorld(camera, ship.position, r * 1.3, Colors.thrust_core_hot, exhaustAlpha * 0.38);
+      if (ship.isBoosting) {
+        // Extra outer bloom during overburn
+        glow.circleWorld(camera, ship.position, r * 4.2 * speedFactor, Colors.thrust_burnt_orange, 0.10);
+      }
     }
   }
 
@@ -478,10 +482,11 @@ export function drawGlowLayer(
       if (!f.alive || f.docked || !camera.isOnScreen(f.position, 60)) continue;
       if (fighterGlowDrawn >= maxFighterGlow) break;
       const r = f.radius;
-      const exhaustColor = f.team === Team.Player ? Colors.particles_friendly_exhaust : Colors.particles_enemy_exhaust;
       const speed = Math.hypot(f.velocity.x, f.velocity.y);
       const speedFactor = speedGlowFactor(speed, fighterMaxSpeed(f));
-      glow.circleWorld(camera, f.position, r * 2.8 * speedFactor, exhaustColor, 0.14 * speedFactor);
+      // Warm orange glow matches the warm exhaust particles emitted by fighters.
+      glow.circleWorld(camera, f.position, r * 2.8 * speedFactor, Colors.thrust_warm_orange, 0.14 * speedFactor);
+      glow.circleWorld(camera, f.position, r * 1.2, Colors.thrust_core_hot, 0.06 * speedFactor);
       fighterGlowDrawn++;
     }
   }

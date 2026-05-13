@@ -331,3 +331,20 @@ Kills via `damageLaserLine` and `damageLaserLineLimited` in `src/combatUtils.ts`
 - Squad path sharing currently shares the next navigation waypoint by nearby start/target buckets. If very large groups still bunch at narrow openings, add a small corridor-slot offset around successive A* waypoints rather than increasing the per-frame path budget.
 
 ---
+
+---
+
+## Visual Polish Pass — Build 041 — Future Cleanup
+
+### Minor API Cleanup
+
+**1. Remove unused `team` parameter from emitExhaust / emitSideExhaust (particles.ts)**
+
+All ship exhaust now uses warm thrust colours regardless of team. The `team` parameter
+(currently prefixed `_team`) in `emitExhaust()` and `emitSideExhaust()` is vestigial and
+can be removed in a future refactor along with all call-site changes:
+- `src/particles.ts` — remove `_team: Team` from both signatures
+- `src/game.ts` — remove `Team.Player` argument from exhaust emission calls
+- `src/entities.ts` / other files — any other call sites passing team to these methods
+
+This is low-risk but touches several files; best batched with a broader API cleanup pass.

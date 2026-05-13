@@ -74,6 +74,12 @@ export const Colors = {
   particles_enemy_exhaust:      c(132, 56, 68, 1.0),
   particles_allied_exhaust:     c(56, 68, 132, 1.0),
   particles_neutral_exhaust:    c(255, 246, 230, 0.67),
+  // Warm thrust / engine exhaust colours (used for all ships' main engine fire)
+  thrust_core_hot:              c(255, 255, 210, 1.0),  // white-hot core
+  thrust_warm_yellow:           c(255, 230, 80,  1.0),  // warm yellow
+  thrust_warm_orange:           c(255, 148, 28,  1.0),  // orange
+  thrust_burnt_orange:          c(220, 82,  20,  1.0),  // burnt orange
+  thrust_deep_red:              c(200, 40,  15,  1.0),  // deep red burnoff
   particles_switch:             c(255, 246, 230, 1.0),
   particles_healing:            c(174, 198, 175, 1.0),
   particles_explosion1:         c(107, 0, 1, 2.0),

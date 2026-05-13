@@ -24,9 +24,9 @@ const FLUID_SIZE = FLUID_COLS * FLUID_ROWS; // 4 800 cells
 
 // ── Particle settings (structure from Thero EulerFluidEffect) ────────────────
 /** Particle count on low-graphics mode. */
-const PARTICLE_COUNT_LOW  = 140;
-/** Particle count on high-graphics mode — 3× low. */
-const PARTICLE_COUNT_HIGH = 420;
+const PARTICLE_COUNT_LOW  = 280;
+/** Particle count on high-graphics mode — roughly 3× the prior high count. */
+const PARTICLE_COUNT_HIGH = 1260;
 const TRAIL_LENGTH     = 13;
 /** Canvas-space line width for trail segments. */
 const TRAIL_LINE_WIDTH = 1.4;

@@ -1325,6 +1325,9 @@ export class GameState {
 
   drawEntities(ctx: CanvasRenderingContext2D, camera: Camera): void {
     this.drawBlueprintOutlines(ctx, camera);
+    // Draw exhaust/thrust particles BEFORE all ship bodies so thrust visually
+    // sits underneath the ship silhouettes rather than on top of them.
+    this.particles.drawExhaust(ctx, camera);
     for (const b of this.buildings) b.draw(ctx, camera);
     this.synonymous.draw(ctx, camera, this.gameTime);
     for (const f of this.fighters) f.draw(ctx, camera);
