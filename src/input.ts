@@ -32,8 +32,6 @@ class InputManager {
   mouse3Released = false;
   wheelDelta = 0;
 
-  private readonly touchPrimaryId: number | null = null;
-  private readonly touchSecondaryId: number | null = null;
   private touchMoveVec = new Vec2(0, 0);
   private touchFireVec = new Vec2(0, 0);
   private touchPrimaryCenter = new Vec2(0, 0);
@@ -61,11 +59,6 @@ class InputManager {
     }
   }
 
-  private get isMobileLike(): boolean {
-    if (typeof navigator === 'undefined') return false;
-    return navigator.maxTouchPoints > 0;
-  }
-
   private clampStickVector(dx: number, dy: number): Vec2 {
     const mag = Math.hypot(dx, dy);
     if (mag <= 0) return new Vec2(0, 0);
@@ -74,7 +67,6 @@ class InputManager {
   }
 
   private onTouchStart = (e: TouchEvent): void => {
-    if (!this.isMobileLike) return;
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches.item(i);
       if (!t) continue;
@@ -94,7 +86,6 @@ class InputManager {
   };
 
   private onTouchMove = (e: TouchEvent): void => {
-    if (!this.isMobileLike) return;
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches.item(i);
       if (!t) continue;
@@ -108,7 +99,6 @@ class InputManager {
   };
 
   private onTouchEnd = (e: TouchEvent): void => {
-    if (!this.isMobileLike) return;
     for (let i = 0; i < e.changedTouches.length; i++) {
       const t = e.changedTouches.item(i);
       if (!t) continue;
@@ -120,6 +110,8 @@ class InputManager {
         this.touchSecondaryIdMutable = null;
         this.touchFireVec.set(0, 0);
         this.touchSecondaryActive = false;
+        // Stop firing immediately when the aim/fire finger lifts.
+        this.mouseDown = false;
       }
     }
     e.preventDefault();
@@ -210,14 +202,16 @@ class InputManager {
 
   /** True while the key is held down. */
   isDown(key: string): boolean {
-    if (this.isMobileLike) {
+    // When the movement joystick is actively being used, map w/a/s/d to the
+    // stick vector so touch drives the ship just like keyboard.  The keyboard
+    // fallback below remains active so desktop users (or touchscreen-laptop
+    // users who aren't currently touching) always get normal key responses.
+    if (this.touchPrimaryActive) {
       const k = this.normalizeKey(key);
-      const x = this.touchMoveVec.x;
-      const y = this.touchMoveVec.y;
-      if (k === 'a') return x < -this.touchDeadZone;
-      if (k === 'd') return x > this.touchDeadZone;
-      if (k === 'w') return y < -this.touchDeadZone;
-      if (k === 's') return y > this.touchDeadZone;
+      if (k === 'a') return this.touchMoveVec.x < -this.touchDeadZone;
+      if (k === 'd') return this.touchMoveVec.x > this.touchDeadZone;
+      if (k === 'w') return this.touchMoveVec.y < -this.touchDeadZone;
+      if (k === 's') return this.touchMoveVec.y > this.touchDeadZone;
     }
     return this.keysDown.has(this.normalizeKey(key));
   }
@@ -227,7 +221,7 @@ class InputManager {
   }
 
   drawTouchJoysticks(ctx: CanvasRenderingContext2D): void {
-    if (!this.isMobileLike) return;
+    if (!this.touchPrimaryActive && !this.touchSecondaryActive) return;
     const drawStick = (center: Vec2, vec: Vec2, color: string): void => {
       const baseR = this.touchStickMaxRadiusPx;
       const knobR = 28;
@@ -301,8 +295,11 @@ class InputManager {
 
   /** Call once per frame after processing input to reset per-frame states. */
   update(): void {
-
-    if (this.isMobileLike) {
+    // When any touch is active, let the joysticks drive mouse state so the
+    // rest of the game (weapon firing, aim) works without changes.  We only
+    // do this while touches are live so desktop keyboard+mouse is never
+    // overridden on devices where maxTouchPoints > 0 but touch is not in use.
+    if (this.touchPrimaryActive || this.touchSecondaryActive) {
       const fireMag = Math.hypot(this.touchFireVec.x, this.touchFireVec.y);
       this.mouseDown = this.touchSecondaryActive && fireMag > this.touchDeadZone;
       if (this.touchSecondaryActive) {
