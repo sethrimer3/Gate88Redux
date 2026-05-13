@@ -97,6 +97,16 @@ export const ASTEROID_FIELD_CONFIG = {
   rimStrength: [0.11, 0.27, 0.44] as [number, number, number],
 
   /**
+   * Body gradient color pairs [inner, outer] per layer tier (far/mid/foreground).
+   * Inner color applies near the pseudo-lit center; outer applies toward the edges.
+   */
+  bodyColors: [
+    ['#0e0605', '#1a0a07'] as [string, string],  // far:         near-black reddish
+    ['#160906', '#24100c'] as [string, string],  // mid:         dark reddish-brown
+    ['#221009', '#341609'] as [string, string],  // foreground:  slightly warmer dark
+  ] as [[string, string], [string, string], [string, string]],
+
+  /**
    * Opacity multiplier for the baked dust haze drawn with screen blend.
    * Keep ≤ 0.5 so gameplay objects remain clearly readable.
    */
@@ -274,8 +284,7 @@ export class AsteroidField {
 
     // ---- Step 1: Dark body with subtle radial gradient ----
     // Body gets slightly warmer (lighter) for foreground layer to distinguish depth.
-    const bodyInner = ['#0e0605', '#160906', '#221009'][Math.min(layerIdx, 2)];
-    const bodyOuter = ['#1a0a07', '#24100c', '#341609'][Math.min(layerIdx, 2)];
+    const [bodyInner, bodyOuter] = ASTEROID_FIELD_CONFIG.bodyColors[Math.min(layerIdx, 2)];
 
     const bodyGrad = ctx.createRadialGradient(cx * 0.72, cy * 0.72, 0, cx, cy, baseR * 1.1);
     bodyGrad.addColorStop(0.0, bodyInner);
@@ -452,15 +461,15 @@ export class AsteroidField {
           sy + cullPad < 0 || sy - cullPad > screenH
         ) continue;
 
-        const sprite = layer.sprites[ast.spriteIdx];
-        const half   = sprite.width * 0.5;
-        const scale  = sr / half;
+        const sprite          = layer.sprites[ast.spriteIdx];
+        const spriteHalfWidth = sprite.width * 0.5;
+        const scale           = sr / spriteHalfWidth;
 
         ctx.save();
         ctx.translate(sx, sy);
         ctx.rotate(ast.rotation);
         ctx.scale(scale, scale);
-        ctx.drawImage(sprite, -half, -half);
+        ctx.drawImage(sprite, -spriteHalfWidth, -spriteHalfWidth);
         ctx.restore();
       }
     }
