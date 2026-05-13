@@ -144,6 +144,9 @@ const ACTIVITY_DECAY = 1.2;
 /** Shine decay rate (1/s). Higher means ship-triggered glints cool faster. */
 const SHINE_DECAY = 2.6;
 const VELOCITY_GLOW_SPEED = 120;
+const SEPARATION_RADIUS = 13;
+const SEPARATION_RADIUS2 = SEPARATION_RADIUS * SEPARATION_RADIUS;
+const SEPARATION_PUSH = 12;
 
 // ---------------------------------------------------------------------------
 // CrystalNebula — main class
@@ -305,8 +308,9 @@ export class CrystalNebula {
         }
       }
       this.nearDistCount = nearDistCount;
+      const particles = cloud.particles;
 
-      for (const p of cloud.particles) {
+      for (const p of particles) {
         // Spring force toward home position
         const dxH = p.homeX - p.x;
         const dyH = p.homeY - p.y;
@@ -365,6 +369,8 @@ export class CrystalNebula {
         // Advance sparkle phase (wraps naturally via sine)
         p.sparklePhase += p.sparkleRate * dt;
       }
+
+      this.applyGentleSeparation(particles, dt);
     }
 
     // Clear disturbances for next tick
@@ -433,15 +439,15 @@ export class CrystalNebula {
         const sr = Math.max(0.4, p.size * zoom);
         const velocityGlow = Math.min(1, Math.hypot(p.vx, p.vy) / VELOCITY_GLOW_SPEED);
 
-        // Sparkle: brightness oscillates with phase; activity/shine add a boost.
+        // Sparkle: brightness oscillates with phase; mote velocity adds glow.
+        // Disturbance proximity affects motion only, not brightness.
         const sparkle   = 0.68 + 0.32 * Math.sin(time * p.sparkleRate + p.sparklePhase);
-        const shinePulse = p.shine * (0.72 + 0.28 * Math.sin(time * 10.0 + p.sparklePhase * 1.7));
-        const actBoost  = 1 + p.activity * 1.35 + shinePulse * 2.15 + velocityGlow * 2.1;
+        const actBoost  = 1 + velocityGlow * 2.35;
         const alpha     = Math.min(0.96, p.brightness * sparkle * actBoost);
         if (alpha < 0.02) continue;
 
         const colorStr = p.colorPrefix + alpha.toFixed(3) + ')';
-        const hotAlpha = Math.min(0.92, shinePulse * 0.64 + p.activity * 0.16 + velocityGlow * 0.58);
+        const hotAlpha = Math.min(0.92, velocityGlow * 0.78);
         const ca = Math.cos(p.angle);
         const sa = Math.sin(p.angle);
 
@@ -497,9 +503,9 @@ export class CrystalNebula {
             ctx.stroke();
           }
 
-          // Route highly active diamonds into glow
-          if (glowCtx && (p.activity > 0.45 || p.shine > 0.12 || velocityGlow > 0.12) && alpha > 0.30) {
-            const ga = Math.min(0.54, alpha * p.activity * 0.16 + hotAlpha * 0.34 + velocityGlow * 0.22);
+          // Route fast-moving diamonds into glow.
+          if (glowCtx && velocityGlow > 0.12 && alpha > 0.30) {
+            const ga = Math.min(0.54, hotAlpha * 0.34 + velocityGlow * 0.24);
             glowCtx.fillStyle = p.colorPrefix + ga.toFixed(3) + ')';
             glowCtx.beginPath();
             glowCtx.arc(sx, sy, sr * (2.2 + hotAlpha * 2.8 + velocityGlow * 3.4), 0, Math.PI * 2);
@@ -526,6 +532,33 @@ export class CrystalNebula {
     dest.vx = src.vx; dest.vy = src.vy;
     dest.radius = src.radius; dest.strength = src.strength;
     dest.isExplosion = src.isExplosion;
+  }
+
+  private applyGentleSeparation(particles: CrystalMote[], dt: number): void {
+    const n = particles.length;
+    if (n < 2) return;
+    const pushScale = SEPARATION_PUSH * dt;
+    for (let i = 0; i < n - 1; i++) {
+      const a = particles[i];
+      for (let j = i + 1; j < n; j++) {
+        const b = particles[j];
+        const dx = b.x - a.x;
+        if (dx > SEPARATION_RADIUS || dx < -SEPARATION_RADIUS) continue;
+        const dy = b.y - a.y;
+        if (dy > SEPARATION_RADIUS || dy < -SEPARATION_RADIUS) continue;
+        const d2 = dx * dx + dy * dy;
+        if (d2 <= 0.0001 || d2 >= SEPARATION_RADIUS2) continue;
+
+        const dist = Math.sqrt(d2);
+        const push = (1 - dist / SEPARATION_RADIUS) * pushScale;
+        const nx = dx / dist;
+        const ny = dy / dist;
+        a.vx -= nx * push;
+        a.vy -= ny * push;
+        b.vx += nx * push;
+        b.vy += ny * push;
+      }
+    }
   }
 
   private buildClouds(densityScale: number): void {
