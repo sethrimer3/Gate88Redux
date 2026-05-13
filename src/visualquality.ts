@@ -148,6 +148,7 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     asteroidFieldLayers: 0,
     dustHazeEnabled: false,
     starNestEnabled: false,
+    // Remaining star nest values are inert when disabled; kept for type completeness.
     starNestRenderScale: 0.35,
     starNestOpacity: 0.15,
     starNestIterations: 8,

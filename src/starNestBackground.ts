@@ -40,7 +40,6 @@ precision mediump float;
 uniform float u_time;
 uniform vec2  u_resolution;
 uniform vec2  u_camOffset;   // camera world position * parallax scale
-uniform float u_opacity;     // master opacity (from preset)
 
 // --- Star Nest constants (tuned for Gate88 deep-space aesthetic) ---
 #define BRIGHTNESS   0.0016
@@ -158,7 +157,6 @@ interface CompiledShader {
   uTime: WebGLUniformLocation | null;
   uResolution: WebGLUniformLocation | null;
   uCamOffset: WebGLUniformLocation | null;
-  uOpacity: WebGLUniformLocation | null;
 }
 
 export class StarNestBackground {
@@ -247,7 +245,6 @@ export class StarNestBackground {
       uTime: gl.getUniformLocation(prog, 'u_time'),
       uResolution: gl.getUniformLocation(prog, 'u_resolution'),
       uCamOffset: gl.getUniformLocation(prog, 'u_camOffset'),
-      uOpacity: gl.getUniformLocation(prog, 'u_opacity'),
     };
     this.curIter = iter;
     this.curVolsteps = volsteps;
@@ -331,7 +328,6 @@ export class StarNestBackground {
     gl.uniform1f(sh.uTime, this.time);
     gl.uniform2f(sh.uResolution, rw, rh);
     gl.uniform2f(sh.uCamOffset, this.camX, this.camY);
-    gl.uniform1f(sh.uOpacity, 1.0); // opacity handled in 2D blit below
 
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
