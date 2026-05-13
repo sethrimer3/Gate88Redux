@@ -134,15 +134,15 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     cameraShakeEnabled: true,
     conduitPulseEnabled: false,
     crystalNebulaEnabled: true,
-    crystalNebulaDensityScale: 0.40,
+    crystalNebulaDensityScale: 0.55,
     crystalNebulaGlow: false,
     crystalNebulaInteractionScale: 0.7,
     distantSunsEnabled: true,
     distantSunsRays: true,
     distantSunsCorona: false,
     distantSunsGlints: false,
-    asteroidFieldLayers: 2,
-    dustHazeEnabled: true,
+    asteroidFieldLayers: 0,
+    dustHazeEnabled: false,
   },
   high: {
     glowEnabled: true,
@@ -166,12 +166,12 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     distantSunsRays: true,
     distantSunsCorona: true,
     distantSunsGlints: true,
-    asteroidFieldLayers: 3,
-    dustHazeEnabled: true,
+    asteroidFieldLayers: 0,
+    dustHazeEnabled: false,
   },
 };
 
-export const DEFAULT_VISUAL_QUALITY: VisualQuality = 'medium';
+export const DEFAULT_VISUAL_QUALITY: VisualQuality = 'high';
 
 const VISUAL_QUALITY_STORAGE_KEY = 'gate88_visual_quality';
 

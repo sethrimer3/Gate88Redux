@@ -34,17 +34,17 @@ const SUN_CY = -0.06;
 
 /**
  * Parallax shift per world-unit of camera displacement.
- * Small values keep the sun nearly fixed (deep-background feel).
+ * Increased for a stronger sense of depth when the camera pans.
  */
-const PARALLAX_X = 0.003;
-const PARALLAX_Y = 0.003;
+const PARALLAX_X = 0.018;
+const PARALLAX_Y = 0.018;
 
 // ---------------------------------------------------------------------------
 // Ray counts per quality tier
 // ---------------------------------------------------------------------------
 
-const RAY_COUNT_MEDIUM = 5;
-const RAY_COUNT_HIGH   = 8;
+const RAY_COUNT_MEDIUM = 6;
+const RAY_COUNT_HIGH   = 10;
 
 // ---------------------------------------------------------------------------
 // Glint pool
@@ -262,8 +262,10 @@ export class DistantSuns {
   // -------------------------------------------------------------------------
 
   /**
-   * Draw thin tapered triangles emanating from the sun center.
-   * Each ray has a slow base rotation plus a per-ray flicker derived from time.
+   * Draw soft feathered light rays emanating from the sun center.
+   * Each ray is rendered as three layered semi-transparent passes of decreasing
+   * width, producing a natural alpha-falloff from the ray axis toward the edges.
+   * This creates a cinematic "shaft of light" appearance without any blur calls.
    */
   private drawRays(
     ctx: CanvasRenderingContext2D,
@@ -273,7 +275,7 @@ export class DistantSuns {
     h: number,
     count: number,
   ): void {
-    const len = Math.hypot(w, h) * 0.72;
+    const len = Math.hypot(w, h) * 0.82;
     const rot = this.time * 0.007;   // very slow global rotation
 
     ctx.save();
@@ -282,33 +284,46 @@ export class DistantSuns {
     for (let i = 0; i < count; i++) {
       // Slightly irregular spacing with a slow wobble per ray.
       const baseAngle  = (i / count) * Math.PI * 2 + rot;
-      const wobble     = Math.sin(this.time * 0.22 + i * 1.13) * 0.03;
+      const wobble     = Math.sin(this.time * 0.22 + i * 1.13) * 0.04;
       const angle      = baseAngle + wobble;
 
       const tipX = cx + Math.cos(angle) * len;
       const tipY = cy + Math.sin(angle) * len;
 
-      // Perpendicular to ray direction, for the base triangle width.
-      const px  = -Math.sin(angle);
-      const py  =  Math.cos(angle);
-      const hw  = len * 0.013;  // narrow — barely visible as geometry
+      // Perpendicular unit vector for controlling base width.
+      const px = -Math.sin(angle);
+      const py =  Math.cos(angle);
 
-      // Per-ray flicker.
-      const flicker = 0.038 + 0.018 * Math.sin(this.time * 0.72 + i * 0.88);
+      // Per-ray flicker (subtle).
+      const flicker = 0.042 + 0.022 * Math.sin(this.time * 0.72 + i * 0.88);
 
-      const grad = ctx.createLinearGradient(cx, cy, tipX, tipY);
-      grad.addColorStop(0.00, `rgba(255,212,92,${flicker.toFixed(3)})`);
-      grad.addColorStop(0.28, `rgba(255,162,55,${(flicker * 0.62).toFixed(3)})`);
-      grad.addColorStop(0.65, `rgba(230,98,28,${(flicker * 0.22).toFixed(3)})`);
-      grad.addColorStop(1.00, 'rgba(0,0,0,0)');
+      // Build a gradient that fades from bright at base to transparent at tip.
+      const makeGrad = (alpha: number): CanvasGradient => {
+        const g = ctx.createLinearGradient(cx, cy, tipX, tipY);
+        g.addColorStop(0.00, `rgba(255,215,95,${(alpha).toFixed(3)})`);
+        g.addColorStop(0.18, `rgba(255,168,60,${(alpha * 0.72).toFixed(3)})`);
+        g.addColorStop(0.50, `rgba(240,108,32,${(alpha * 0.30).toFixed(3)})`);
+        g.addColorStop(0.80, `rgba(200,70,18,${(alpha * 0.08).toFixed(3)})`);
+        g.addColorStop(1.00, 'rgba(0,0,0,0)');
+        return g;
+      };
 
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.moveTo(cx + px * hw * 3.8, cy + py * hw * 3.8);
-      ctx.lineTo(tipX, tipY);
-      ctx.lineTo(cx - px * hw * 3.8, cy - py * hw * 3.8);
-      ctx.closePath();
-      ctx.fill();
+      const drawPass = (halfWidthMult: number, alphaScale: number): void => {
+        const hw = len * 0.022 * halfWidthMult;
+        ctx.fillStyle = makeGrad(flicker * alphaScale);
+        ctx.beginPath();
+        ctx.moveTo(cx + px * hw, cy + py * hw);
+        ctx.lineTo(tipX, tipY);
+        ctx.lineTo(cx - px * hw, cy - py * hw);
+        ctx.closePath();
+        ctx.fill();
+      };
+
+      // Three passes — wide+faint, medium+mid, narrow+bright.
+      // Together they produce smooth feathered edges.
+      drawPass(4.5, 0.35);  // outer halo — wide, very transparent
+      drawPass(2.2, 0.55);  // mid layer
+      drawPass(1.0, 1.00);  // core spine — narrow, full brightness
     }
 
     ctx.restore();

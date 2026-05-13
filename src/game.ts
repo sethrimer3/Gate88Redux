@@ -121,6 +121,10 @@ export class Game {
   private playerPrevHealth: number = -1;
   /** Accumulated game time used for territory pulse animations. */
   private territoryPulseTime: number = 0;
+  /** Cached deep-space background gradient (rebuilt on resize). */
+  private bgGradient: CanvasGradient | null = null;
+  private bgGradientW = 0;
+  private bgGradientH = 0;
 
   /** Respawn timer: counts down after the player ship dies. */
   private playerRespawnTimer: number = 0;
@@ -541,18 +545,17 @@ export class Game {
     if (this.state.player.alive && this.state.player.isThrusting && !this.actionMenu.open) {
       const td = this.state.player.thrustDir;
       const thrustAngle = Math.atan2(td.y, td.x);
-      const exhaustCount = this.state.player.isBoosting ? 3 : 1;
+      const isBoosting = this.state.player.isBoosting;
+      // emitExhaust already emits 3 particles when isBoosting — no extra loop needed.
       const speed = Math.hypot(this.state.player.velocity.x, this.state.player.velocity.y);
-      const maxSpeed = this.state.player.maxSpeed * (this.state.player.isBoosting ? 1.8 : 1);
+      const maxSpeed = this.state.player.maxSpeed * (isBoosting ? 1.8 : 1);
       const speedFraction = maxSpeed > 0 ? Math.min(1, speed / maxSpeed) : 0;
-      for (let i = 0; i < exhaustCount; i++) {
-        this.state.particles.emitExhaust(
-          this.state.player.position,
-          thrustAngle,
-          Team.Player,
-          { speedFraction, varyLightness: true },
-        );
-      }
+      this.state.particles.emitExhaust(
+        this.state.player.position,
+        thrustAngle,
+        Team.Player,
+        { speedFraction, varyLightness: true, isBoosting },
+      );
     }
 
     // Emit side exhaust particles when strafing (thrust direction is roughly
@@ -2328,8 +2331,23 @@ export class Game {
     ctx.globalCompositeOperation = 'source-over';
     ctx.font = gameFont(12);
 
-    // Clear
+    // Clear with solid very-dark-blue, then overlay a cinematic blue→purple gradient
+    // so the space background has subtle depth without washing out gameplay objects.
     ctx.fillStyle = colorToCSS(Colors.friendly_background);
+    ctx.fillRect(0, 0, w, h);
+
+    // Rebuild the background gradient when the canvas size changes.
+    if (this.bgGradient === null || this.bgGradientW !== w || this.bgGradientH !== h) {
+      this.bgGradientW = w;
+      this.bgGradientH = h;
+      const grad = ctx.createRadialGradient(w * 0.35, h * 0.25, 0, w * 0.5, h * 0.5, Math.hypot(w, h) * 0.72);
+      grad.addColorStop(0.00, 'rgba(4, 10, 28, 0)');     // transparent centre — shows base fill
+      grad.addColorStop(0.35, 'rgba(6, 4, 22, 0.38)');   // deep indigo tint
+      grad.addColorStop(0.68, 'rgba(14, 4, 32, 0.52)');  // dark violet
+      grad.addColorStop(1.00, 'rgba(8, 2, 18, 0.62)');   // near-black purple periphery
+      this.bgGradient = grad;
+    }
+    ctx.fillStyle = this.bgGradient;
     ctx.fillRect(0, 0, w, h);
 
     if (this.phase === 'menu') {
@@ -2344,9 +2362,7 @@ export class Game {
     this.distantSuns.draw(ctx, this.camera, w, h);
     this.nebula.draw(ctx, this.camera, w, h);
     this.starfield.draw(ctx, this.camera, w, h);
-    // Layer 2: asteroid field — dust haze + rim-lit asteroid silhouettes.
-    // Drawn after starfield so asteroids occlude stars; before crystal nebula
-    // so crystal motes float above the rocks.
+    // Layer 2: asteroid field (disabled via asteroidFieldLayers:0; kept for code stability)
     this.asteroidField.draw(ctx, this.camera, w, h);
     // Crystal nebula clouds — behind gameplay entities, in front of starfield.
     this.crystalNebula.draw(ctx, this.camera, this.glowLayer, this.visualPreset);
