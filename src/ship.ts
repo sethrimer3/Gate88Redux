@@ -30,7 +30,7 @@ export const SHIP_WEAPON_OPTIONS: ReadonlyArray<{
   researchKey?: string;
   description: string;
 }> = [
-  { id: 'cannon', label: 'Cannon', description: 'Reliable medium-range primary weapon.' },
+  { id: 'cannon', label: 'Cannon', description: 'Reliable medium-range primary weapon. Cannon V.2 adds homing shots.' },
   { id: 'gatling', label: 'Gatling', researchKey: 'weaponGatling', description: 'Very weak, very fast, short range.' },
   { id: 'laser', label: 'Laser', researchKey: 'weaponLaser', description: 'Thin slow-firing beam with infinite pierce.' },
   { id: 'guidedmissile', label: 'Guided Missile', researchKey: 'weaponGuidedMissile', description: 'Hold fire to steer a heavy explosive missile.' },

@@ -31,7 +31,7 @@ import {
   resolveShipNavigationTarget,
   scoreShipRoute,
 } from './shippath.js';
-import { buildingBlocksShips, buildingShipCollisionRect } from './buildingCollision.js';
+import { buildingBlocksShips, buildingFootprintOrigin, buildingShipCollisionRect } from './buildingCollision.js';
 
 export interface DestroyedBuildingRecord {
   type: EntityType;
@@ -737,16 +737,7 @@ export class GameState {
   }
 
   private projectileIntersectsBuildingFootprint(projectile: ProjectileBase, building: BuildingBase): boolean {
-    const bc = {
-      cx: Math.floor(building.position.x / GRID_CELL_SIZE),
-      cy: Math.floor(building.position.y / GRID_CELL_SIZE),
-    };
-    const size = footprintForBuildingType(building.type);
-    const origin = footprintOrigin(bc.cx, bc.cy, size);
-    const left = origin.cx * GRID_CELL_SIZE;
-    const right = (origin.cx + size) * GRID_CELL_SIZE;
-    const top = origin.cy * GRID_CELL_SIZE;
-    const bottom = (origin.cy + size) * GRID_CELL_SIZE;
+    const { left, right, top, bottom } = buildingShipCollisionRect(building);
     const closestX = Math.max(left, Math.min(right, projectile.position.x));
     const closestY = Math.max(top, Math.min(bottom, projectile.position.y));
     const dx = projectile.position.x - closestX;
@@ -805,10 +796,8 @@ export class GameState {
     for (const b of this.buildings) {
       if (!b.alive || b.team !== team) continue;
       if (b.buildProgress < 1 || !b.powered) continue;
-      const bx = Math.floor(b.position.x / GRID_CELL_SIZE);
-      const by = Math.floor(b.position.y / GRID_CELL_SIZE);
       const size = footprintForBuildingType(b.type);
-      const origin = footprintOrigin(bx, by, size);
+      const origin = buildingFootprintOrigin(b);
       const endCx = origin.cx + size - 1;
       const endCy = origin.cy + size - 1;
       const orthogonal =
@@ -931,10 +920,8 @@ export class GameState {
     if (!building.alive || building.team === Team.Neutral) return;
     if (building.type === EntityType.Wall) return;
     if (isConfluenceFaction(this.factionByTeam, building.team)) return;
-    const centerCx = Math.floor(building.position.x / GRID_CELL_SIZE);
-    const centerCy = Math.floor(building.position.y / GRID_CELL_SIZE);
     const size = footprintForBuildingType(building.type);
-    const origin = footprintOrigin(centerCx, centerCy, size);
+    const origin = buildingFootprintOrigin(building);
     const inside = new Set<string>();
     let placed = 0;
 
@@ -952,7 +939,7 @@ export class GameState {
     let guard = 0;
     while (outside < targetOutside && frontier.length > 0 && guard < targetOutside * 80) {
       guard++;
-      const pick = Math.floor(this.seeded01(centerCx, centerCy, building.type, guard) * frontier.length);
+      const pick = Math.floor(this.seeded01(origin.cx, origin.cy, building.type, guard) * frontier.length);
       const cell = frontier.splice(pick, 1)[0];
       const key = cellKey(cell.cx, cell.cy);
       if (inside.has(key) || occupied.has(key)) continue;
@@ -1027,10 +1014,8 @@ export class GameState {
     const occupied = new Set<string>();
     for (const b of this.buildings) {
       if (!b.alive) continue;
-      const cx = Math.floor(b.position.x / GRID_CELL_SIZE);
-      const cy = Math.floor(b.position.y / GRID_CELL_SIZE);
       const size = footprintForBuildingType(b.type);
-      const origin = footprintOrigin(cx, cy, size);
+      const origin = buildingFootprintOrigin(b);
       for (let y = origin.cy; y < origin.cy + size; y++) {
         for (let x = origin.cx; x < origin.cx + size; x++) {
           occupied.add(cellKey(x, y));
@@ -1055,10 +1040,8 @@ export class GameState {
     let bestDist = Infinity;
     for (const b of this.buildings) {
       if (!b.alive || b.team !== team) continue;
-      const cx = Math.floor(b.position.x / GRID_CELL_SIZE);
-      const cy = Math.floor(b.position.y / GRID_CELL_SIZE);
       const size = footprintForBuildingType(b.type);
-      const origin = footprintOrigin(cx, cy, size);
+      const origin = buildingFootprintOrigin(b);
       if (px < origin.cx || px >= origin.cx + size || py < origin.cy || py >= origin.cy + size) {
         continue;
       }
@@ -1746,11 +1729,7 @@ export class GameState {
     for (const b of this.buildings) {
       if (!b.alive) continue;
       const size = footprintForBuildingType(b.type);
-      const bc = {
-        cx: Math.floor(b.position.x / GRID_CELL_SIZE),
-        cy: Math.floor(b.position.y / GRID_CELL_SIZE),
-      };
-      const bo = footprintOrigin(bc.cx, bc.cy, size);
+      const bo = buildingFootprintOrigin(b);
       const bx2 = bo.cx + size - 1;
       const by2 = bo.cy + size - 1;
       const overlaps = origin.cx <= bx2 && endCx >= bo.cx && origin.cy <= by2 && endCy >= bo.cy;
@@ -1780,12 +1759,8 @@ export class GameState {
   isCellOccupiedByBuilding(cx: number, cy: number): boolean {
     for (const b of this.buildings) {
       if (!b.alive) continue;
-      const bc = {
-        cx: Math.floor(b.position.x / GRID_CELL_SIZE),
-        cy: Math.floor(b.position.y / GRID_CELL_SIZE),
-      };
       const size = footprintForBuildingType(b.type);
-      const origin = footprintOrigin(bc.cx, bc.cy, size);
+      const origin = buildingFootprintOrigin(b);
       if (cx >= origin.cx && cx < origin.cx + size && cy >= origin.cy && cy < origin.cy + size) {
         return true;
       }
@@ -1833,10 +1808,8 @@ export class GameState {
     for (const b of this.buildings) {
       if (!b.alive || b.team !== team) continue;
       if (b.type !== EntityType.CommandPost && b.type !== EntityType.PowerGenerator) continue;
-      const bx = Math.floor(b.position.x / GRID_CELL_SIZE);
-      const by = Math.floor(b.position.y / GRID_CELL_SIZE);
       const sourceSize = footprintForBuildingType(b.type);
-      const sourceOrigin = footprintOrigin(bx, by, sourceSize);
+      const sourceOrigin = buildingFootprintOrigin(b);
       const sourceX2 = sourceOrigin.cx + sourceSize - 1;
       const sourceY2 = sourceOrigin.cy + sourceSize - 1;
       const adjacent =

@@ -23,6 +23,7 @@ import {
   ChargedLaserBurst,
 } from './projectile.js';
 import { tryFireSpecial } from './special.js';
+import { CrossLaserMine } from './mine.js';
 import {
   WEAPON_STATS,
   DT,
@@ -45,18 +46,18 @@ import {
   ROCKET_SWARM_COOLDOWN_SECS,
 } from './constants.js';
 import {
-  CANNON_HOMING_ENERGY_COST,
-  CANNON_HOMING_COOLDOWN_MULTIPLIER,
-} from './constants.js';
-import {
   GATLING_BATTERY_FIRE_COST,
   GUIDED_MISSILE_CONTROL_BATTERY_DRAIN,
   GUIDED_MISSILE_INITIAL_BATTERY_COST,
 } from './ship.js';
-import { isHomingTarget, findClosestEnemy, damageLaserLine, damageLaserLineLimited } from './combatUtils.js';
+import { findClosestEnemy, damageLaserLine, damageLaserLineLimited } from './combatUtils.js';
 import { isSynonymousFaction } from './confluence.js';
 import type { SpaceFluid } from './spacefluid.js';
 import type { ActionMenu } from './actionmenu.js';
+
+const CANNON_MINE_BATTERY_COST = 12;
+const CANNON_MINE_COOLDOWN_SECS = 1.1;
+const CANNON_MINE_INITIAL_SPEED = 120;
 
 // ---------------------------------------------------------------------------
 // Weapon firing context — bundles the dependencies shared by all weapon
@@ -265,13 +266,11 @@ function fireSelectedPrimary(
     state.player.position.y + Math.sin(state.player.angle) * 14,
   );
   state.particles.emitMuzzleFlash(muzzlePos, state.player.angle);
-  state.addEntity(new Bullet(
-    Team.Player,
-    state.player.position.clone(),
-    state.player.angle,
-    state.player,
-    findClosestEnemy(state, state.player.position, Team.Player, 520),
-  ));
+  const target = findClosestEnemy(state, state.player.position, Team.Player, 520);
+  const projectile = state.researchedItems.has('weaponCannon')
+    ? new HomingBullet(Team.Player, state.player.position.clone(), state.player.angle, state.player, target)
+    : new Bullet(Team.Player, state.player.position.clone(), state.player.angle, state.player, target);
+  state.addEntity(projectile);
   Audio.playSound('fire');
   return activeGuidedMissile;
 }
@@ -293,13 +292,32 @@ function handleWeaponSpecial(ctx: WeaponFiringCtx, aimWorld: Vec2): void {
   } else if (weapon === 'guidedmissile' && state.researchedItems.has('weaponGuidedMissile')) {
     handleRocketSwarmSpecial(ctx, aimWorld);
   } else if (weapon === 'cannon') {
-    handleCannonHomingSpecial(state, aimWorld);
+    handleCannonMineSpecial(state, aimWorld);
   } else {
     // Fallback: registered special ability (missile)
     if (Input.mouse2Down) {
       tryFireSpecial(state, player, aimWorld);
     }
   }
+}
+
+function handleCannonMineSpecial(state: GameState, aimWorld: Vec2): void {
+  const player = state.player;
+  if (!Input.mouse2Pressed) return;
+  if (player.weaponSpecialCooldown > 0) return;
+  if (player.battery < CANNON_MINE_BATTERY_COST) return;
+
+  const angle = player.position.angleTo(aimWorld);
+  const deployOffset = player.radius + 10;
+  const spawn = new Vec2(
+    player.position.x + Math.cos(angle) * deployOffset,
+    player.position.y + Math.sin(angle) * deployOffset,
+  );
+  const mine = new CrossLaserMine(Team.Player, spawn, angle, CANNON_MINE_INITIAL_SPEED, player, state);
+  state.addEntity(mine);
+  player.battery -= CANNON_MINE_BATTERY_COST;
+  player.weaponSpecialCooldown = CANNON_MINE_COOLDOWN_SECS;
+  Audio.playSound('missile');
 }
 
 /**
@@ -405,24 +423,3 @@ function handleRocketSwarmSpecial(ctx: WeaponFiringCtx, aimWorld: Vec2): void {
   hud.showMessage('Missile swarm!', Colors.alert2, 1.5);
 }
 
-function handleCannonHomingSpecial(state: GameState, aimWorld: Vec2): void {
-  const player = state.player;
-  if (!Input.mouse2Down) return;
-  if (player.weaponSpecialCooldown > 0) return;
-  if (player.battery < CANNON_HOMING_ENERGY_COST) return;
-
-  // Find nearest enemy within lock-on range
-  let target = null;
-  let bestDist = 600;
-  for (const e of state.getEnemiesOf(Team.Player)) {
-    if (!isHomingTarget(e)) continue;
-    const d = player.position.distanceTo(e.position);
-    if (d < bestDist) { bestDist = d; target = e; }
-  }
-
-  player.battery -= CANNON_HOMING_ENERGY_COST;
-  player.weaponSpecialCooldown = WEAPON_STATS.fire.fireRate * DT * player.fireCooldownMultiplier * CANNON_HOMING_COOLDOWN_MULTIPLIER;
-  const launchAngle = target ? player.position.angleTo(target.position) : player.position.angleTo(aimWorld);
-  state.addEntity(new HomingBullet(Team.Player, player.position.clone(), launchAngle, player, target));
-  Audio.playSound('fire');
-}

@@ -34,12 +34,13 @@ import {
   MINE_ROTATION_SPEED_MIN,
   MINE_ROTATION_SPEED_MAX,
 } from './constants.js';
-import { ProjectileBase } from './projectile.js';
+import { HomingBullet, ProjectileBase } from './projectile.js';
 import type { GameState } from './gamestate.js';
 import { Audio } from './audio.js';
 
 /** Visual body radius of a mine in world units (scaled by camera zoom when drawn). */
 const MINE_BODY_RADIUS = 8;
+const TERRAN_MINE_LASER_RANGE = MINE_LASER_RANGE * 0.55;
 
 /**
  * Speed threshold (world units/sec) below which a mine is considered stopped
@@ -252,36 +253,38 @@ export class CrossLaserMine extends ProjectileBase {
       for (let i = 0; i < 4; i++) {
         const beamAngle = this.mineRotation + i * (Math.PI / 2);
         const beamEnd = new Vec2(
-          this.position.x + Math.cos(beamAngle) * MINE_LASER_RANGE,
-          this.position.y + Math.sin(beamAngle) * MINE_LASER_RANGE,
+          this.position.x + Math.cos(beamAngle) * TERRAN_MINE_LASER_RANGE,
+          this.position.y + Math.sin(beamAngle) * TERRAN_MINE_LASER_RANGE,
         );
 
         // Circle-vs-segment check: does the enemy's collision circle
         // intersect this beam's "capsule" of thickness MINE_LASER_THICKNESS?
         const dist = pointToSegmentDistance(enemy.position, this.position, beamEnd);
         if (dist <= MINE_LASER_THICKNESS * 0.5 + enemy.radius) {
-          this.trigger(beamAngle);
+          this.trigger(enemy);
           return; // mine is now dead — stop checking
         }
       }
     }
   }
 
-  private trigger(beamAngle: number): void {
+  private trigger(target: Entity): void {
     // Brief ignition flash at the mine's location
     this.gameState.particles.emitSpark(this.position);
     this.gameState.particles.emitExplosion(this.position, MINE_BODY_RADIUS * 1.5);
 
-    // Spawn the trap missile along the triggered beam direction
-    const missile = new TrapMissile(
-      this.team,
-      this.position.clone(),
-      beamAngle,
-      this.source,
-    );
-    this.gameState.addEntity(missile);
+    for (let i = 0; i < 4; i++) {
+      const beamAngle = this.mineRotation + i * (Math.PI / 2);
+      this.gameState.addEntity(new HomingBullet(
+        this.team,
+        this.position.clone(),
+        beamAngle,
+        this.source,
+        target,
+      ));
+    }
 
-    Audio.playSound('missile');
+    Audio.playSound('fire');
 
     // Zero the blast radius so the game loop does NOT emit a second explosion
     // when it detects the mine has died (only the missile should explode).
@@ -303,8 +306,8 @@ export class CrossLaserMine extends ProjectileBase {
       for (let i = 0; i < 4; i++) {
         const beamAngle = this.mineRotation + i * (Math.PI / 2);
         const worldEnd = new Vec2(
-          this.position.x + Math.cos(beamAngle) * MINE_LASER_RANGE,
-          this.position.y + Math.sin(beamAngle) * MINE_LASER_RANGE,
+          this.position.x + Math.cos(beamAngle) * TERRAN_MINE_LASER_RANGE,
+          this.position.y + Math.sin(beamAngle) * TERRAN_MINE_LASER_RANGE,
         );
         const screenEnd = camera.worldToScreen(worldEnd);
 

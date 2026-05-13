@@ -24,10 +24,11 @@
 
 import { Team, EntityType } from './entities.js';
 import type { GameState } from './gamestate.js';
-import { GRID_CELL_SIZE, cellKey, footprintOrigin } from './grid.js';
+import { cellKey } from './grid.js';
 import type { BuildingBase } from './building.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
 import { isSynonymousFaction } from './confluence.js';
+import { buildingFootprintOrigin } from './buildingCollision.js';
 
 /** Per-team energized cell set. Keys are `cellKey(cx, cy)`. */
 export interface PowerSnapshot {
@@ -116,15 +117,13 @@ export class PowerGraph {
       // PR5: a generator that is still under construction does not yet
       // supply power. Command posts never block here — they always supply.
       if (b.type === EntityType.PowerGenerator && b.buildProgress < 1) continue;
-      const cx = Math.floor(b.position.x / GRID_CELL_SIZE);
-      const cy = Math.floor(b.position.y / GRID_CELL_SIZE);
       let arr = sourceCells.get(b.team);
       if (arr === undefined) {
         arr = [];
         sourceCells.set(b.team, arr);
       }
       const size = footprintForBuildingType(b.type);
-      const origin = footprintOrigin(cx, cy, size);
+      const origin = buildingFootprintOrigin(b);
       for (let y = origin.cy; y < origin.cy + size; y++) {
         for (let x = origin.cx; x < origin.cx + size; x++) {
           arr.push({ cx: x, cy: y });
@@ -240,10 +239,8 @@ export class PowerGraph {
   private buildingIsEnergized(b: BuildingBase): boolean {
     const set = this.snapshot.energized.get(b.team);
     if (!set || set.size === 0) return false;
-    const cx = Math.floor(b.position.x / GRID_CELL_SIZE);
-    const cy = Math.floor(b.position.y / GRID_CELL_SIZE);
     const size = footprintForBuildingType(b.type);
-    const origin = footprintOrigin(cx, cy, size);
+    const origin = buildingFootprintOrigin(b);
     for (let y = origin.cy - 1; y <= origin.cy + size; y++) {
       for (let x = origin.cx - 1; x <= origin.cx + size; x++) {
         if (set.has(cellKey(x, y))) return true;

@@ -22,7 +22,7 @@ import { SHIP_STATS, COMMANDPOST_BUILD_RADIUS, POWERGENERATOR_COVERAGE_RADIUS } 
 import { GRID_CELL_SIZE } from './grid.js';
 import { WORLD_WIDTH } from './constants.js';
 import type { VisualQualityPreset } from './visualquality.js';
-import { buildingBlocksShips } from './buildingCollision.js';
+import { buildingBlocksShips, buildingFootprintOrigin } from './buildingCollision.js';
 
 // ---------------------------------------------------------------------------
 // Overlay cache — holds canvas gradients/patterns that are rebuilt only when
@@ -141,10 +141,9 @@ export function drawMergedShipBlockerOutlines(
   const entries: Array<{ x: number; y: number; team: Team; shielded: boolean }> = [];
   for (const building of blockers) {
     const size = footprintForBuildingType(building.type);
-    const cx = Math.floor(building.position.x / GRID_CELL_SIZE);
-    const cy = Math.floor(building.position.y / GRID_CELL_SIZE);
-    const originX = cx - Math.floor(size / 2);
-    const originY = cy - Math.floor(size / 2);
+    const origin = buildingFootprintOrigin(building);
+    const originX = origin.cx;
+    const originY = origin.cy;
     for (let y = originY; y < originY + size; y++) {
       for (let x = originX; x < originX + size; x++) {
         cells.add(`${building.team}:${x},${y}`);
