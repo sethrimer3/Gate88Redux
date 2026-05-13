@@ -28,6 +28,12 @@ export const CONFLUENCE_PARENT_EXPAND_DURATION = 0.35;
 export const CONFLUENCE_NEW_CIRCLE_GROW_DURATION = 0.45;
 export const CONFLUENCE_INCLUDE_MARGIN = CONDUIT_LENGTH * 0.5;
 
+/**
+ * Concentroid faction has been removed. This function always returns false and
+ * is preserved only to avoid a large refactor of call-sites that safely
+ * short-circuit on false.
+ * @deprecated Will be removed in a future cleanup pass.
+ */
 export function isConfluenceFaction(_factionByTeam: Map<Team, FactionType>, _team: Team): boolean {
   return false;
 }
@@ -46,6 +52,5 @@ export function factionLabel(faction: RaceSelection): string {
 
 export function resolveRaceSelection(selection: RaceSelection, salt: number = Math.random()): FactionType {
   if (selection !== 'random') return selection;
-  const options: FactionType[] = ['terran', 'synonymous'];
-  return options[Math.abs(Math.floor(salt * 9973)) % options.length];
+  return FACTION_TYPES[Math.abs(Math.floor(salt * 9973)) % FACTION_TYPES.length];
 }
