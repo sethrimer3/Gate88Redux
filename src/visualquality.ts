@@ -91,6 +91,35 @@ export interface VisualQualityPreset {
    * starfield, simulating illuminated dust around the distant sun.
    */
   readonly dustHazeEnabled: boolean;
+
+  // --- Star Nest WebGL Volumetric Background ---
+
+  /**
+   * Enable the GPU-rendered "Star Nest" deep-space volumetric starfield.
+   * Disabled on Low to avoid WebGL overhead on slower devices.
+   */
+  readonly starNestEnabled: boolean;
+  /**
+   * Fraction (0–1) of the full canvas resolution at which the Star Nest
+   * shader renders internally.  The output is upscaled with drawImage().
+   * Lower values are cheaper; 0.35–0.60 covers medium/high quality tiers.
+   */
+  readonly starNestRenderScale: number;
+  /**
+   * Compositing opacity (0–1) when drawing the Star Nest output onto the
+   * 2D canvas.  Keep low to preserve gameplay readability.
+   */
+  readonly starNestOpacity: number;
+  /**
+   * Number of ray-marching iterations (compile-time constant baked into GLSL).
+   * Higher = denser volumetric detail.  8–12 is the practical range.
+   */
+  readonly starNestIterations: number;
+  /**
+   * Number of volumetric-step samples per ray (compile-time constant).
+   * Higher = more depth / brightness.  8–12 is the practical range.
+   */
+  readonly starNestVolsteps: number;
 }
 
 export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> = {
@@ -118,6 +147,12 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     distantSunsGlints: false,
     asteroidFieldLayers: 0,
     dustHazeEnabled: false,
+    starNestEnabled: false,
+    // Remaining star nest values are inert when disabled; kept for type completeness.
+    starNestRenderScale: 0.35,
+    starNestOpacity: 0.15,
+    starNestIterations: 8,
+    starNestVolsteps: 8,
   },
   medium: {
     glowEnabled: true,
@@ -143,6 +178,11 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     distantSunsGlints: false,
     asteroidFieldLayers: 0,
     dustHazeEnabled: false,
+    starNestEnabled: true,
+    starNestRenderScale: 0.35,
+    starNestOpacity: 0.16,
+    starNestIterations: 8,
+    starNestVolsteps: 8,
   },
   high: {
     glowEnabled: true,
@@ -168,6 +208,11 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
     distantSunsGlints: true,
     asteroidFieldLayers: 0,
     dustHazeEnabled: false,
+    starNestEnabled: true,
+    starNestRenderScale: 0.50,
+    starNestOpacity: 0.26,
+    starNestIterations: 11,
+    starNestVolsteps: 11,
   },
 };
 
