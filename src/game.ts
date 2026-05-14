@@ -137,6 +137,9 @@ export class Game {
   private ghostSpectatorVel: Vec2 = new Vec2(0, 0);
   /** Delay (seconds) before the player ship respawns. */
   private static readonly RESPAWN_DELAY = 3;
+  private aiRespawnTimer: number = 0;
+  private aiDeathHandled: boolean = false;
+  private static readonly AI_RESPAWN_DELAY = 8;
   /** Interval (seconds) between fighter exhaust particle emissions (~30 Hz). */
   private static readonly FIGHTER_EXHAUST_EMIT_INTERVAL = 1 / 30;
 
@@ -695,6 +698,7 @@ export class Game {
     // Vs. AI bot-player: tick the strategic director every frame. The
     // director itself runs cheap decisions on a difficulty-scaled
     // interval; the per-tick driveShip just steers / fires.
+    this.updateAIShipRespawn(DT);
     if (this.vsAIDirector) {
       this.vsAIDirector.update(this.state, DT);
       // Drain rival AI chat and forward to HUD.
@@ -784,6 +788,36 @@ export class Game {
       this.ghostSpectatorPos = null;
       this.ghostSpectatorVel = new Vec2(0, 0);
       this.hud.showMessage('Respawned!', Colors.friendly_status, 2);
+    }
+  }
+
+  private updateAIShipRespawn(dt: number): void {
+    if (this.state.gameMode !== 'vs_ai' || !this.state.aiPlayerShip) return;
+    const ship = this.state.aiPlayerShip;
+    if (!(ship instanceof AIShip)) return;
+    if (ship.alive) {
+      this.aiDeathHandled = false;
+      this.aiRespawnTimer = 0;
+      return;
+    }
+
+    const enemyCp = this.state.getEnemyCommandPost();
+    if (!enemyCp) return;
+
+    if (!this.aiDeathHandled) {
+      this.aiDeathHandled = true;
+      this.aiRespawnTimer = Game.AI_RESPAWN_DELAY;
+      this.hud.showMessage(`Rival ship destroyed - respawning in ${Game.AI_RESPAWN_DELAY}s`, Colors.alert2, 3);
+    }
+
+    this.aiRespawnTimer -= dt;
+    if (this.aiRespawnTimer <= 0) {
+      ship.revive(new Vec2(enemyCp.position.x, enemyCp.position.y - 80));
+      ship.desiredMove = new Vec2(0, 0);
+      ship.desiredAim = this.state.player.position.clone();
+      ship.wantsFire = false;
+      this.aiDeathHandled = false;
+      this.hud.showMessage('Rival ship respawned!', Colors.alert2, 2);
     }
   }
 
@@ -1361,6 +1395,8 @@ export class Game {
     this.playerLoss = false;
     this.ghostSpectatorPos = null;
     this.ghostSpectatorVel = new Vec2(0, 0);
+    this.aiRespawnTimer = 0;
+    this.aiDeathHandled = false;
     this.activeGuidedMissile = null;
     this.damageFlashTimer = 0;
     this.playerPrevHealth = -1;
@@ -1552,6 +1588,8 @@ export class Game {
     this.playerLoss = false;
     this.ghostSpectatorPos = null;
     this.ghostSpectatorVel = new Vec2(0, 0);
+    this.aiRespawnTimer = 0;
+    this.aiDeathHandled = false;
     this.activeGuidedMissile = null;
     this.damageFlashTimer = 0;
     this.playerPrevHealth = -1;
@@ -1736,6 +1774,8 @@ export class Game {
     this.playerLoss = false;
     this.ghostSpectatorPos = null;
     this.ghostSpectatorVel = new Vec2(0, 0);
+    this.aiRespawnTimer = 0;
+    this.aiDeathHandled = false;
     this.activeGuidedMissile = null;
     this.damageFlashTimer = 0;
     this.playerPrevHealth = -1;

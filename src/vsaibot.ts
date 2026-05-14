@@ -400,7 +400,7 @@ export class VsAIDirector {
 
     if (this.planner && idx >= 1) {
       const pendingSite = this.planner.getNearestPendingConstructionSite(this.ship.position);
-      if (pendingSite && pendingSite.distanceTo(this.ship.position) > 900) {
+      if (pendingSite && pendingSite.distanceTo(this.ship.position) > 700) {
         this.setGoal('build', state);
         this.goalTarget = pendingSite;
         this.reactionTimer = this.reactionDelay();
@@ -483,17 +483,16 @@ export class VsAIDirector {
       this.setGoal('patrol', state);
       const center = cp ? cp.position : this.ship.position;
       // On Hard+, patrol toward the weakest ring construction site if known.
-      const weakSite = this.planner?.getWeakestRingSegment?.() ?? null;
-      if (weakSite && idx >= 2) {
+      if (false) {
         // Patrol between CP and the weakest ring — midpoint keeps the AI
         // visible without abandoning the base.
         this.goalTarget = new Vec2(
-          (center.x + weakSite.x) * 0.5,
-          (center.y + weakSite.y) * 0.5,
+          center.x,
+          center.y,
         );
       } else {
         const angle = Math.random() * Math.PI * 2;
-        const radius = 400;
+        const radius = 220;
         this.goalTarget = new Vec2(
           center.x + Math.cos(angle) * radius,
           center.y + Math.sin(angle) * radius,

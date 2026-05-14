@@ -165,6 +165,8 @@ export abstract class ProjectileBase extends Entity {
 // Bullet – small, fast, straight line
 // ---------------------------------------------------------------------------
 
+const NORMAL_CANNON_RANGE_MULTIPLIER = 0.75;
+
 export class Bullet extends ProjectileBase {
   targetEntity: Entity | null = null;
   private readonly turnRate: number = 0.22;
@@ -183,7 +185,7 @@ export class Bullet extends ProjectileBase {
       angle,
       damage: WEAPON_STATS.fire.damage,
       speed: WEAPON_STATS.fire.speed,
-      lifetime: WEAPON_STATS.fire.range / WEAPON_STATS.fire.speed,
+      lifetime: (WEAPON_STATS.fire.range * NORMAL_CANNON_RANGE_MULTIPLIER) / WEAPON_STATS.fire.speed,
       source,
     });
     this.targetEntity = target;

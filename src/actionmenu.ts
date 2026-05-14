@@ -963,7 +963,10 @@ class LeftHoldMenu {
   private drawResearchQueue(ctx: CanvasRenderingContext2D, state: GameState, x: number, y: number, w: number): void {
     const rowH = 28;
     const gap = 5;
-    const shown = state.researchQueue;
+    const shown = [
+      ...(state.researchProgress.item ? [{ item: state.researchProgress.item, active: true }] : []),
+      ...state.researchQueue.map((item) => ({ item, active: false })),
+    ];
     const panelH = 38 + Math.max(1, shown.length) * (rowH + gap) + 9;
     ctx.save();
     fillMenuPanel(ctx, x, y, w, panelH);
@@ -980,18 +983,20 @@ class LeftHoldMenu {
     }
 
     for (let i = 0; i < shown.length; i++) {
-      const item = shown[i];
+      const entry = shown[i];
       const rowY = y + 36 + i * (rowH + gap);
       const hovered = Input.mousePos.x >= x + 10 && Input.mousePos.x <= x + w - 10 &&
         Input.mousePos.y >= rowY && Input.mousePos.y <= rowY + rowH;
-      this.queueRects.push({ index: i, item, x: x + 10, y: rowY, w: w - 20, h: rowH });
-      drawMenuRow(ctx, x + 10, rowY, w - 20, rowH, hovered, false);
+      if (!entry.active) this.queueRects.push({ index: i - (state.researchProgress.item ? 1 : 0), item: entry.item, x: x + 10, y: rowY, w: w - 20, h: rowH });
+      drawMenuRow(ctx, x + 10, rowY, w - 20, rowH, hovered && !entry.active, false);
       ctx.fillStyle = colorToCSS(Colors.general_building, 0.88);
-      drawDecodedText(ctx, `${i + 1}. ${researchDisplayName(item)}`, x + 18, rowY + rowH * 0.5, 10, this.openedAt);
+      const queueNumber = state.researchProgress.item ? i : i + 1;
+      const prefix = entry.active ? 'Now' : `${queueNumber}.`;
+      drawDecodedText(ctx, `${prefix} ${researchDisplayName(entry.item)}`, x + 18, rowY + rowH * 0.5, 10, this.openedAt);
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.62);
-      ctx.fillText('cancel', x + w - 18, rowY + rowH * 0.5);
+      ctx.fillText(entry.active ? 'active' : 'cancel', x + w - 18, rowY + rowH * 0.5);
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
     }
@@ -1364,9 +1369,7 @@ class QuickBuildMenu {
         const brush = this.conduitBrushCells(dragCell.cx, dragCell.cy);
         if (this.dragMode === 'paint') {
           for (const cell of brush) {
-            if (state.grid.hasConduit(cell.cx, cell.cy) || state.grid.hasPendingConduit(cell.cx, cell.cy)) {
-              continue;
-            }
+            if (!state.isConduitPlacementCellClear(cell.cx, cell.cy).valid) continue;
             if (state.resources >= CONDUIT_COST) {
               state.resources -= CONDUIT_COST;
               state.grid.queueConduit(cell.cx, cell.cy, Team.Player);

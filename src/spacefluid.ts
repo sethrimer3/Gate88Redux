@@ -94,6 +94,7 @@ const DYE_RETAIN_PER_SEC  = 0.28;
  * to prevent runaway accumulation when many sources overlap.
  */
 const MAX_GRID_VEL        = 48.0;
+const PARTICLE_FLOW_VARIATION_RAD = Math.PI / 90; // 2 degrees
 
 // ── Colour helpers ─────────────────────────────────────────────────────────────
 /** Minimum RGB magnitude (0–255 space) for the dye field to influence a particle's colour. */
@@ -209,6 +210,8 @@ interface FluidParticle {
   activation:    number;
   /** Per-particle alpha variation (0.7–1.0) — prevents synchronised fade-outs. */
   maxAlphaScale: number;
+  /** Tiny per-particle steering offset so disturbed particles do not stack exactly. */
+  flowAngleOffset: number;
 }
 
 function _makeParticle(): FluidParticle {
@@ -230,6 +233,7 @@ function _makeParticle(): FluidParticle {
     lifetimeSec:   PARTICLE_MIN_LIFETIME_SEC,
     activation:    0.0,
     maxAlphaScale: 0.7 + Math.random() * 0.3,
+    flowAngleOffset: (Math.random() * 2 - 1) * PARTICLE_FLOW_VARIATION_RAD,
   };
 }
 
@@ -543,8 +547,12 @@ export function createSpaceFluid(): SpaceFluid {
 
     for (let i = 0; i < particles.length; i++) {
       const p  = particles[i];
-      const vx = _bilerp(vxGrid, p.x, p.y);
-      const vy = _bilerp(vyGrid, p.x, p.y);
+      const rawVx = _bilerp(vxGrid, p.x, p.y);
+      const rawVy = _bilerp(vyGrid, p.x, p.y);
+      const cosVar = Math.cos(p.flowAngleOffset);
+      const sinVar = Math.sin(p.flowAngleOffset);
+      const vx = rawVx * cosVar - rawVy * sinVar;
+      const vy = rawVx * sinVar + rawVy * cosVar;
 
       // Euler-integrate position in grid space.
       p.x += vx * dt;
@@ -633,6 +641,7 @@ export function createSpaceFluid(): SpaceFluid {
         p.activation  = 0.0;
         p.smoothedSpeed = 0.0;
         p.maxAlphaScale = 0.7 + Math.random() * 0.3;
+        p.flowAngleOffset = (Math.random() * 2 - 1) * PARTICLE_FLOW_VARIATION_RAD;
         _occupancy[cellIdx]++;
         // Preserve colour so the palette does not abruptly reset.
         continue;
