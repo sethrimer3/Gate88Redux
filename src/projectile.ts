@@ -457,6 +457,7 @@ export class GuidedMissile extends ProjectileBase {
       source,
     });
     this.radius = ENTITY_RADIUS.missile * 1.7;
+    this.interceptable = true;
     if (this.isPlayerShipFire()) this.enableCometTrail(3.5);
   }
 

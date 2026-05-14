@@ -249,7 +249,7 @@ export class ParticleSystem {
       p.alpha   = isBoosting ? 0.92 : 0.78;
       p.life    = randomRange(0.22, 0.55) * boostLifeMult;
       p.maxLife = p.life;
-      p.size    = randomRange(1.2, 2.8) * sizeScale * boostSizeMult;
+      p.size    = randomRange(1.2, 2.8) * sizeScale * boostSizeMult * 0.5;
     }
   }
 
@@ -297,7 +297,7 @@ export class ParticleSystem {
       p.alpha   = 0.72;
       p.life    = randomRange(0.15, 0.35);
       p.maxLife = p.life;
-      p.size    = randomRange(0.8, 2.0);
+      p.size    = randomRange(0.8, 2.0) * 0.5;
     }
   }
 

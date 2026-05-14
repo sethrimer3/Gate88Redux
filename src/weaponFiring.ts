@@ -55,8 +55,9 @@ import { isSynonymousFaction } from './confluence.js';
 import type { SpaceFluid } from './spacefluid.js';
 import type { ActionMenu } from './actionmenu.js';
 
-const CANNON_MINE_BATTERY_COST = 12;
-const CANNON_MINE_COOLDOWN_SECS = 1.1;
+const CANNON_MINE_BASE_BATTERY_FRACTION = 0.75;
+const CANNON_MINE_UPGRADED_BATTERY_FRACTION = 0.5;
+const CANNON_MINE_COOLDOWN_SECS = 0.12;
 const CANNON_MINE_INITIAL_SPEED = 120;
 
 // ---------------------------------------------------------------------------
@@ -303,9 +304,14 @@ function handleWeaponSpecial(ctx: WeaponFiringCtx, aimWorld: Vec2): void {
 
 function handleCannonMineSpecial(state: GameState, aimWorld: Vec2): void {
   const player = state.player;
-  if (!Input.mouse2Pressed) return;
+  if (!Input.mouse2Down) return;
   if (player.weaponSpecialCooldown > 0) return;
-  if (player.battery < CANNON_MINE_BATTERY_COST) return;
+  const mineCost = player.maxBattery * (
+    state.researchedItems.has('weaponCannon')
+      ? CANNON_MINE_UPGRADED_BATTERY_FRACTION
+      : CANNON_MINE_BASE_BATTERY_FRACTION
+  );
+  if (player.battery < mineCost) return;
 
   const angle = player.position.angleTo(aimWorld);
   const deployOffset = player.radius + 10;
@@ -315,7 +321,7 @@ function handleCannonMineSpecial(state: GameState, aimWorld: Vec2): void {
   );
   const mine = new CrossLaserMine(Team.Player, spawn, angle, CANNON_MINE_INITIAL_SPEED, player, state);
   state.addEntity(mine);
-  player.battery -= CANNON_MINE_BATTERY_COST;
+  player.battery -= mineCost;
   player.weaponSpecialCooldown = CANNON_MINE_COOLDOWN_SECS;
   Audio.playSound('missile');
 }

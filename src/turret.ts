@@ -7,6 +7,7 @@ import { BuildingBase } from './building.js';
 import { Colors, colorToCSS } from './colors.js';
 import { ENTITY_RADIUS, WEAPON_STATS, DT, HP_VALUES } from './constants.js';
 import type { GameState } from './gamestate.js';
+import { ProjectileBase } from './projectile.js';
 import { SynonymousDriftMine, SYNONYMOUS_MINE_LAYER_RANGE } from './synonymousMine.js';
 import { aimAngle, aimAtEntity, isCombatTargetValid, isFiniteVec, isHostileTeam, type PredictiveAimResult } from './targeting.js';
 
@@ -14,6 +15,10 @@ export const EXCITER_LOCK_TIME_SECS = 2.0;
 export const EXCITER_COOLDOWN_SECS = 3.0;
 export const EXCITER_DAMAGE = WEAPON_STATS.exciterbeam.damage;
 const EXCITER_LOCK_CIRCLE_RADIUS = 18;
+
+function isExciterLockTarget(entity: Entity): boolean {
+  return !(entity instanceof ProjectileBase) || entity.interceptable;
+}
 
 // ---------------------------------------------------------------------------
 // Base turret
@@ -354,7 +359,7 @@ export class ExciterTurret extends TurretBase {
     }
 
     if (this.exciterState === 'locking') {
-      if (!isCombatTargetValid(this, this.lockTarget, this.range)) {
+      if (!isCombatTargetValid(this, this.lockTarget, this.range) || !isExciterLockTarget(this.lockTarget)) {
         this.cancelLockToCooldown();
         return;
       }
@@ -366,6 +371,12 @@ export class ExciterTurret extends TurretBase {
         this.turretAngle = wrapAngle(this.turretAngle + Math.sign(diff) * Math.min(Math.abs(diff), 4.2 * dt));
       }
       if (this.lockProgress >= 1) this.exciterState = 'ready';
+    } else if (this.exciterState === 'ready') {
+      if (!isCombatTargetValid(this, this.lockTarget, this.range) || !isExciterLockTarget(this.lockTarget)) {
+        this.cancelLockToCooldown();
+        return;
+      }
+      this.targetEntity = this.lockTarget;
     }
   }
 
@@ -375,6 +386,7 @@ export class ExciterTurret extends TurretBase {
     let bestDist = this.range;
     for (const e of entities) {
       if (!e.alive || !isHostileTeam(this.team, e.team)) continue;
+      if (!isExciterLockTarget(e)) continue;
       const d = this.position.distanceTo(e.position);
       if (d < bestDist) {
         bestDist = d;
@@ -391,10 +403,11 @@ export class ExciterTurret extends TurretBase {
 
   override canFire(): boolean {
     if (this.exciterState !== 'ready') return false;
-    if (!isCombatTargetValid(this, this.lockTarget, this.range)) {
+    if (!isCombatTargetValid(this, this.lockTarget, this.range) || !isExciterLockTarget(this.lockTarget)) {
       this.cancelLockToCooldown();
       return false;
     }
+    this.targetEntity = this.lockTarget;
     return true;
   }
 

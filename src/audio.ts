@@ -27,9 +27,9 @@ const MUSIC_TRACKS = [
 export type MusicTrack = typeof MUSIC_TRACKS[number];
 
 const ASSET_BASE_URL = import.meta.env.BASE_URL;
-const MUSIC_DECIBEL_OFFSET = -16;
+const MUSIC_DECIBEL_OFFSET = -20;
 const MUSIC_OUTPUT_GAIN = Math.pow(10, MUSIC_DECIBEL_OFFSET / 20);
-const SFX_DECIBEL_OFFSET = -16;
+const SFX_DECIBEL_OFFSET = -20;
 const SFX_OUTPUT_GAIN = Math.pow(10, SFX_DECIBEL_OFFSET / 20);
 
 function assetUrl(path: string): string {

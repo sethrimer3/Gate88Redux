@@ -97,7 +97,6 @@ interface CrystalMote {
    * Shape:
    *   0 = diamond (symmetric 4-point polygon)
    *   1 = rhombus (wider diamond)
-   *   2 = 4-point glint (two crossed line segments)
    */
   shape: 0 | 1 | 2;
 }
@@ -577,9 +576,9 @@ export class CrystalNebula {
         const homeX = def.cx + Math.cos(theta) * r;
         const homeY = def.cy + Math.sin(theta) * r;
 
-        // Shape distribution: diamond 58%, rhombus 28%, glint 14%
+        // Shape distribution: diamond 68%, rhombus 32%.
         const shapeRoll = rng();
-        const shape: 0 | 1 | 2 = shapeRoll < 0.58 ? 0 : shapeRoll < 0.86 ? 1 : 2;
+        const shape: 0 | 1 = shapeRoll < 0.68 ? 0 : 1;
 
         // Color variation (±30) around cloud base tint, clamped to 0–255
         const cr = Math.min(255, Math.max(0, def.r + Math.round((rng() - 0.5) * 60)));

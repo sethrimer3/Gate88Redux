@@ -12,7 +12,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 ## Controls
 
 - WASD moves the player ship. Mouse aims. Left mouse fires the primary weapon.
-- Right mouse fires the equipped special; the only exposed special is Homing Missile.
+- Right mouse fires the equipped special. Cannon drops a cross-laser mine, Gatling triggers overdrive, Laser charges a burst, and Guided Missile fires a missile swarm.
 - Hold Q for the build menu, choose a building from the left palette, then left click or drag over valid footprints to place it. Right mouse deletes player buildings.
 - Hold Z for the ship menu, view ship stats/upgrades, and select the active primary weapon by clicking or using the mouse wheel.
 - Hold Q for the quick-build palette. Conduit is first; mouse wheel or clicking a left-side palette icon selects what to place. With Conduit selected, left mouse queues player conduits with a 2x2 brush and right mouse erases with the same brush. With a building selected, left mouse places that building.
@@ -74,7 +74,9 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 - One active research item can run at a time.
 - Active research items are turret unlocks, Bomber Yard, and Advanced Fighters.
 - Completed research is hidden from the research menu and summarized on the HUD.
-- Gatling Turret is a starter long-range suppressive bullet turret. Missile Turret costs $80 to research before it appears in the build menu. Exciter Turret remains research-gated and fires a 2-second lock-on laser with a 3-second cooldown.
+- Gatling Turret is a starter long-range suppressive bullet turret. Missile Turret costs $80 to research before it appears in the build menu. Exciter Turret remains research-gated and fires a 2-second lock-on laser with a 3-second cooldown. It may lock ships, fighters, buildings, and interceptable hostile missiles, but it must not lock ordinary bullets.
+- Player guided missiles and missile-swarm projectiles are interceptable hostile projectiles. Enemy shots and exciter beams can destroy them before impact.
+- Cannon mine deployment can repeat quickly while right mouse is held. Each mine costs 75% of the player's baseline maximum energy, reduced to 50% after Cannon V.2 research.
 
 ## Hidden Or Not Implemented
 
