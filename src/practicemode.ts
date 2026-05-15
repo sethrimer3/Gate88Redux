@@ -11,6 +11,7 @@ import { HUD } from './hud.js';
 import { Colors } from './colors.js';
 import { Audio } from './audio.js';
 import { BASELINE_RESOURCE_GAIN, RESOURCE_GAIN_RATE, WORLD_WIDTH, WORLD_HEIGHT, WEAPON_STATS } from './constants.js';
+import { footprintCenter, worldToCell } from './grid.js';
 import { damageLaserLine } from './combatUtils.js';
 import { EnemyBasePlanner } from './enemybaseplanner.js';
 import type { PlayerStrategy } from './enemybaseplanner.js';
@@ -122,10 +123,12 @@ export class PracticeMode {
     const playerPos = state.player.position;
     const angle = randomRange(0, Math.PI * 2);
     const dist = this.config.startingDistance;
-    const basePos = new Vec2(
+    const rawBasePos = new Vec2(
       Math.max(300, Math.min(WORLD_WIDTH - 300, playerPos.x + Math.cos(angle) * dist)),
       Math.max(300, Math.min(WORLD_HEIGHT - 300, playerPos.y + Math.sin(angle) * dist)),
     );
+    const baseCell = worldToCell(rawBasePos);
+    const basePos = footprintCenter(baseCell.cx, baseCell.cy, 6);
     const cp = new CommandPost(basePos, Team.Enemy);
     if (isSynonymousFaction(state.factionByTeam, Team.Enemy)) cp.synonymousVisualKind = 'base';
     state.addEntity(cp);

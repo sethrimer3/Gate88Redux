@@ -1,5 +1,4 @@
 import { BuildingBase } from './building.js';
-import { EntityType, Team } from './entities.js';
 import { GRID_CELL_SIZE, type CellCoord } from './grid.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
 
@@ -11,12 +10,10 @@ export interface BuildingShipCollisionRect {
 }
 
 export function buildingBlocksShips(building: BuildingBase): boolean {
-  if (building.type === EntityType.FighterYard) return false;
-  if (building.type === EntityType.BomberYard) return false;
-  if (building.type === EntityType.Factory) return false;
-  if (building.type === EntityType.ResearchLab) return false;
-  if (building.type === EntityType.CommandPost && building.team === Team.Player) return false;
-  return true;
+  // Buildings still have gameplay footprints, but ships currently ignore them
+  // so mobile units can move directly without expensive obstacle pathfinding.
+  void building;
+  return false;
 }
 
 export function buildingFootprintOrigin(building: BuildingBase): CellCoord {

@@ -577,6 +577,17 @@ export class PlayerShip extends Entity {
       this.team === Team.Player
         ? colorToCSS(Colors.mainguy)
         : colorToCSS(Colors.enemy_status);
+    ctx.fillStyle = this.team === Team.Player
+      ? 'rgba(20, 36, 32, 0.72)'
+      : 'rgba(42, 18, 20, 0.72)';
+    ctx.beginPath();
+    ctx.moveTo(r * 1.4, 0);
+    ctx.lineTo(-r, -r * 0.7);
+    ctx.lineTo(-r * 0.5, 0);
+    ctx.lineTo(-r, r * 0.7);
+    ctx.closePath();
+    ctx.fill();
+    this.drawSunRimGlare(ctx, screen, r);
     ctx.strokeStyle = shipColor;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -742,6 +753,54 @@ export class PlayerShip extends Entity {
       ctx.stroke();
       ctx.restore();
     }
+  }
+
+  private drawSunRimGlare(ctx: CanvasRenderingContext2D, screen: Vec2, r: number): void {
+    const sunX = ctx.canvas.width * 0.84;
+    const sunY = ctx.canvas.height * 0.16;
+    const toSunX = sunX - screen.x;
+    const toSunY = sunY - screen.y;
+    const dist = Math.max(1, Math.hypot(toSunX, toSunY));
+    const cosA = Math.cos(-this.angle);
+    const sinA = Math.sin(-this.angle);
+    const localSunX = (toSunX * cosA - toSunY * sinA) / dist;
+    const localSunY = (toSunX * sinA + toSunY * cosA) / dist;
+    const points = [
+      { x: r * 1.4, y: 0 },
+      { x: -r, y: -r * 0.7 },
+      { x: -r * 0.5, y: 0 },
+      { x: -r, y: r * 0.7 },
+    ];
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i];
+      const b = points[(i + 1) % points.length];
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const edgeLen = Math.max(1, Math.hypot(dx, dy));
+      const nx = dy / edgeLen;
+      const ny = -dx / edgeLen;
+      const facing = nx * localSunX + ny * localSunY;
+      if (facing <= 0.12) continue;
+      const alpha = Math.min(0.72, 0.22 + facing * 0.52);
+      ctx.strokeStyle = `rgba(195, 77, 18, ${(alpha * 0.62).toFixed(3)})`;
+      ctx.lineWidth = Math.max(2, r * 0.34);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+      ctx.strokeStyle = `rgba(255, 239, 86, ${alpha.toFixed(3)})`;
+      ctx.lineWidth = Math.max(1, r * 0.12);
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 }
 

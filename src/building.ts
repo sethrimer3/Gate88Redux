@@ -70,10 +70,11 @@ export abstract class BuildingBase extends Entity {
     ctx.save();
     ctx.globalAlpha = Math.max(0.15, this.buildProgress);
     const damage = 1 - Math.max(0, Math.min(1, this.healthFraction));
-    ctx.fillStyle = colorToCSS(Colors.general_building, 0.95 - damage * 0.22);
+    ctx.fillStyle = `rgba(58, 77, 64, ${0.96 - damage * 0.18})`;
     ctx.fillRect(x, y, v.side, v.side);
+    this.drawSunEdgeGlare(ctx, x, y, v.side, v.simple);
     if (damage > 0.02) this.drawDamageWear(ctx, x, y, v.side, damage);
-    ctx.strokeStyle = colorToCSS(Colors.advanced_building, 0.8);
+    ctx.strokeStyle = colorToCSS(Colors.advanced_building, 0.55);
     ctx.lineWidth = Math.max(1, v.side * 0.02);
     ctx.strokeRect(x + 1, y + 1, v.side - 2, v.side - 2);
     ctx.strokeStyle = colorToCSS(Colors.enemy_background, 0.7);
@@ -96,6 +97,35 @@ export abstract class BuildingBase extends Entity {
     if (this.deleting) this.drawDeletionOverlay(ctx, x, y, v.side);
     ctx.restore();
     return v;
+  }
+
+  private drawSunEdgeGlare(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, simple: boolean): void {
+    const band = Math.max(2, s * (simple ? 0.18 : 0.14));
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    const topGrad = ctx.createLinearGradient(x, y, x, y + band);
+    topGrad.addColorStop(0, 'rgba(255, 235, 78, 0.46)');
+    topGrad.addColorStop(0.28, 'rgba(223, 105, 30, 0.26)');
+    topGrad.addColorStop(1, 'rgba(223, 105, 30, 0)');
+    ctx.fillStyle = topGrad;
+    ctx.fillRect(x, y, s, band);
+
+    const rightGrad = ctx.createLinearGradient(x + s, y, x + s - band, y);
+    rightGrad.addColorStop(0, 'rgba(255, 239, 92, 0.52)');
+    rightGrad.addColorStop(0.32, 'rgba(204, 87, 24, 0.30)');
+    rightGrad.addColorStop(1, 'rgba(204, 87, 24, 0)');
+    ctx.fillStyle = rightGrad;
+    ctx.fillRect(x + s - band, y, band, s);
+
+    ctx.strokeStyle = 'rgba(255, 246, 112, 0.78)';
+    ctx.lineWidth = Math.max(1, s * 0.018);
+    ctx.beginPath();
+    ctx.moveTo(x + 1, y + 0.5);
+    ctx.lineTo(x + s - 0.5, y + 0.5);
+    ctx.lineTo(x + s - 0.5, y + s - 1);
+    ctx.stroke();
+    ctx.restore();
   }
 
   protected drawDamageWear(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, damage: number): void {

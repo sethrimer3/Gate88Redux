@@ -58,7 +58,6 @@ import {
   buildingEffectRange,
   drawGhostSpectator,
   drawLossOverlay,
-  drawMergedShipBlockerOutlines,
   drawCommandModeOverlay,
   drawBuildingHoverHitpoints,
   drawGlowLayer,
@@ -1427,7 +1426,9 @@ export class Game {
     this.state.setFaction(Team.Enemy, enemyFaction);
 
     // Create player command post near player
-    const cpPos = new Vec2(playerStart.x, playerStart.y + 80);
+    const rawCpPos = new Vec2(playerStart.x, playerStart.y + 80);
+    const cpCell = worldToCell(rawCpPos);
+    const cpPos = footprintCenter(cpCell.cx, cpCell.cy, 6);
     const cp = new CommandPost(cpPos, Team.Player);
     if (playerFaction === 'synonymous') cp.synonymousVisualKind = 'base';
     this.state.addEntity(cp);
@@ -1650,7 +1651,9 @@ export class Game {
     }
 
     // Command post for the local player.
-    const cpPos = new Vec2(playerStart.x, playerStart.y + 80);
+    const rawCpPos = new Vec2(playerStart.x, playerStart.y + 80);
+    const cpCell = worldToCell(rawCpPos);
+    const cpPos = footprintCenter(cpCell.cx, cpCell.cy, 6);
     const cp = new CommandPost(cpPos, myTeam);
     if (myFaction === 'synonymous') cp.synonymousVisualKind = 'base';
     this.state.addEntity(cp);
@@ -2440,7 +2443,6 @@ export class Game {
       );
     }
     this.state.drawEntities(ctx, this.camera);
-    drawMergedShipBlockerOutlines(ctx, this.camera, this.state);
     drawGhostSpectator(ctx, this.camera, this.state, this.ghostSpectatorPos);
     drawWaypointMarkers(ctx, this.camera, this.state, this.waypointMarkers);
     drawCommandModeOverlay(ctx, w, this.camera, this.state, this.commandSelectedFighters, this.commandSelectedTurrets, this.commandDragStart, this.commandDragCurrent);
