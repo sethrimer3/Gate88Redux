@@ -26,6 +26,10 @@ import { aimAngle, aimAtEntity, isCombatTargetValid, recordCombatAimSample } fro
 
 const TURRET_FIRE_CHECK_INTERVAL = 0.1;
 const AI_MAIN_SHIP_ORDER_RADIUS = 1000;
+/** Spawn-group rotation order: enemy fighters cycle Red→Green→Blue. */
+const SPAWN_GROUPS = [ShipGroup.Red, ShipGroup.Green, ShipGroup.Blue] as const;
+/** Pixel variance added to the flank target so repeated attacks vary slightly. */
+const FLANK_POSITION_VARIANCE = 60;
 
 /** Interval (seconds) between player-threat evaluations. */
 const THREAT_EVAL_INTERVAL = 10;
@@ -77,6 +81,11 @@ export class PracticeMode {
   /** Accumulator so the AI raid timer doesn't depend on dt at low FPS. */
   private raidTimer: number = 30;
   private enemyWaveTimer: number = 0;
+  /**
+   * Counter that cycles 0→1→2 as fighters spawn, assigning them to
+   * ShipGroup.Red → Green → Blue in sequence for group-based tactics.
+   */
+  private _spawnGroupCounter: number = 0;
 
   // -- Player threat profile --------------------------------------------------
 
@@ -341,12 +350,16 @@ export class PracticeMode {
       if (!b.powered) continue;
 
       if (b.shouldSpawnShip()) {
+        // Cycle through Red/Green/Blue groups so fighters are naturally distributed
+        // across all three groups for later group-based tactical orders.
+        const groupIndex = this._spawnGroupCounter++ % SPAWN_GROUPS.length;
+        const spawnGroup = SPAWN_GROUPS[groupIndex];
         const synonymous = isSynonymousFaction(state.factionByTeam, Team.Enemy);
         const fighter = synonymous && b.type === EntityType.BomberYard
-          ? new SynonymousNovaBomberShip(b.bayPosition(), Team.Enemy, ShipGroup.Red, b)
+          ? new SynonymousNovaBomberShip(b.bayPosition(), Team.Enemy, spawnGroup, b)
           : synonymous
-            ? new SynonymousFighterShip(b.bayPosition(), Team.Enemy, ShipGroup.Red, b, state.researchedItems.has('advancedFighters'))
-          : new FighterShip(b.position.clone(), Team.Enemy, ShipGroup.Red, b);
+            ? new SynonymousFighterShip(b.bayPosition(), Team.Enemy, spawnGroup, b, state.researchedItems.has('advancedFighters'))
+          : new FighterShip(b.position.clone(), Team.Enemy, spawnGroup, b);
         fighter.launch();
         b.activeShips++;
         state.addEntity(fighter);
@@ -374,6 +387,40 @@ export class PracticeMode {
       if (harassPos) doctrineTarget = { position: harassPos };
     }
 
+    const idx = difficultyIndex(this.config.difficulty);
+    // Group-based tactics activate on Hard+ (idx >= 2).
+    const useGroupTactics = idx >= 2;
+
+    // Pre-compute group-specific targets once per tick for efficiency.
+    // Blue group: chase the player hero ship.
+    const playerHeroPos = (useGroupTactics && state.player.alive)
+      ? state.player.position.clone() : null;
+
+    // Green group: scout/flank around the player's base from a perpendicular angle.
+    // Compute a flanking offset from the enemy CP toward the main target.
+    let greenFlankTarget: Vec2 | null = null;
+    if (useGroupTactics) {
+      const mainBuilding = this.findNearestPlayerBuilding(state, state.player.position);
+      if (mainBuilding) {
+        const cpPos = state.getEnemyCommandPost()?.position;
+        if (cpPos) {
+          const toTarget = mainBuilding.position.clone().sub(cpPos);
+          const len = toTarget.length();
+          if (len > 10) {
+            const perpX = -toTarget.y / len;
+            const perpY = toTarget.x / len;
+            const flankDist = 170 + (mainBuilding.position.x % FLANK_POSITION_VARIANCE);
+            greenFlankTarget = new Vec2(
+              mainBuilding.position.x + perpX * flankDist,
+              mainBuilding.position.y + perpY * flankDist,
+            );
+          }
+        } else {
+          greenFlankTarget = mainBuilding.position.clone();
+        }
+      }
+    }
+
     for (const f of state.fighters) {
       if (!f.alive || f.docked || f.team !== Team.Enemy) continue;
       // Skip builder drones — they are utility units, not combatants.
@@ -383,14 +430,36 @@ export class PracticeMode {
         continue;
       }
 
+      // Blue group continuously refreshes its target to track the player hero.
+      if (useGroupTactics && f.group === ShipGroup.Blue && playerHeroPos && f.order === 'attack') {
+        f.targetPos = playerHeroPos.clone();
+      }
+
       if (f.order === 'idle' || !f.targetPos) {
-        // Doctrine-based strategic targets take precedence over opportunistic
-        // nearest-building attacks, allowing each doctrine to focus pressure
-        // on the most valuable player assets.
-        const target = doctrineTarget ?? this.findNearestPlayerBuilding(state, f.position);
-        if (target) {
-          f.order = 'attack';
-          f.targetPos = target.position.clone();
+        if (useGroupTactics) {
+          if (f.group === ShipGroup.Blue && playerHeroPos) {
+            // Blue group: chase the player's hero ship relentlessly.
+            f.order = 'attack';
+            f.targetPos = playerHeroPos.clone();
+          } else if (f.group === ShipGroup.Green && greenFlankTarget) {
+            // Green group: flank the player's base from the side.
+            f.order = 'attack';
+            f.targetPos = greenFlankTarget.clone();
+          } else {
+            // Red group (and fallback): doctrine-based or direct attack.
+            const target = doctrineTarget ?? this.findNearestPlayerBuilding(state, f.position);
+            if (target) {
+              f.order = 'attack';
+              f.targetPos = target.position.clone();
+            }
+          }
+        } else {
+          // Original behaviour for Easy/Normal.
+          const target = doctrineTarget ?? this.findNearestPlayerBuilding(state, f.position);
+          if (target) {
+            f.order = 'attack';
+            f.targetPos = target.position.clone();
+          }
         }
       }
 
@@ -486,9 +555,40 @@ export class PracticeMode {
     }
 
     const target = this.findNearestPlayerBuilding(state, state.player.position) ?? { position: state.player.position };
-    for (const f of staged) {
-      f.order = 'attack';
-      f.targetPos = target.position.clone();
+
+    // On Expert+ (idx >= 3), split the wave into groups that attack from
+    // different angles, making it harder for the player to defend a single side.
+    if (idx >= 3) {
+      const cpPos = state.getEnemyCommandPost()?.position;
+      const toTarget = cpPos
+        ? target.position.clone().sub(cpPos)
+        : new Vec2(1, 0);
+      const len = toTarget.length();
+      const perpX = len > 10 ? -toTarget.y / len : 0;
+      const perpY = len > 10 ? toTarget.x / len : 1;
+      const flankDist = 160;
+
+      for (const f of staged) {
+        f.order = 'attack';
+        if (f.group === ShipGroup.Blue && state.player.alive) {
+          // Blue group goes directly for the player hero ship.
+          f.targetPos = state.player.position.clone();
+        } else if (f.group === ShipGroup.Green) {
+          // Green group flanks from the left (perpendicular to the approach).
+          f.targetPos = new Vec2(
+            target.position.x + perpX * flankDist,
+            target.position.y + perpY * flankDist,
+          );
+        } else {
+          // Red group attacks the primary target head-on.
+          f.targetPos = target.position.clone();
+        }
+      }
+    } else {
+      for (const f of staged) {
+        f.order = 'attack';
+        f.targetPos = target.position.clone();
+      }
     }
 
     // Track the launch and reset stagnation timer.
