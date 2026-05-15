@@ -23,21 +23,27 @@
  *     instant-perfect.
  */
 
-import { Vec2, wrapAngle } from './math.js';
+import { Vec2, randomRange, wrapAngle } from './math.js';
 import { Camera } from './camera.js';
 import { PlayerShip } from './ship.js';
 import { Team, Entity } from './entities.js';
 import { Colors, Color, colorToCSS } from './colors.js';
 import { Bullet } from './projectile.js';
+import { CrossLaserMine } from './mine.js';
 import { Audio } from './audio.js';
 import { GameState } from './gamestate.js';
 import { CommandPost, Shipyard, PowerGenerator } from './building.js';
 import { TurretBase } from './turret.js';
 import { VsAIConfig, effectiveApm, effectiveDifficultyScalar } from './vsaiconfig.js';
-import { tryFireSpecial } from './special.js';
 import type { EnemyBasePlanner } from './enemybaseplanner.js';
 import { aimAngle, aimAtEntity, recordCombatAimSample } from './targeting.js';
-import { WEAPON_STATS } from './constants.js';
+import {
+  MINE_BATTERY_COST,
+  MINE_COOLDOWN_SECS,
+  MINE_INITIAL_SPEED_MAX,
+  MINE_INITIAL_SPEED_MIN,
+  WEAPON_STATS,
+} from './constants.js';
 import { teamColor } from './teamutils.js';
 import { buildingBlocksShips, buildingShipCollisionRect } from './buildingCollision.js';
 import { GRID_CELL_SIZE } from './grid.js';
@@ -49,6 +55,7 @@ const RALLY_HEALTH_FRACTION = 0.65;
 const PRIMARY_FIRE_COOLDOWN = 0.18;
 const RETREAT_NAV_REFRESH_SECONDS = 0.35;
 const RETREAT_NAV_REFRESH_DISTANCE = 100;
+const AI_MINE_DEPLOY_OFFSET = 34;
 
 /** AI chat badge and color for the rival ship in Vs AI mode. */
 export const AI_CHAT_PREFIX = 'RIVAL';
@@ -415,16 +422,6 @@ export class VsAIDirector {
     const cp = this.findOwnCP(state);
     const idx = Math.floor(effectiveDifficultyScalar(this.config));
 
-    if (this.planner && idx >= 1) {
-      const pendingSite = this.planner.getNearestPendingConstructionSite(this.ship.position);
-      if (pendingSite && pendingSite.distanceTo(this.ship.position) > 700) {
-        this.setGoal('build', state);
-        this.goalTarget = pendingSite;
-        this.reactionTimer = this.reactionDelay();
-        return;
-      }
-    }
-
     // 1. Defensive override — planner signals a high-priority defense point.
     //    Only on Hard+ (idx >= 2): easier difficulties use simpler reactive defense
     //    to keep the AI feeling sluggish and beatable.
@@ -449,7 +446,38 @@ export class VsAIDirector {
       }
     }
 
-    // 3. Escort active construction sites (Hard+).
+    // 3. Harass / attack logic takes priority over construction errands so
+    // the rival ship stays active once it has found player assets.
+    const harassTarget = this.findHarassTarget(state);
+    const attackTarget = this.findAttackTarget(state);
+    const preferHarass = idx >= 2 && harassTarget;
+
+    if (preferHarass) {
+      this.setGoal('harass', state);
+      this.goalTarget = harassTarget!.lastSeenPos.clone();
+      this.reactionTimer = this.reactionDelay();
+      return;
+    }
+
+    if (attackTarget) {
+      this.setGoal('attack', state);
+      this.goalTarget = attackTarget.lastSeenPos.clone();
+      this.reactionTimer = this.reactionDelay();
+      return;
+    }
+
+    // 4. Build/escort construction sites only while there is no known target.
+    if (this.planner && idx >= 1) {
+      const pendingSite = this.planner.getNearestPendingConstructionSite(this.ship.position);
+      if (pendingSite && pendingSite.distanceTo(this.ship.position) > 900) {
+        this.setGoal('build', state);
+        this.goalTarget = pendingSite;
+        this.reactionTimer = this.reactionDelay();
+        return;
+      }
+    }
+
+    // 5. Escort active construction sites (Hard+).
     if (this.planner && idx >= 2) {
       const sites = this.planner.getActiveConstructionSites();
       if (sites.length > 0) {
@@ -474,7 +502,7 @@ export class VsAIDirector {
       }
     }
 
-    // 4. Use planner's suggested harass target on higher difficulty.
+    // 6. Use planner's suggested harass target on higher difficulty.
     if (this.planner && idx >= 2) {
       const harassPos = this.planner.getSuggestedHarassTarget(state);
       if (harassPos) {
@@ -485,37 +513,14 @@ export class VsAIDirector {
       }
     }
 
-    // 5. Standard harass / attack logic.
-    const harassTarget = this.findHarassTarget(state);
-    const attackTarget = this.findAttackTarget(state);
-    const preferHarass = idx >= 2 && harassTarget;
-
-    if (preferHarass) {
-      this.setGoal('harass', state);
-      this.goalTarget = harassTarget!.lastSeenPos.clone();
-    } else if (attackTarget) {
-      this.setGoal('attack', state);
-      this.goalTarget = attackTarget.lastSeenPos.clone();
-    } else {
-      this.setGoal('patrol', state);
-      const center = cp ? cp.position : this.ship.position;
-      // On Hard+, patrol toward the weakest ring construction site if known.
-      if (false) {
-        // Patrol between CP and the weakest ring — midpoint keeps the AI
-        // visible without abandoning the base.
-        this.goalTarget = new Vec2(
-          center.x,
-          center.y,
-        );
-      } else {
-        const angle = Math.random() * Math.PI * 2;
-        const radius = 220;
-        this.goalTarget = new Vec2(
-          center.x + Math.cos(angle) * radius,
-          center.y + Math.sin(angle) * radius,
-        );
-      }
-    }
+    this.setGoal('patrol', state);
+    const center = cp ? cp.position : this.ship.position;
+    const angle = Math.random() * Math.PI * 2;
+    const radius = 220;
+    this.goalTarget = new Vec2(
+      center.x + Math.cos(angle) * radius,
+      center.y + Math.sin(angle) * radius,
+    );
     this.reactionTimer = this.reactionDelay();
   }
 
@@ -815,17 +820,33 @@ export class VsAIDirector {
       }
     }
 
-    // Special ability — used sparingly when an obvious cluster of player
-    // assets is in range.  On Hard+ the special fires without spending a
-    // token so it isn't bottlenecked by APM; it already has its own
-    // internal cooldown (tryFireSpecial guards this).
+    // Special ability — used sparingly during combat. On Hard+ the mine fires
+    // without spending an APM token; the ship cooldown still limits repeats.
     const idx = Math.floor(effectiveDifficultyScalar(this.config));
-    if (idx >= 2 && this.ship.canFireSpecial()) {
-      // Aim special at the goal target.
-      tryFireSpecial(state, this.ship, target.clone());
-    } else if (idx < 2 && this.ship.canFireSpecial() && this.spendToken()) {
-      tryFireSpecial(state, this.ship, target.clone());
+    if (this.isCombatGoal() && idx >= 2 && this.ship.canFireSpecial()) {
+      this.deploySingleMine(state, target);
+    } else if (this.isCombatGoal() && idx < 2 && this.ship.canFireSpecial() && this.spendToken()) {
+      this.deploySingleMine(state, target);
     }
+  }
+
+  private isCombatGoal(): boolean {
+    return this.goal === 'attack' || this.goal === 'harass' || this.goal === 'defend' || this.goal === 'chase';
+  }
+
+  private deploySingleMine(state: GameState, aimWorld: Vec2): void {
+    if (this.ship.specialFireTimer > 0 || this.ship.battery < MINE_BATTERY_COST) return;
+
+    const angle = this.ship.position.angleTo(aimWorld);
+    const spawn = new Vec2(
+      this.ship.position.x + Math.cos(angle) * AI_MINE_DEPLOY_OFFSET,
+      this.ship.position.y + Math.sin(angle) * AI_MINE_DEPLOY_OFFSET,
+    );
+    const speed = randomRange(MINE_INITIAL_SPEED_MIN, MINE_INITIAL_SPEED_MAX);
+    state.addEntity(new CrossLaserMine(this.ship.team, spawn, angle, speed, this.ship, state));
+    this.ship.specialFireTimer = MINE_COOLDOWN_SECS;
+    this.ship.battery -= MINE_BATTERY_COST;
+    Audio.playSoundAt('missile', state.player.alive ? state.player.position.distanceTo(this.ship.position) : 9999);
   }
 
   /** Set ship's desired move vector. `scale` 0..1 reduces effective magnitude. */
