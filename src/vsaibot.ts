@@ -148,7 +148,7 @@ export class AIShip extends PlayerShip {
 // Vs. AI director
 // ---------------------------------------------------------------------------
 
-type Goal = 'patrol' | 'harass' | 'attack' | 'retreat' | 'defend' | 'chase' | 'build';
+type Goal = 'patrol' | 'harass' | 'attack' | 'retreat' | 'defend' | 'chase' | 'build' | 'scout';
 
 interface KnownTarget {
   entity: Entity;
@@ -200,6 +200,12 @@ const GOAL_PHRASES: Record<Goal, string[]> = {
     'Expanding the base perimeter.',
     'Positioning for construction.',
   ],
+  scout:   [
+    'Moving to observe your position.',
+    'Checking your defenses.',
+    'Scouting the perimeter.',
+    'Advancing to gather intelligence.',
+  ],
 };
 
 export class VsAIDirector {
@@ -244,6 +250,11 @@ export class VsAIDirector {
     nextUpdateAt: number;
   } | null = null;
   /**
+   * Cooldown (seconds) before the director will pick a 'scout' goal again.
+   * Initialized to a positive value so scouting doesn't happen at game-start.
+   */
+  private scoutCooldown: number = 30;
+  /**
    * Optional reference to the base planner for coordination.
    * When set, the director can escort construction sites, defend damaged
    * rings, and harass the player's most valuable asset.
@@ -280,6 +291,9 @@ export class VsAIDirector {
 
     // Decay chat cooldown.
     if (this.chatCooldown > 0) this.chatCooldown = Math.max(0, this.chatCooldown - dt);
+
+    // Decay scout cooldown.
+    if (this.scoutCooldown > 0) this.scoutCooldown = Math.max(0, this.scoutCooldown - dt);
 
     // Update vision memory.
     this.refreshVision(state);
@@ -513,6 +527,20 @@ export class VsAIDirector {
       }
     }
 
+    // 7. Scout the player's base periodically on Normal+.
+    // This makes the AI hero actively probe enemy defenses rather than
+    // always retreating to its own CP when idle.
+    if (idx >= 1 && this.scoutCooldown <= 0) {
+      const scoutTarget = this.findPlayerBaseArea(state);
+      if (scoutTarget) {
+        this.setGoal('scout', state);
+        this.goalTarget = scoutTarget;
+        this.scoutCooldown = interpolateDifficulty([0, 58, 40, 25, 14], this.config);
+        this.reactionTimer = this.reactionDelay();
+        return;
+      }
+    }
+
     this.setGoal('patrol', state);
     const center = cp ? cp.position : this.ship.position;
     const angle = Math.random() * Math.PI * 2;
@@ -608,6 +636,35 @@ export class VsAIDirector {
       }
     }
     return best;
+  }
+
+  /**
+   * Find a scout destination near the player's base. Returns a point somewhat
+   * close to the player's last-known CP or player ship, offset by a random
+   * angle so repeated scouts approach from different directions.
+   */
+  private findPlayerBaseArea(state: GameState): Vec2 | null {
+    // Prefer a known player CP from memory.
+    for (const m of this.memory.values()) {
+      if (m.entity instanceof CommandPost && m.entity.team === Team.Player) {
+        const angle = Math.random() * Math.PI * 2;
+        const dist = 90 + Math.random() * 160;
+        return new Vec2(
+          m.lastSeenPos.x + Math.cos(angle) * dist,
+          m.lastSeenPos.y + Math.sin(angle) * dist,
+        );
+      }
+    }
+    // Fall back to somewhere near the player ship.
+    if (state.player.alive) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 80 + Math.random() * 130;
+      return new Vec2(
+        state.player.position.x + Math.cos(angle) * dist,
+        state.player.position.y + Math.sin(angle) * dist,
+      );
+    }
+    return null;
   }
 
   private findRetreatRallyPoint(state: GameState, cp: CommandPost, ship: AIShip): Vec2 {
@@ -770,6 +827,11 @@ export class VsAIDirector {
       // Mosey toward the patrol point at half thrust.
       this.setMove(toTarget, this.goal === 'build' ? 0.85 : 0.5);
       this.ship.wantsFire = false;
+    } else if (this.goal === 'scout') {
+      // Scout: advance toward player's base at moderate speed; fire
+      // opportunistically at anything visible along the way.
+      this.setMove(toTarget, 0.72);
+      this.ship.wantsFire = dist <= 320;
     } else if (this.goal === 'chase') {
       // Full-speed pursuit, firing opportunistically.
       this.setMove(toTarget);
@@ -831,6 +893,7 @@ export class VsAIDirector {
   }
 
   private isCombatGoal(): boolean {
+    // 'scout' is intentionally excluded — it's a movement goal, not a dedicated combat state.
     return this.goal === 'attack' || this.goal === 'harass' || this.goal === 'defend' || this.goal === 'chase';
   }
 

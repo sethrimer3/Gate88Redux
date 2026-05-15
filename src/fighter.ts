@@ -147,21 +147,29 @@ export class FighterShip extends Entity {
     const steerTarget = this.steeringTarget() ?? this.targetPos;
     const dist = this.position.distanceTo(this.targetPos);
     if (this.order === 'waypoint' || this.order === 'follow' || this.order === 'protect') {
-      const organicTarget = this.weaveTarget(steerTarget, 18);
+      const organicTarget = this.weaveTarget(steerTarget, 22 + this.orbitRadius * 0.35);
       this.steerTowards(organicTarget, dt);
       this.thrustForward(dt * (dist < 55 ? 0.35 : 0.85));
       return;
     }
     if (dist < 90) {
-      const orbit = new Vec2(
-        this.targetPos.x - (this.position.y - this.targetPos.y),
-        this.targetPos.y + (this.position.x - this.targetPos.x),
+      const t = performance.now() * 0.001;
+      // Alternate orbit direction periodically per-ship to avoid predictable circles.
+      // Each ship has a unique swarmSeed so they all change direction at different times.
+      const orbitDir = Math.sin(t * (0.48 + (this.swarmSeed & 0xf) * 0.028) + this.orbitPhase * 2.5) > 0 ? 1 : -1;
+      const circleTarget = new Vec2(
+        this.targetPos.x - (this.position.y - this.targetPos.y) * orbitDir,
+        this.targetPos.y + (this.position.x - this.targetPos.x) * orbitDir,
       );
-      this.steerTowards(orbit, dt);
-      this.thrustForward(dt * 0.45);
+      // Overlay organic weave on the orbit to break the circular pattern.
+      const erraticTarget = this.weaveTarget(circleTarget, 24 + this.orbitRadius * 0.50);
+      this.steerTowards(erraticTarget, dt);
+      // Vary thrust to produce surges and slowdowns that feel alive.
+      const thrustPulse = 0.26 + 0.28 * (0.5 + 0.5 * Math.sin(t * 1.15 + this.orbitPhase));
+      this.thrustForward(dt * thrustPulse);
       return;
     }
-    this.steerTowards(this.weaveTarget(steerTarget, 14), dt);
+    this.steerTowards(this.weaveTarget(steerTarget, 18 + this.orbitRadius * 0.28), dt);
     this.thrustForward(dt);
   }
 

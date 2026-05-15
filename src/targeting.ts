@@ -1,5 +1,6 @@
 import { Vec2, wrapAngle } from './math.js';
 import { Entity, Team } from './entities.js';
+import { ProjectileBase } from './projectile.js';
 
 const EPSILON = 1e-5;
 const DEFAULT_MAX_PREDICTION_TIME = 1.2;
@@ -45,6 +46,10 @@ export function isHostileTeam(a: Team, b: Team): boolean {
 export function isCombatTargetValid(shooter: Entity, target: Entity | null | undefined, range: number): target is Entity {
   if (!target || !target.alive || target === shooter) return false;
   if (!isHostileTeam(shooter.team, target.team)) return false;
+  // Non-interceptable projectiles (plain bullets, lasers, etc.) cannot be meaningfully
+  // targeted or damaged; skip them. Interceptable projectiles (SwarmMissiles, mines)
+  // remain valid targets so they can be shot down.
+  if (target instanceof ProjectileBase && !target.interceptable) return false;
   if (!isFiniteVec(shooter.position) || !isFiniteVec(target.position)) return false;
   if (!Number.isFinite(range) || range <= 0) return false;
   return shooter.position.distanceTo(target.position) <= range;
