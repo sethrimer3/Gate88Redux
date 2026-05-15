@@ -39,6 +39,15 @@ const SUN_CY = -0.06;
 const PARALLAX_X = 0.018;
 const PARALLAX_Y = 0.018;
 
+export function getDistantSunScreenPosition(camera: Camera, screenW: number, screenH: number): { x: number; y: number } {
+  const dx = (camera.position.x - WORLD_WIDTH  * 0.5) * PARALLAX_X;
+  const dy = (camera.position.y - WORLD_HEIGHT * 0.5) * PARALLAX_Y;
+  return {
+    x: screenW * SUN_CX - dx,
+    y: screenH * SUN_CY - dy,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Ray counts per quality tier
 // ---------------------------------------------------------------------------

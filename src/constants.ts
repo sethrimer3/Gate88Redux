@@ -132,7 +132,9 @@ export const HP_VALUES = {
   fighterYard: 50,
   bomberYard: 80,
   turret: 30,
-  synonymousDriftMine: 6,
+  destructibleProjectile: 10,
+  mine: 10,
+  synonymousDriftMine: 10,
 } as const;
 
 export const ACTIVE_RESEARCH_ITEMS = [

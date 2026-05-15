@@ -7,6 +7,7 @@ import { TICK_RATE } from './constants.js';
 import { Shipyard } from './building.js';
 import { Colors, colorToCSS, Color } from './colors.js';
 import { ENTITY_RADIUS, HP_VALUES, PLAYER_SHIP_SCALE, SHIP_STATS, WEAPON_STATS } from './constants.js';
+import { teamColor } from './teamutils.js';
 
 export type FighterOrder = 'idle' | 'attack' | 'dock' | 'defend' | 'escort' | 'harass' | 'protect' | 'waypoint' | 'follow';
 
@@ -76,7 +77,7 @@ export class FighterShip extends Entity {
       team,
       position,
       SHIP_STATS.fighter.health,
-      ENTITY_RADIUS.fighter * (team === Team.Player ? PLAYER_SHIP_SCALE : 1),
+      ENTITY_RADIUS.fighter * PLAYER_SHIP_SCALE,
     );
     this.group = group;
     this.homeYard = homeYard;
@@ -344,7 +345,7 @@ export class FighterShip extends Entity {
     if (!this.alive || this.docked) return;
     const screen = camera.worldToScreen(this.position);
     const r = this.radius * camera.zoom;
-    const coreColor = this.team === Team.Player ? Colors.mainguy : Colors.enemy_status;
+    const coreColor = teamColor(this.team);
     this.drawMotionTrail(ctx, camera, coreColor);
 
     // Damage flicker: near-death fighters flicker their outline and twist slightly
@@ -366,11 +367,17 @@ export class FighterShip extends Entity {
     ctx.rotate(this.angle + twistOffset);
 
     // Ship body: small triangle, team-colored outline
-    const friendlyOutline = colorToCSS(Colors.bullet_player_cannon, outlineAlpha);
-    const enemyOutline = colorToCSS(Colors.bullet_enemy_turret, outlineAlpha);
-    ctx.strokeStyle = this.team === Team.Player ? friendlyOutline : enemyOutline;
+    ctx.strokeStyle = colorToCSS(teamColor(this.team), outlineAlpha);
     ctx.lineWidth = 1.2;
     ctx.beginPath();
+    if (this.team !== Team.Player) {
+      ctx.moveTo(-r * 0.18, -r * 0.12);
+      ctx.lineTo(-r * 1.0, -r * 0.92);
+      ctx.lineTo(-r * 0.58, -r * 0.30);
+      ctx.moveTo(-r * 0.18, r * 0.12);
+      ctx.lineTo(-r * 1.0, r * 0.92);
+      ctx.lineTo(-r * 0.58, r * 0.30);
+    }
     ctx.moveTo(r * 1.2, 0);
     ctx.lineTo(-r * 0.6, -r * 0.6);
     ctx.lineTo(-r * 0.3, 0);
@@ -683,7 +690,7 @@ export class BomberShip extends FighterShip {
     if (!this.alive || this.docked) return;
     const screen = camera.worldToScreen(this.position);
     const r = this.radius * camera.zoom;
-    const coreColor = this.team === Team.Player ? Colors.mainguy : Colors.enemy_status;
+    const coreColor = teamColor(this.team);
     this.drawMotionTrail(ctx, camera, coreColor);
 
     ctx.save();

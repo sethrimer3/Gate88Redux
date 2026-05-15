@@ -13,6 +13,7 @@ import {
 import { GRID_CELL_SIZE } from './grid.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
 import { teamColor } from './teamutils.js';
+import { getDistantSunScreenPosition } from './suns.js';
 
 interface BaseVisual {
   side: number;
@@ -70,9 +71,8 @@ export abstract class BuildingBase extends Entity {
     ctx.save();
     ctx.globalAlpha = Math.max(0.15, this.buildProgress);
     const damage = 1 - Math.max(0, Math.min(1, this.healthFraction));
-    ctx.fillStyle = `rgba(58, 77, 64, ${0.96 - damage * 0.18})`;
-    ctx.fillRect(x, y, v.side, v.side);
-    this.drawSunEdgeGlare(ctx, x, y, v.side, v.simple);
+    this.drawCinematicBuildingFill(ctx, x, y, v.side, camera, damage);
+    this.drawSunEdgeGlare(ctx, x, y, v.side, v.simple, camera);
     if (damage > 0.02) this.drawDamageWear(ctx, x, y, v.side, damage);
     ctx.strokeStyle = colorToCSS(Colors.advanced_building, 0.55);
     ctx.lineWidth = Math.max(1, v.side * 0.02);
@@ -99,31 +99,86 @@ export abstract class BuildingBase extends Entity {
     return v;
   }
 
-  private drawSunEdgeGlare(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, simple: boolean): void {
-    const band = Math.max(2, s * (simple ? 0.18 : 0.14));
+  private drawCinematicBuildingFill(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, camera: Camera, damage: number): void {
+    const sun = getDistantSunScreenPosition(camera, ctx.canvas.width, ctx.canvas.height);
+    const cx = x + s * 0.5;
+    const cy = y + s * 0.5;
+    const toSunX = sun.x - cx;
+    const toSunY = sun.y - cy;
+    const dist = Math.max(1, Math.hypot(toSunX, toSunY));
+    const lx = toSunX / dist;
+    const ly = toSunY / dist;
+    const shade = Math.max(0.55, 1 - damage * 0.24);
+    const grad = ctx.createLinearGradient(
+      cx + lx * s * 0.72,
+      cy + ly * s * 0.72,
+      cx - lx * s * 0.78,
+      cy - ly * s * 0.78,
+    );
+    grad.addColorStop(0, `rgba(126, 78, 37, ${(0.98 * shade).toFixed(3)})`);
+    grad.addColorStop(0.22, `rgba(83, 91, 70, ${(0.96 * shade).toFixed(3)})`);
+    grad.addColorStop(0.62, `rgba(34, 48, 45, ${(0.96 * shade).toFixed(3)})`);
+    grad.addColorStop(1, `rgba(12, 18, 22, ${(0.98 * shade).toFixed(3)})`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, y, s, s);
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'multiply';
+    const shadow = ctx.createLinearGradient(
+      cx - lx * s * 0.34,
+      cy - ly * s * 0.34,
+      cx + lx * s * 0.62,
+      cy + ly * s * 0.62,
+    );
+    shadow.addColorStop(0, 'rgba(0, 2, 5, 0.38)');
+    shadow.addColorStop(0.72, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = shadow;
+    ctx.fillRect(x, y, s, s);
+    ctx.restore();
+  }
+
+  private drawSunEdgeGlare(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, simple: boolean, camera: Camera): void {
+    const band = Math.max(3, s * (simple ? 0.24 : 0.20));
+    const sun = getDistantSunScreenPosition(camera, ctx.canvas.width, ctx.canvas.height);
+    const cx = x + s * 0.5;
+    const cy = y + s * 0.5;
+    const toSunX = sun.x - cx;
+    const toSunY = sun.y - cy;
+    const dist = Math.max(1, Math.hypot(toSunX, toSunY));
+    const lx = toSunX / dist;
+    const ly = toSunY / dist;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
 
-    const topGrad = ctx.createLinearGradient(x, y, x, y + band);
-    topGrad.addColorStop(0, 'rgba(255, 235, 78, 0.46)');
-    topGrad.addColorStop(0.28, 'rgba(223, 105, 30, 0.26)');
-    topGrad.addColorStop(1, 'rgba(223, 105, 30, 0)');
-    ctx.fillStyle = topGrad;
-    ctx.fillRect(x, y, s, band);
+    const sides = [
+      { nx: 0, ny: -1, x: x, y: y, w: s, h: band, gx0: x, gy0: y, gx1: x, gy1: y + band, line: [x + 1, y + 0.5, x + s - 1, y + 0.5] },
+      { nx: 1, ny: 0, x: x + s - band, y: y, w: band, h: s, gx0: x + s, gy0: y, gx1: x + s - band, gy1: y, line: [x + s - 0.5, y + 1, x + s - 0.5, y + s - 1] },
+      { nx: 0, ny: 1, x: x, y: y + s - band, w: s, h: band, gx0: x, gy0: y + s, gx1: x, gy1: y + s - band, line: [x + s - 1, y + s - 0.5, x + 1, y + s - 0.5] },
+      { nx: -1, ny: 0, x: x, y: y, w: band, h: s, gx0: x, gy0: y, gx1: x + band, gy1: y, line: [x + 0.5, y + s - 1, x + 0.5, y + 1] },
+    ] as const;
 
-    const rightGrad = ctx.createLinearGradient(x + s, y, x + s - band, y);
-    rightGrad.addColorStop(0, 'rgba(255, 239, 92, 0.52)');
-    rightGrad.addColorStop(0.32, 'rgba(204, 87, 24, 0.30)');
-    rightGrad.addColorStop(1, 'rgba(204, 87, 24, 0)');
-    ctx.fillStyle = rightGrad;
-    ctx.fillRect(x + s - band, y, band, s);
+    for (const side of sides) {
+      const facing = side.nx * lx + side.ny * ly;
+      if (facing <= 0.02) continue;
+      const alpha = Math.min(0.92, 0.22 + facing * 0.78);
+      const grad = ctx.createLinearGradient(side.gx0, side.gy0, side.gx1, side.gy1);
+      grad.addColorStop(0, `rgba(255, 232, 121, ${(alpha * 0.68).toFixed(3)})`);
+      grad.addColorStop(0.22, `rgba(255, 126, 31, ${(alpha * 0.72).toFixed(3)})`);
+      grad.addColorStop(1, 'rgba(177, 45, 11, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(side.x, side.y, side.w, side.h);
+    }
 
-    ctx.strokeStyle = 'rgba(255, 246, 112, 0.78)';
+    ctx.strokeStyle = 'rgba(255, 151, 40, 0.94)';
     ctx.lineWidth = Math.max(1, s * 0.018);
     ctx.beginPath();
-    ctx.moveTo(x + 1, y + 0.5);
-    ctx.lineTo(x + s - 0.5, y + 0.5);
-    ctx.lineTo(x + s - 0.5, y + s - 1);
+    for (const side of sides) {
+      const facing = side.nx * lx + side.ny * ly;
+      if (facing <= 0.18) continue;
+      const line = side.line;
+      ctx.moveTo(line[0], line[1]);
+      ctx.lineTo(line[2], line[3]);
+    }
     ctx.stroke();
     ctx.restore();
   }

@@ -38,6 +38,7 @@ import { tryFireSpecial } from './special.js';
 import type { EnemyBasePlanner } from './enemybaseplanner.js';
 import { aimAngle, aimAtEntity, recordCombatAimSample } from './targeting.js';
 import { WEAPON_STATS } from './constants.js';
+import { teamColor } from './teamutils.js';
 import { buildingBlocksShips, buildingShipCollisionRect } from './buildingCollision.js';
 import { GRID_CELL_SIZE } from './grid.js';
 
@@ -108,8 +109,24 @@ export class AIShip extends PlayerShip {
     // a unique entity rather than just another enemy fighter.
     const screen = camera.worldToScreen(this.position);
     const r = this.radius * camera.zoom;
+    const color = teamColor(this.team);
     ctx.save();
-    ctx.strokeStyle = colorToCSS(Colors.alert1, 0.55);
+    ctx.translate(screen.x, screen.y);
+    ctx.rotate(this.angle);
+    ctx.strokeStyle = colorToCSS(color, 0.75);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-r * 0.10, -r * 0.38);
+    ctx.lineTo(-r * 1.30, -r * 1.14);
+    ctx.lineTo(-r * 0.78, -r * 0.20);
+    ctx.moveTo(-r * 0.10, r * 0.38);
+    ctx.lineTo(-r * 1.30, r * 1.14);
+    ctx.lineTo(-r * 0.78, r * 0.20);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.strokeStyle = colorToCSS(color, 0.45);
     ctx.lineWidth = 1.5;
     ctx.setLineDash([3, 4]);
     ctx.beginPath();

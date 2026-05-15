@@ -9,6 +9,8 @@ import { ENTITY_RADIUS, PLAYER_SHIP_SCALE, SHIP_STATS, PLAYER_SPAWN_INVINCIBILIT
 import { DEFAULT_SPECIAL_ID } from './special.js';
 import type { FactionType } from './confluence.js';
 import { SynonymousShipRenderer } from './synonymousShipRenderer.js';
+import { teamColor } from './teamutils.js';
+import { getDistantSunScreenPosition } from './suns.js';
 
 const BATTERY_MAX = 100;
 const BATTERY_REGEN_RATE = 16;
@@ -158,7 +160,7 @@ export class PlayerShip extends Entity {
       team,
       position,
       SHIP_STATS.mainguy.health,
-      ENTITY_RADIUS.mainguy * (team === Team.Player ? PLAYER_SHIP_SCALE : 1),
+      ENTITY_RADIUS.mainguy * PLAYER_SHIP_SCALE,
     );
     this.turnRate = SHIP_STATS.mainguy.turnRate;
     this.thrustPower = SHIP_STATS.mainguy.speed;
@@ -541,7 +543,7 @@ export class PlayerShip extends Entity {
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     if (!this.alive) return;
-    const coreColor = this.team === Team.Player ? Colors.mainguy : Colors.enemy_status;
+    const coreColor = teamColor(this.team);
     this.drawMotionTrail(ctx, camera, coreColor);
     if (this.faction === 'synonymous') {
       if (!this.synonymousRenderer) this.synonymousRenderer = new SynonymousShipRenderer();
@@ -573,10 +575,7 @@ export class PlayerShip extends Entity {
     }
 
     // Ship body: triangle / arrow shape
-    const shipColor =
-      this.team === Team.Player
-        ? colorToCSS(Colors.mainguy)
-        : colorToCSS(Colors.enemy_status);
+    const shipColor = colorToCSS(teamColor(this.team));
     ctx.fillStyle = this.team === Team.Player
       ? 'rgba(20, 36, 32, 0.72)'
       : 'rgba(42, 18, 20, 0.72)';
@@ -587,7 +586,7 @@ export class PlayerShip extends Entity {
     ctx.lineTo(-r, r * 0.7);
     ctx.closePath();
     ctx.fill();
-    this.drawSunRimGlare(ctx, screen, r);
+    this.drawSunRimGlare(ctx, camera, screen, r);
     ctx.strokeStyle = shipColor;
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -755,11 +754,10 @@ export class PlayerShip extends Entity {
     }
   }
 
-  private drawSunRimGlare(ctx: CanvasRenderingContext2D, screen: Vec2, r: number): void {
-    const sunX = ctx.canvas.width * 0.84;
-    const sunY = ctx.canvas.height * 0.16;
-    const toSunX = sunX - screen.x;
-    const toSunY = sunY - screen.y;
+  private drawSunRimGlare(ctx: CanvasRenderingContext2D, camera: Camera, screen: Vec2, r: number): void {
+    const sun = getDistantSunScreenPosition(camera, ctx.canvas.width, ctx.canvas.height);
+    const toSunX = sun.x - screen.x;
+    const toSunY = sun.y - screen.y;
     const dist = Math.max(1, Math.hypot(toSunX, toSunY));
     const cosA = Math.cos(-this.angle);
     const sinA = Math.sin(-this.angle);
@@ -786,14 +784,14 @@ export class PlayerShip extends Entity {
       const ny = -dx / edgeLen;
       const facing = nx * localSunX + ny * localSunY;
       if (facing <= 0.12) continue;
-      const alpha = Math.min(0.72, 0.22 + facing * 0.52);
-      ctx.strokeStyle = `rgba(195, 77, 18, ${(alpha * 0.62).toFixed(3)})`;
-      ctx.lineWidth = Math.max(2, r * 0.34);
+      const alpha = Math.min(0.88, 0.26 + facing * 0.62);
+      ctx.strokeStyle = `rgba(182, 49, 12, ${(alpha * 0.72).toFixed(3)})`;
+      ctx.lineWidth = Math.max(2, r * 0.38);
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);
       ctx.lineTo(b.x, b.y);
       ctx.stroke();
-      ctx.strokeStyle = `rgba(255, 239, 86, ${alpha.toFixed(3)})`;
+      ctx.strokeStyle = `rgba(255, 138, 35, ${alpha.toFixed(3)})`;
       ctx.lineWidth = Math.max(1, r * 0.12);
       ctx.beginPath();
       ctx.moveTo(a.x, a.y);

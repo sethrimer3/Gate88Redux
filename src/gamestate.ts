@@ -1293,9 +1293,10 @@ export class GameState {
         const dist = swarm.position.distanceTo(bullet.position);
         if (dist < swarm.radius + bullet.radius) {
           bullet.destroy(); // the intercepting bullet is consumed
-          // Trigger the swarm missile's blast before marking it dead
-          this.detonateProjectile(swarm);
-          swarm.destroy();
+          swarm.takeDamage(Math.max(1, Math.abs(bullet.damage)), bullet);
+          this.recentlyDamaged.add(swarm.id);
+          this.particles.emitSpark(swarm.position);
+          if (!swarm.alive) this.detonateProjectile(swarm);
           break; // this swarm missile is gone; move to the next one
         }
       }

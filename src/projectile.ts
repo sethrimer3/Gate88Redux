@@ -4,7 +4,7 @@ import { Vec2, wrapAngle } from './math.js';
 import { Camera } from './camera.js';
 import { Entity, EntityType, Team } from './entities.js';
 import { Colors, colorToCSS } from './colors.js';
-import { ENTITY_RADIUS, WEAPON_STATS, SWARM_MISSILE_DAMAGE_MULTIPLIER } from './constants.js';
+import { ENTITY_RADIUS, HP_VALUES, WEAPON_STATS, SWARM_MISSILE_DAMAGE_MULTIPLIER } from './constants.js';
 
 const BULLET_TRAIL_LIFETIME = 0.12;
 const BULLET_TRAIL_MIN_DISTANCE = 2;
@@ -457,6 +457,8 @@ export class GuidedMissile extends ProjectileBase {
       source,
     });
     this.radius = ENTITY_RADIUS.missile * 1.7;
+    this.health = HP_VALUES.destructibleProjectile;
+    this.maxHealth = HP_VALUES.destructibleProjectile;
     this.interceptable = true;
     if (this.isPlayerShipFire()) this.enableCometTrail(3.5);
   }
@@ -1208,6 +1210,8 @@ export class SwarmMissile extends ProjectileBase {
       source,
     });
     this.radius = ENTITY_RADIUS.missile * 1.1;
+    this.health = HP_VALUES.destructibleProjectile;
+    this.maxHealth = HP_VALUES.destructibleProjectile;
     this.interceptable = true; // enemy bullets can destroy swarm missiles
   }
 

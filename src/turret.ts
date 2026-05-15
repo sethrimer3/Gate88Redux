@@ -17,7 +17,11 @@ export const EXCITER_DAMAGE = WEAPON_STATS.exciterbeam.damage;
 const EXCITER_LOCK_CIRCLE_RADIUS = 18;
 
 function isExciterLockTarget(entity: Entity): boolean {
-  return !(entity instanceof ProjectileBase) || entity.interceptable;
+  return isTurretTargetableEntity(entity);
+}
+
+function isTurretTargetableEntity(entity: Entity): boolean {
+  return !(entity instanceof ProjectileBase) || (entity.interceptable && entity.maxHealth > 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +92,7 @@ export abstract class TurretBase extends BuildingBase {
     if (this.fireTimer > 0 || !isCombatTargetValid(this, this.targetEntity, this.range)) {
       return false;
     }
+    if (!isTurretTargetableEntity(this.targetEntity)) return false;
     const aim = this.computeAim(this.targetEntity);
     const angle = aimAngle(aim);
     if (angle === null || !isFiniteVec(aim.direction)) return false;
@@ -111,11 +116,12 @@ export abstract class TurretBase extends BuildingBase {
    * For most turrets this means nearest enemy; RegenTurret overrides this.
    */
   acquireTarget(entities: Entity[]): void {
-    if (isCombatTargetValid(this, this.targetEntity, this.range)) return;
+    if (isCombatTargetValid(this, this.targetEntity, this.range) && isTurretTargetableEntity(this.targetEntity)) return;
     let best: Entity | null = null;
     let bestDist = this.range;
     for (const e of entities) {
       if (!e.alive || !isHostileTeam(this.team, e.team)) continue;
+      if (!isTurretTargetableEntity(e)) continue;
       const d = this.position.distanceTo(e.position);
       if (d < bestDist) {
         bestDist = d;

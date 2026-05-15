@@ -24,6 +24,7 @@ import { Entity, EntityType, Team } from './entities.js';
 import { Colors, colorToCSS } from './colors.js';
 import {
   ENTITY_RADIUS,
+  HP_VALUES,
   MINE_LIFETIME_SECS,
   MINE_LASER_RANGE,
   MINE_LASER_THICKNESS,
@@ -183,6 +184,9 @@ export class CrossLaserMine extends ProjectileBase {
       source,
     });
     this.radius = MINE_BODY_RADIUS;
+    this.health = HP_VALUES.mine;
+    this.maxHealth = HP_VALUES.mine;
+    this.interceptable = true;
     this.gameState = state;
 
     // Randomise rotation parameters once; they stay fixed for the mine's life.
