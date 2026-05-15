@@ -155,7 +155,8 @@ export class FighterShip extends Entity {
     if (dist < 90) {
       const t = performance.now() * 0.001;
       // Alternate orbit direction periodically per-ship to avoid predictable circles.
-      // Each ship has a unique swarmSeed so they all change direction at different times.
+      // Base frequency ~0.48 rad/s + per-ship seed offset (low 4 bits × 0.028) gives
+      // each fighter a unique flip interval (~2–8 s).  Phase offset further de-syncs them.
       const orbitDir = Math.sin(t * (0.48 + (this.swarmSeed & 0xf) * 0.028) + this.orbitPhase * 2.5) > 0 ? 1 : -1;
       const circleTarget = new Vec2(
         this.targetPos.x - (this.position.y - this.targetPos.y) * orbitDir,
@@ -164,7 +165,7 @@ export class FighterShip extends Entity {
       // Overlay organic weave on the orbit to break the circular pattern.
       const erraticTarget = this.weaveTarget(circleTarget, 24 + this.orbitRadius * 0.50);
       this.steerTowards(erraticTarget, dt);
-      // Vary thrust to produce surges and slowdowns that feel alive.
+      // Thrust ranges 0.26–0.54 (min + amplitude × sine) — surges and slowdowns.
       const thrustPulse = 0.26 + 0.28 * (0.5 + 0.5 * Math.sin(t * 1.15 + this.orbitPhase));
       this.thrustForward(dt * thrustPulse);
       return;

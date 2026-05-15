@@ -26,6 +26,10 @@ import { aimAngle, aimAtEntity, isCombatTargetValid, recordCombatAimSample } fro
 
 const TURRET_FIRE_CHECK_INTERVAL = 0.1;
 const AI_MAIN_SHIP_ORDER_RADIUS = 1000;
+/** Spawn-group rotation order: enemy fighters cycle Red→Green→Blue. */
+const SPAWN_GROUPS = [ShipGroup.Red, ShipGroup.Green, ShipGroup.Blue] as const;
+/** Pixel variance added to the flank target so repeated attacks vary slightly. */
+const FLANK_POSITION_VARIANCE = 60;
 
 /** Interval (seconds) between player-threat evaluations. */
 const THREAT_EVAL_INTERVAL = 10;
@@ -348,8 +352,8 @@ export class PracticeMode {
       if (b.shouldSpawnShip()) {
         // Cycle through Red/Green/Blue groups so fighters are naturally distributed
         // across all three groups for later group-based tactical orders.
-        const groupIndex = this._spawnGroupCounter++ % 3;
-        const spawnGroup = ([ShipGroup.Red, ShipGroup.Green, ShipGroup.Blue] as ShipGroup[])[groupIndex];
+        const groupIndex = this._spawnGroupCounter++ % SPAWN_GROUPS.length;
+        const spawnGroup = SPAWN_GROUPS[groupIndex];
         const synonymous = isSynonymousFaction(state.factionByTeam, Team.Enemy);
         const fighter = synonymous && b.type === EntityType.BomberYard
           ? new SynonymousNovaBomberShip(b.bayPosition(), Team.Enemy, spawnGroup, b)
@@ -405,7 +409,7 @@ export class PracticeMode {
           if (len > 10) {
             const perpX = -toTarget.y / len;
             const perpY = toTarget.x / len;
-            const flankDist = 170 + (mainBuilding.position.x % 60); // slight variation
+            const flankDist = 170 + (mainBuilding.position.x % FLANK_POSITION_VARIANCE);
             greenFlankTarget = new Vec2(
               mainBuilding.position.x + perpX * flankDist,
               mainBuilding.position.y + perpY * flankDist,
