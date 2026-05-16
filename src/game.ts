@@ -104,6 +104,9 @@ export class Game {
   private lastRenderMs = 0;
   private waypointMarkers = new Map<ShipCommandGroup, WaypointMarker>();
   private commandModeState: CommandModeState = createCommandModeState();
+  private readonly issueShipOrderCallback = (group: ShipCommandGroup, order: string): void => {
+    this.issueShipOrder(group, order);
+  };
   /**
    * Accumulates total dt between fighter exhaust emissions.
    * Fighter exhaust is rate-limited (not every tick) to reduce particle count at scale.
@@ -487,7 +490,7 @@ export class Game {
           localTeam: this.localPlayerTeam(),
         },
         this.commandModeState,
-        (group, order) => this.issueShipOrder(group, order),
+        this.issueShipOrderCallback,
       );
     }
     updatePlayerFighterOrderTargets(this.state);

@@ -132,7 +132,7 @@ Previously completed from `game.ts`:
 `Game` now delegates command-drag selection, command-mode right-click orders,
 and follow/protect fighter retargeting to `commandMode.ts`.
 
-### `src/game.ts` — Build 045 (this PR)
+### `src/game.ts` — Build 044 (continued in this PR)
 
 **Extended extraction → `src/commandMode.ts`** (~280 lines total)
 
