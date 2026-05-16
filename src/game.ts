@@ -104,9 +104,7 @@ export class Game {
   private lastRenderMs = 0;
   private waypointMarkers = new Map<ShipCommandGroup, WaypointMarker>();
   private commandModeState: CommandModeState = createCommandModeState();
-  private readonly issueShipOrderCallback = (group: ShipCommandGroup, order: string): void => {
-    this.issueShipOrder(group, order);
-  };
+  private readonly boundIssueShipOrder = this.issueShipOrder.bind(this);
   /**
    * Accumulates total dt between fighter exhaust emissions.
    * Fighter exhaust is rate-limited (not every tick) to reduce particle count at scale.
@@ -490,7 +488,7 @@ export class Game {
           localTeam: this.localPlayerTeam(),
         },
         this.commandModeState,
-        this.issueShipOrderCallback,
+        this.boundIssueShipOrder,
       );
     }
     updatePlayerFighterOrderTargets(this.state);
@@ -1002,13 +1000,13 @@ export class Game {
     this.hud.showMessage(`Building ${def.label}…`, Colors.general_building, 2);
   }
 
-  private issueShipOrder(group: ShipCommandGroup, order: string): void {
+  private issueShipOrder(group: ShipCommandGroup, order: string, targetOverride?: Vec2): void {
     const fighters = this.getPlayerFightersForCommand(group);
     const label = this.groupLabel(group);
 
     switch (order) {
       case 'waypoint': {
-        const target = this.camera.screenToWorld(Input.mousePos);
+        const target = targetOverride?.clone() ?? this.camera.screenToWorld(Input.mousePos);
         this.recordWaypointMarker(group, target);
         for (const yard of this.playerShipyardsForCommand(group)) {
           yard.holdDocked = false;

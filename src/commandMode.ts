@@ -83,7 +83,7 @@ export function updatePlayerFighterOrderTargets(state: GameState): void {
 export function updateNumberGroupHotkeys(
   ctx: CommandModeCtx,
   commandModeState: CommandModeState,
-  issueShipOrder: (group: ShipCommandGroup, order: string) => void,
+  issueShipOrder: (group: ShipCommandGroup, order: string, targetOverride?: Vec2) => void,
 ): void {
   updateNumberGroupTapOrders(commandModeState, issueShipOrder);
   const group = groupFromHeldNumber();
@@ -111,7 +111,7 @@ export function updateNumberGroupHotkeys(
     return;
   }
 
-  issueShipOrder(group, 'waypoint');
+  issueShipOrder(group, 'waypoint', aimWorld);
 }
 
 function selectCommandUnits(
@@ -237,7 +237,7 @@ function groupFromHeldNumber(): ShipCommandGroup | null {
 
 function updateNumberGroupTapOrders(
   commandModeState: CommandModeState,
-  issueShipOrder: (group: ShipCommandGroup, order: string) => void,
+  issueShipOrder: (group: ShipCommandGroup, order: string, targetOverride?: Vec2) => void,
 ): void {
   const tapped = pressedNumberCommandGroup();
   if (!tapped) return;

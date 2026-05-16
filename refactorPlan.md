@@ -10,7 +10,7 @@ refactor is completed or a new large file is identified.
 
 | File | Lines | Status |
 |------|-------|--------|
-| `src/game.ts` | ~2,402 | 🔴 in progress |
+| `src/game.ts` | ~2,403 | 🔴 in progress |
 | `src/menu.ts` | 2,272 | 🔴 planned; online Supabase setup pass added more lobby/auth UI |
 | `src/gamestate.ts` | ~1,731 | 🟡 planned |
 
@@ -155,7 +155,7 @@ Removed from `game.ts`:
 
 ## Planned splits (not yet started)
 
-### `src/game.ts` (remaining ~2,402 lines)
+### `src/game.ts` (current ~2,403 lines)
 
 The `Game` class is the largest remaining monolith.  Next extraction:
 
