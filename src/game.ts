@@ -67,6 +67,7 @@ import {
   type CommandModeState,
   createCommandModeState,
   updateCommandMode,
+  updateNumberGroupHotkeys,
   updatePlayerFighterOrderTargets,
 } from './commandMode.js';
 
@@ -108,7 +109,6 @@ export class Game {
    * Fighter exhaust is rate-limited (not every tick) to reduce particle count at scale.
    */
   private fighterExhaustAccum: number = 0;
-  private lastGroupTap: { key: string; count: number; at: number } | null = null;
   private activeGuidedMissile: GuidedMissile | null = null;
   private spaceFluid: SpaceFluid;
   private glowLayer: GlowLayer;
@@ -477,7 +477,19 @@ export class Game {
       this.state.player.setAimPoint(aimWorld);
     }
 
-    if (!commandMode) this.updateNumberGroupHotkeys();
+    if (!commandMode) {
+      updateNumberGroupHotkeys(
+        {
+          camera: this.camera,
+          state: this.state,
+          hud: this.hud,
+          waypointMarkers: this.waypointMarkers,
+          localTeam: this.localPlayerTeam(),
+        },
+        this.commandModeState,
+        (group, order) => this.issueShipOrder(group, order),
+      );
+    }
     updatePlayerFighterOrderTargets(this.state);
 
     // LAN host OR online host: apply buffered remote inputs BEFORE the simulation tick so
@@ -1112,81 +1124,6 @@ export class Game {
     return group === 'all' ? 'ALL' : `Group ${group + 1}`;
   }
 
-  private groupFromHeldNumber(): ShipCommandGroup | null {
-    if (Input.isDown('1')) return ShipGroup.Red;
-    if (Input.isDown('2')) return ShipGroup.Green;
-    if (Input.isDown('3')) return ShipGroup.Blue;
-    if (Input.isDown('4')) return 'all';
-    return null;
-  }
-
-  private updateNumberGroupHotkeys(): void {
-    this.updateNumberGroupTapOrders();
-    const group = this.groupFromHeldNumber();
-    if (group === null) return;
-
-    if (Input.mouse2Pressed) {
-      Input.consumeMouseButton(2);
-      this.issueShipOrder(group, 'dock');
-      return;
-    }
-
-    if (!Input.mousePressed) return;
-    Input.consumeMouseButton(0);
-
-    const aimWorld = this.camera.screenToWorld(Input.mousePos);
-    const yard = this.findPlayerShipyardAt(aimWorld);
-    if (yard && group !== 'all') {
-      yard.assignedGroup = group;
-      for (const f of this.state.fighters) {
-        if (f.alive && f.team === Team.Player && f.homeYard === yard) {
-          f.group = group;
-        }
-      }
-      this.hud.showMessage(`Shipyard assigned to ${group + 1}`, Colors.alert2, 2);
-      return;
-    }
-
-    const fighters = this.getPlayerFightersForCommand(group);
-    this.recordWaypointMarker(group, aimWorld);
-    for (const yard of this.playerShipyardsForCommand(group)) {
-      yard.holdDocked = false;
-    }
-    for (const f of fighters) {
-      f.order = 'waypoint';
-      f.targetPos = aimWorld.clone();
-      if (f.docked) f.launch();
-    }
-    this.hud.showMessage(`${this.groupLabel(group)}: Waypoint`, Colors.general_building, 2);
-  }
-
-  private updateNumberGroupTapOrders(): void {
-    const tapped = this.pressedNumberCommandGroup();
-    if (!tapped) return;
-
-    const now = performance.now();
-    const previous = this.lastGroupTap;
-    const count = previous && previous.key === tapped.key && now - previous.at <= 300
-      ? previous.count + 1
-      : 1;
-    this.lastGroupTap = { key: tapped.key, count, at: now };
-
-    if (count === 2) {
-      this.issueShipOrder(tapped.group, 'follow');
-    } else if (count >= 3) {
-      this.issueShipOrder(tapped.group, 'protect');
-      this.lastGroupTap = null;
-    }
-  }
-
-  private pressedNumberCommandGroup(): { key: string; group: ShipCommandGroup } | null {
-    if (Input.wasPressed('1')) return { key: '1', group: ShipGroup.Red };
-    if (Input.wasPressed('2')) return { key: '2', group: ShipGroup.Green };
-    if (Input.wasPressed('3')) return { key: '3', group: ShipGroup.Blue };
-    if (Input.wasPressed('4')) return { key: '4', group: 'all' };
-    return null;
-  }
-
   private recordWaypointMarker(group: ShipCommandGroup, pos: Vec2): void {
     if (group === 'all') {
       this.waypointMarkers.clear();
@@ -1220,20 +1157,6 @@ export class Game {
         b instanceof Shipyard &&
         (group === 'all' || b.assignedGroup === group),
     );
-  }
-
-  private findPlayerShipyardAt(pos: Vec2): Shipyard | null {
-    let best: Shipyard | null = null;
-    let bestDist = Infinity;
-    for (const b of this.state.buildings) {
-      if (!b.alive || b.team !== Team.Player || !(b instanceof Shipyard)) continue;
-      const d = b.position.distanceTo(pos);
-      if (d <= b.radius * 1.8 && d < bestDist) {
-        best = b;
-        bestDist = d;
-      }
-    }
-    return best;
   }
 
   private findNearestEnemyBuildingOfType(type: EntityType): BuildingBase | null {
@@ -1284,6 +1207,7 @@ export class Game {
     this.commandModeState.selectedTurrets.clear();
     this.commandModeState.dragStart = null;
     this.commandModeState.dragCurrent = null;
+    this.commandModeState.lastGroupTap = null;
 
     this.spaceFluid.reset();
     this.spaceFluid.resize(this.screenW, this.screenH);

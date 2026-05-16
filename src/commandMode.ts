@@ -6,9 +6,10 @@ import { Vec2 } from './math.js';
 import { Input } from './input.js';
 import { Camera } from './camera.js';
 import { Colors } from './colors.js';
-import { Team, Entity } from './entities.js';
+import { Team, Entity, ShipGroup } from './entities.js';
 import type { GameState } from './gamestate.js';
 import { HUD } from './hud.js';
+import { Shipyard } from './building.js';
 import { TurretBase } from './turret.js';
 import { FighterShip } from './fighter.js';
 import type { ShipCommandGroup, WaypointMarker } from './gameRender.js';
@@ -19,6 +20,7 @@ export interface CommandModeState {
   selectedTurrets: Set<number>;
   dragStart: Vec2 | null;
   dragCurrent: Vec2 | null;
+  lastGroupTap: { key: string; count: number; at: number } | null;
 }
 
 export interface CommandModeCtx {
@@ -35,6 +37,7 @@ export function createCommandModeState(): CommandModeState {
     selectedTurrets: new Set<number>(),
     dragStart: null,
     dragCurrent: null,
+    lastGroupTap: null,
   };
 }
 
@@ -75,6 +78,40 @@ export function updatePlayerFighterOrderTargets(state: GameState): void {
       f.targetPos = threat?.position.clone() ?? basePos.clone();
     }
   }
+}
+
+export function updateNumberGroupHotkeys(
+  ctx: CommandModeCtx,
+  commandModeState: CommandModeState,
+  issueShipOrder: (group: ShipCommandGroup, order: string) => void,
+): void {
+  updateNumberGroupTapOrders(commandModeState, issueShipOrder);
+  const group = groupFromHeldNumber();
+  if (group === null) return;
+
+  if (Input.mouse2Pressed) {
+    Input.consumeMouseButton(2);
+    issueShipOrder(group, 'dock');
+    return;
+  }
+
+  if (!Input.mousePressed) return;
+  Input.consumeMouseButton(0);
+
+  const aimWorld = ctx.camera.screenToWorld(Input.mousePos);
+  const yard = findPlayerShipyardAt(ctx.state, aimWorld);
+  if (yard && group !== 'all') {
+    yard.assignedGroup = group;
+    for (const f of ctx.state.fighters) {
+      if (f.alive && f.team === Team.Player && f.homeYard === yard) {
+        f.group = group;
+      }
+    }
+    ctx.hud.showMessage(`Shipyard assigned to ${group + 1}`, Colors.alert2, 2);
+    return;
+  }
+
+  issueShipOrder(group, 'waypoint');
 }
 
 function selectCommandUnits(
@@ -185,6 +222,58 @@ function findNearestEnemyNear(
     if (d < bestDist) {
       bestDist = d;
       best = e;
+    }
+  }
+  return best;
+}
+
+function groupFromHeldNumber(): ShipCommandGroup | null {
+  if (Input.isDown('1')) return ShipGroup.Red;
+  if (Input.isDown('2')) return ShipGroup.Green;
+  if (Input.isDown('3')) return ShipGroup.Blue;
+  if (Input.isDown('4')) return 'all';
+  return null;
+}
+
+function updateNumberGroupTapOrders(
+  commandModeState: CommandModeState,
+  issueShipOrder: (group: ShipCommandGroup, order: string) => void,
+): void {
+  const tapped = pressedNumberCommandGroup();
+  if (!tapped) return;
+
+  const now = performance.now();
+  const previous = commandModeState.lastGroupTap;
+  const count = previous && previous.key === tapped.key && now - previous.at <= 300
+    ? previous.count + 1
+    : 1;
+  commandModeState.lastGroupTap = { key: tapped.key, count, at: now };
+
+  if (count === 2) {
+    issueShipOrder(tapped.group, 'follow');
+  } else if (count >= 3) {
+    issueShipOrder(tapped.group, 'protect');
+    commandModeState.lastGroupTap = null;
+  }
+}
+
+function pressedNumberCommandGroup(): { key: string; group: ShipCommandGroup } | null {
+  if (Input.wasPressed('1')) return { key: '1', group: ShipGroup.Red };
+  if (Input.wasPressed('2')) return { key: '2', group: ShipGroup.Green };
+  if (Input.wasPressed('3')) return { key: '3', group: ShipGroup.Blue };
+  if (Input.wasPressed('4')) return { key: '4', group: 'all' };
+  return null;
+}
+
+function findPlayerShipyardAt(state: GameState, pos: Vec2): Shipyard | null {
+  let best: Shipyard | null = null;
+  let bestDist = Infinity;
+  for (const b of state.buildings) {
+    if (!b.alive || b.team !== Team.Player || !(b instanceof Shipyard)) continue;
+    const d = b.position.distanceTo(pos);
+    if (d <= b.radius * 1.8 && d < bestDist) {
+      best = b;
+      bestDist = d;
     }
   }
   return best;

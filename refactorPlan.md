@@ -10,7 +10,7 @@ refactor is completed or a new large file is identified.
 
 | File | Lines | Status |
 |------|-------|--------|
-| `src/game.ts` | ~2,478 | 🔴 in progress |
+| `src/game.ts` | ~2,402 | 🔴 in progress |
 | `src/menu.ts` | 2,272 | 🔴 planned; online Supabase setup pass added more lobby/auth UI |
 | `src/gamestate.ts` | ~1,731 | 🟡 planned |
 
@@ -132,20 +132,39 @@ Previously completed from `game.ts`:
 `Game` now delegates command-drag selection, command-mode right-click orders,
 and follow/protect fighter retargeting to `commandMode.ts`.
 
+### `src/game.ts` — Build 045 (this PR)
+
+**Extended extraction → `src/commandMode.ts`** (~280 lines total)
+
+- Added `updateNumberGroupHotkeys` to move number-key hold/tap behavior out of
+  `Game` while preserving existing interactions:
+  - hold 1–4 + RMB issues dock orders,
+  - hold 1–4 + LMB issues waypoint or assigns shipyards,
+  - double-tap issues follow, triple-tap issues protect.
+- `CommandModeState` now owns tap state (`lastGroupTap`) so command-control
+  runtime state is centralized in one module-scoped state object.
+
+Removed from `game.ts`:
+- `groupFromHeldNumber`
+- `updateNumberGroupHotkeys`
+- `updateNumberGroupTapOrders`
+- `pressedNumberCommandGroup`
+- `findPlayerShipyardAt`
+
 ---
 
 ## Planned splits (not yet started)
 
-### `src/game.ts` (remaining ~2,478 lines)
+### `src/game.ts` (remaining ~2,402 lines)
 
 The `Game` class is the largest remaining monolith.  Next extraction:
 
-1. **Continue command controls split**
-   - Remaining in `game.ts`: `updateNumberGroupHotkeys`,
-     `updateNumberGroupTapOrders`, `pressedNumberCommandGroup`,
-     and `findPlayerShipyardAt`.
-   - Fold number-group tap/hold behavior into `src/commandMode.ts` with
-     a minimal callback surface for `issueShipOrder` and waypoint updates.
+1. **Finish command-order extraction**
+   - Remaining command-order helpers in `game.ts`:
+     `issueShipOrder`, `getPlayerFightersForCommand`, `groupLabel`,
+     `recordWaypointMarker`, `clearWaypointMarker`, `playerShipyardsForCommand`.
+   - Move these into `src/commandMode.ts` as order utility functions using
+     `state`, `hud`, `camera`, and `waypointMarkers` from context.
 
 
 ### `src/menu.ts` (2,272 lines)
