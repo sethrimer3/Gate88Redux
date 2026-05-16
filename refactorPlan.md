@@ -10,7 +10,7 @@ refactor is completed or a new large file is identified.
 
 | File | Lines | Status |
 |------|-------|--------|
-| `src/game.ts` | ~2,392 | 🔴 in progress |
+| `src/game.ts` | ~2,478 | 🔴 in progress |
 | `src/menu.ts` | 2,272 | 🔴 planned; online Supabase setup pass added more lobby/auth UI |
 | `src/gamestate.ts` | ~1,731 | 🟡 planned |
 
@@ -120,20 +120,32 @@ Previously completed from `game.ts`:
 - ✅ `src/gameOverlays.ts` — overlay/glow drawing helpers (Build 026)
 - ✅ `src/weaponFiring.ts` — player weapon firing logic (Build 026)
 
+### `src/game.ts` — Build 044 (this PR)
+
+**Extracted → `src/commandMode.ts`** (~190 lines)
+
+- `createCommandModeState`, `updateCommandMode`, `updatePlayerFighterOrderTargets`.
+- Internal command-mode helpers moved with the extracted module:
+  `selectCommandUnits`, `issueCommandModeOrder`, `findCommandEnemyAt`,
+  `findNearestEnemyNear`.
+
+`Game` now delegates command-drag selection, command-mode right-click orders,
+and follow/protect fighter retargeting to `commandMode.ts`.
+
 ---
 
 ## Planned splits (not yet started)
 
-### `src/game.ts` (remaining ~2,392 lines)
+### `src/game.ts` (remaining ~2,478 lines)
 
 The `Game` class is the largest remaining monolith.  Next extraction:
 
-1. **`src/commandMode.ts`** (~260 lines)
-   - `updateCommandMode`, `updateNumberGroupHotkeys`,
-     `updateNumberGroupTapOrders`, `updatePlayerFighterOrderTargets`.
-   - Needs a `CommandModeCtx` carrying `state, camera, hud,
-     commandSelectedFighters, commandSelectedTurrets,
-     commandDragStart, commandDragCurrent, lastGroupTap`.
+1. **Continue command controls split**
+   - Remaining in `game.ts`: `updateNumberGroupHotkeys`,
+     `updateNumberGroupTapOrders`, `pressedNumberCommandGroup`,
+     and `findPlayerShipyardAt`.
+   - Fold number-group tap/hold behavior into `src/commandMode.ts` with
+     a minimal callback surface for `issueShipOrder` and waypoint updates.
 
 
 ### `src/menu.ts` (2,272 lines)

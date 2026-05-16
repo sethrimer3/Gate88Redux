@@ -63,6 +63,12 @@ import {
   drawGlowLayer,
   drawScreenOverlays,
 } from './gameOverlays.js';
+import {
+  type CommandModeState,
+  createCommandModeState,
+  updateCommandMode,
+  updatePlayerFighterOrderTargets,
+} from './commandMode.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 
@@ -96,10 +102,7 @@ export class Game {
   private lastFixedUpdateMs = 0;
   private lastRenderMs = 0;
   private waypointMarkers = new Map<ShipCommandGroup, WaypointMarker>();
-  private commandSelectedFighters: Set<number> = new Set();
-  private commandSelectedTurrets: Set<number> = new Set();
-  private commandDragStart: Vec2 | null = null;
-  private commandDragCurrent: Vec2 | null = null;
+  private commandModeState: CommandModeState = createCommandModeState();
   /**
    * Accumulates total dt between fighter exhaust emissions.
    * Fighter exhaust is rate-limited (not every tick) to reduce particle count at scale.
@@ -451,10 +454,16 @@ export class Game {
 
     const commandMode = Input.isDown('c');
     if (commandMode) {
-      this.updateCommandMode();
+      updateCommandMode({
+        camera: this.camera,
+        state: this.state,
+        hud: this.hud,
+        waypointMarkers: this.waypointMarkers,
+        localTeam: this.localPlayerTeam(),
+      }, this.commandModeState);
     } else {
-      this.commandDragStart = null;
-      this.commandDragCurrent = null;
+      this.commandModeState.dragStart = null;
+      this.commandModeState.dragCurrent = null;
       // Action menu is processed FIRST so it can consume arrow keys before the
       // player ship's handleInput sees them.
       const menuResult = this.actionMenu.update(this.state, this.camera);
@@ -469,7 +478,7 @@ export class Game {
     }
 
     if (!commandMode) this.updateNumberGroupHotkeys();
-    this.updatePlayerFighterOrderTargets();
+    updatePlayerFighterOrderTargets(this.state);
 
     // LAN host OR online host: apply buffered remote inputs BEFORE the simulation tick so
     // remote players' inputs are always included in the current frame.
@@ -876,115 +885,6 @@ export class Game {
     return count;
   }
 
-  private updateCommandMode(): void {
-    if (Input.mousePressed) {
-      this.commandDragStart = Input.mousePos.clone();
-      this.commandDragCurrent = Input.mousePos.clone();
-      Input.consumeMouseButton(0);
-    }
-    if (this.commandDragStart && Input.mouseDown) {
-      this.commandDragCurrent = Input.mousePos.clone();
-    }
-    if (this.commandDragStart && Input.mouseReleased) {
-      this.commandDragCurrent = Input.mousePos.clone();
-      this.selectCommandUnits();
-      this.commandDragStart = null;
-      this.commandDragCurrent = null;
-      Input.consumeMouseButton(0);
-    }
-    if (Input.mouse2Pressed) {
-      this.issueCommandModeOrder();
-      Input.consumeMouseButton(2);
-    }
-  }
-
-  private selectCommandUnits(): void {
-    const a = this.commandDragStart;
-    const b = this.commandDragCurrent ?? this.commandDragStart;
-    if (!a || !b) return;
-    this.commandSelectedFighters.clear();
-    this.commandSelectedTurrets.clear();
-
-    const minX = Math.min(a.x, b.x);
-    const maxX = Math.max(a.x, b.x);
-    const minY = Math.min(a.y, b.y);
-    const maxY = Math.max(a.y, b.y);
-    const clickSelect = Math.abs(maxX - minX) < 8 && Math.abs(maxY - minY) < 8;
-    const localTeam = this.localPlayerTeam();
-
-    if (clickSelect) {
-      const world = this.camera.screenToWorld(b);
-      let best: FighterShip | TurretBase | null = null;
-      let bestDist = 90;
-      for (const f of this.state.fighters) {
-        if (!f.alive || f.docked || f.team !== localTeam) continue;
-        const d = f.position.distanceTo(world);
-        if (d < bestDist) { best = f; bestDist = d; }
-      }
-      for (const t of this.state.buildings) {
-        if (!t.alive || t.team !== localTeam || !(t instanceof TurretBase)) continue;
-        const d = t.position.distanceTo(world);
-        if (d < bestDist) { best = t; bestDist = d; }
-      }
-      if (best instanceof FighterShip) this.commandSelectedFighters.add(best.id);
-      else if (best instanceof TurretBase) this.commandSelectedTurrets.add(best.id);
-      return;
-    }
-
-    for (const f of this.state.fighters) {
-      if (!f.alive || f.docked || f.team !== localTeam) continue;
-      const p = this.camera.worldToScreen(f.position);
-      if (p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) this.commandSelectedFighters.add(f.id);
-    }
-    for (const t of this.state.buildings) {
-      if (!t.alive || t.team !== localTeam || !(t instanceof TurretBase)) continue;
-      const p = this.camera.worldToScreen(t.position);
-      if (p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) this.commandSelectedTurrets.add(t.id);
-    }
-  }
-
-  private issueCommandModeOrder(): void {
-    const targetPos = this.camera.screenToWorld(Input.mousePos);
-    const localTeam = this.localPlayerTeam();
-    const enemy = this.findCommandEnemyAt(targetPos, localTeam);
-
-    for (const f of this.state.fighters) {
-      if (!this.commandSelectedFighters.has(f.id) || !f.alive || f.team !== localTeam) continue;
-      f.order = 'waypoint';
-      f.targetPos = targetPos.clone();
-      if (f.docked) f.launch();
-    }
-    if (this.commandSelectedFighters.size > 0) {
-      this.waypointMarkers.set('all', { pos: targetPos.clone(), issuedAt: this.state.gameTime });
-    }
-
-    for (const b of this.state.buildings) {
-      if (!this.commandSelectedTurrets.has(b.id) || !b.alive || b.team !== localTeam || !(b instanceof TurretBase)) continue;
-      b.commandTarget = enemy;
-      if (enemy) b.targetEntity = enemy;
-    }
-
-    if (enemy && this.commandSelectedTurrets.size > 0) {
-      this.hud.showMessage(`Focus fire: ${this.commandSelectedTurrets.size} tower${this.commandSelectedTurrets.size === 1 ? '' : 's'}`, Colors.alert2, 1.5);
-    } else if (this.commandSelectedFighters.size > 0) {
-      this.hud.showMessage(`Move order: ${this.commandSelectedFighters.size} ship${this.commandSelectedFighters.size === 1 ? '' : 's'}`, Colors.general_building, 1.5);
-    }
-  }
-
-  private findCommandEnemyAt(pos: Vec2, localTeam: Team): Entity | null {
-    let best: Entity | null = null;
-    let bestDist = 140;
-    for (const e of this.state.allEntities()) {
-      if (!e.alive || !isHostile(localTeam, e.team)) continue;
-      const d = e.position.distanceTo(pos);
-      if (d <= e.radius + bestDist && d < bestDist) {
-        best = e;
-        bestDist = d;
-      }
-    }
-    return best;
-  }
-
   private updatePlayerShipyards(): void {
     for (const b of this.state.buildings) {
       if (!b.alive || b.team !== Team.Player) continue;
@@ -1350,34 +1250,6 @@ export class Game {
     return best;
   }
 
-  private updatePlayerFighterOrderTargets(): void {
-    const cp = this.state.getPlayerCommandPost();
-    for (const f of this.state.fighters) {
-      if (!f.alive || f.team !== Team.Player || f.docked) continue;
-      if (f.order === 'follow') {
-        f.targetPos = this.state.player.position.clone();
-      } else if (f.order === 'protect') {
-        const basePos = cp?.position ?? this.state.player.position;
-        const threat = this.findNearestEnemyNear(basePos, 650);
-        f.targetPos = threat?.position.clone() ?? basePos.clone();
-      }
-    }
-  }
-
-  private findNearestEnemyNear(pos: Vec2, range: number): { position: Vec2 } | null {
-    let best: { position: Vec2 } | null = null;
-    let bestDist = range;
-    for (const e of this.state.allEntities()) {
-      if (!e.alive || e.team !== Team.Enemy) continue;
-      const d = e.position.distanceTo(pos);
-      if (d < bestDist) {
-        bestDist = d;
-        best = e;
-      }
-    }
-    return best;
-  }
-
   private startGame(mode: 'tutorial' | 'practice' | 'vs_ai'): void {
     // Create fresh state
     const playerStart = new Vec2(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
@@ -1408,6 +1280,10 @@ export class Game {
     this.actionMenu = new ActionMenu();
     this.hud = new HUD();
     this.waypointMarkers.clear();
+    this.commandModeState.selectedFighters.clear();
+    this.commandModeState.selectedTurrets.clear();
+    this.commandModeState.dragStart = null;
+    this.commandModeState.dragCurrent = null;
 
     this.spaceFluid.reset();
     this.spaceFluid.resize(this.screenW, this.screenH);
@@ -2445,7 +2321,16 @@ export class Game {
     this.state.drawEntities(ctx, this.camera);
     drawGhostSpectator(ctx, this.camera, this.state, this.ghostSpectatorPos);
     drawWaypointMarkers(ctx, this.camera, this.state, this.waypointMarkers);
-    drawCommandModeOverlay(ctx, w, this.camera, this.state, this.commandSelectedFighters, this.commandSelectedTurrets, this.commandDragStart, this.commandDragCurrent);
+    drawCommandModeOverlay(
+      ctx,
+      w,
+      this.camera,
+      this.state,
+      this.commandModeState.selectedFighters,
+      this.commandModeState.selectedTurrets,
+      this.commandModeState.dragStart,
+      this.commandModeState.dragCurrent,
+    );
     drawGlowLayer(this.glowLayer, this.camera, this.state, this.visualPreset, renderBudget.renderLoadScale);
     this.glowLayer.compositeTo(ctx);
 
