@@ -64,8 +64,10 @@ import {
   drawScreenOverlays,
 } from './gameOverlays.js';
 import {
+  type CommandModeCtx,
   type CommandModeState,
   createCommandModeState,
+  issueShipOrder,
   updateCommandMode,
   updateNumberGroupHotkeys,
   updatePlayerFighterOrderTargets,
@@ -104,7 +106,11 @@ export class Game {
   private lastRenderMs = 0;
   private waypointMarkers = new Map<ShipCommandGroup, WaypointMarker>();
   private commandModeState: CommandModeState = createCommandModeState();
-  private readonly boundIssueShipOrder = this.issueShipOrder.bind(this);
+  private readonly boundIssueShipOrder = (
+    group: ShipCommandGroup,
+    order: string,
+    targetOverride?: Vec2,
+  ): void => issueShipOrder(this.commandModeCtx(), group, order, targetOverride);
   /**
    * Accumulates total dt between fighter exhaust emissions.
    * Fighter exhaust is rate-limited (not every tick) to reduce particle count at scale.
@@ -455,13 +461,7 @@ export class Game {
 
     const commandMode = Input.isDown('c');
     if (commandMode) {
-      updateCommandMode({
-        camera: this.camera,
-        state: this.state,
-        hud: this.hud,
-        waypointMarkers: this.waypointMarkers,
-        localTeam: this.localPlayerTeam(),
-      }, this.commandModeState);
+      updateCommandMode(this.commandModeCtx(), this.commandModeState);
     } else {
       this.commandModeState.dragStart = null;
       this.commandModeState.dragCurrent = null;
@@ -480,13 +480,7 @@ export class Game {
 
     if (!commandMode) {
       updateNumberGroupHotkeys(
-        {
-          camera: this.camera,
-          state: this.state,
-          hud: this.hud,
-          waypointMarkers: this.waypointMarkers,
-          localTeam: this.localPlayerTeam(),
-        },
+        this.commandModeCtx(),
         this.commandModeState,
         this.boundIssueShipOrder,
       );
@@ -852,6 +846,16 @@ export class Game {
     return Team.Player;
   }
 
+  private commandModeCtx(): CommandModeCtx {
+    return {
+      camera: this.camera,
+      state: this.state,
+      hud: this.hud,
+      waypointMarkers: this.waypointMarkers,
+      localTeam: this.localPlayerTeam(),
+    };
+  }
+
   private localTeamHasRespawnCommandPost(): boolean {
     return this.findRespawnCommandPost() !== null;
   }
@@ -948,7 +952,7 @@ export class Game {
         this.placeBuilding(result.buildingType, result.cell);
         break;
       case 'order':
-        this.issueShipOrder(result.group, result.order);
+        issueShipOrder(this.commandModeCtx(), result.group, result.order);
         break;
       case 'research':
         this.startResearch(result.item);
@@ -998,62 +1002,6 @@ export class Game {
     this.state.selectedBuildType = type;
     Audio.playSound('build');
     this.hud.showMessage(`Building ${def.label}…`, Colors.general_building, 2);
-  }
-
-  private issueShipOrder(group: ShipCommandGroup, order: string, targetOverride?: Vec2): void {
-    const fighters = this.getPlayerFightersForCommand(group);
-    const label = this.groupLabel(group);
-
-    switch (order) {
-      case 'waypoint': {
-        const target = targetOverride?.clone() ?? this.camera.screenToWorld(Input.mousePos);
-        this.recordWaypointMarker(group, target);
-        for (const yard of this.playerShipyardsForCommand(group)) {
-          yard.holdDocked = false;
-        }
-        for (const f of fighters) {
-          f.order = 'waypoint';
-          f.targetPos = target.clone();
-          if (f.docked) f.launch();
-        }
-        this.hud.showMessage(`${label}: Waypoint`, Colors.general_building, 2);
-        break;
-      }
-      case 'dock':
-        this.clearWaypointMarker(group);
-        for (const yard of this.playerShipyardsForCommand(group)) {
-          yard.holdDocked = true;
-        }
-        for (const f of fighters) {
-          f.order = 'dock';
-        }
-        this.hud.showMessage(`${label}: Dock`, Colors.general_building, 2);
-        break;
-      case 'protect': {
-        this.clearWaypointMarker(group);
-        const cp = this.state.getPlayerCommandPost();
-        const protectPos = cp?.position ?? this.state.player.position;
-        for (const f of fighters) {
-          f.order = 'protect';
-          f.targetPos = protectPos.clone();
-          if (f.docked) f.launch();
-        }
-        this.hud.showMessage(`${label}: Protect Base`, Colors.general_building, 2);
-        break;
-      }
-      case 'follow': {
-        this.clearWaypointMarker(group);
-        for (const f of fighters) {
-          f.order = 'follow';
-          f.targetPos = this.state.player.position.clone();
-          if (f.docked) f.launch();
-        }
-        this.hud.showMessage(`${label}: Follow Player`, Colors.general_building, 2);
-        break;
-      }
-      default:
-        break;
-    }
   }
 
   private startResearch(item: string): void {
@@ -1114,50 +1062,10 @@ export class Game {
     this.hud.showMessage(`Canceled research: ${researchDisplayName(item)}`, Colors.alert2, 3);
   }
 
-  private getPlayerFightersForCommand(group: ShipCommandGroup): FighterShip[] {
-    if (group === 'all') {
-      return this.state.fighters.filter((f) => f.alive && f.team === Team.Player);
-    }
-    return this.state.getFightersByGroup(Team.Player, group);
-  }
-
-  private groupLabel(group: ShipCommandGroup): string {
-    return group === 'all' ? 'ALL' : `Group ${group + 1}`;
-  }
-
-  private recordWaypointMarker(group: ShipCommandGroup, pos: Vec2): void {
-    if (group === 'all') {
-      this.waypointMarkers.clear();
-      this.waypointMarkers.set('all', { pos: pos.clone(), issuedAt: this.state.gameTime });
-      return;
-    }
-    this.waypointMarkers.delete('all');
-    this.waypointMarkers.set(group, { pos: pos.clone(), issuedAt: this.state.gameTime });
-  }
-
-  private clearWaypointMarker(group: ShipCommandGroup): void {
-    if (group === 'all') {
-      this.waypointMarkers.clear();
-      return;
-    }
-    this.waypointMarkers.delete(group);
-    this.waypointMarkers.delete('all');
-  }
-
   private getWaypointForGroup(group: ShipGroup): Vec2 | null {
     return this.waypointMarkers.get(group)?.pos.clone()
       ?? this.waypointMarkers.get('all')?.pos.clone()
       ?? null;
-  }
-
-  private playerShipyardsForCommand(group: ShipCommandGroup): Shipyard[] {
-    return this.state.buildings.filter(
-      (b): b is Shipyard =>
-        b.alive &&
-        b.team === Team.Player &&
-        b instanceof Shipyard &&
-        (group === 'all' || b.assignedGroup === group),
-    );
   }
 
   private findNearestEnemyBuildingOfType(type: EntityType): BuildingBase | null {

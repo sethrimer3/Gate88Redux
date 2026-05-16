@@ -151,6 +151,25 @@ Removed from `game.ts`:
 - `pressedNumberCommandGroup`
 - `findPlayerShipyardAt`
 
+### `src/game.ts` — Build 045 (this PR)
+
+**Extended extraction → `src/commandMode.ts`** (order utilities)
+
+- Added `issueShipOrder(ctx, group, order, targetOverride?)` to centralize
+  player command-order handling for:
+  - waypoint orders (including waypoint-marker updates),
+  - dock orders (including shipyard hold toggles),
+  - protect and follow orders.
+- Moved supporting helpers out of `Game` and into `commandMode.ts`:
+  - `getPlayerFightersForCommand`
+  - `groupLabel`
+  - `recordWaypointMarker`
+  - `clearWaypointMarker`
+  - `playerShipyardsForCommand`
+
+`Game` now delegates both action-menu order results and number-group hotkey
+callbacks through the extracted `issueShipOrder` utility.
+
 ---
 
 ## Planned splits (not yet started)
@@ -159,12 +178,10 @@ Removed from `game.ts`:
 
 The `Game` class is the largest remaining monolith.  Next extraction:
 
-1. **Finish command-order extraction**
-   - Remaining command-order helpers in `game.ts`:
-     `issueShipOrder`, `getPlayerFightersForCommand`, `groupLabel`,
-     `recordWaypointMarker`, `clearWaypointMarker`, `playerShipyardsForCommand`.
-   - Move these into `src/commandMode.ts` as order utility functions using
-     `state`, `hud`, `camera`, and `waypointMarkers` from context.
+1. **Continue gameplay-loop decomposition**
+   - Remaining medium-sized candidates in `game.ts`:
+     `updatePlaying`, `startGame`, and LAN snapshot/prediction handlers.
+   - Move these into focused runtime modules with explicit context objects.
 
 
 ### `src/menu.ts` (2,272 lines)
