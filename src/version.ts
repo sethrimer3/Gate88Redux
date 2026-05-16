@@ -10,10 +10,9 @@
  */
 
 /** Monotonic implementation-build counter. Increment by 1 per merged PR. */
-export const BUILD_NUMBER = 43;
+export const BUILD_NUMBER = 44;
 
 /** Human-readable build label, e.g. "Build 008". */
 export function buildLabel(): string {
   return `Build ${String(BUILD_NUMBER).padStart(3, '0')}`;
 }
-
