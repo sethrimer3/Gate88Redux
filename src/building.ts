@@ -74,12 +74,7 @@ export abstract class BuildingBase extends Entity {
     this.drawCinematicBuildingFill(ctx, x, y, v.side, camera, damage);
     this.drawSunEdgeGlare(ctx, x, y, v.side, v.simple, camera);
     if (damage > 0.02) this.drawDamageWear(ctx, x, y, v.side, damage);
-    ctx.strokeStyle = colorToCSS(Colors.advanced_building, 0.55);
-    ctx.lineWidth = Math.max(1, v.side * 0.02);
-    ctx.strokeRect(x + 1, y + 1, v.side - 2, v.side - 2);
-    ctx.strokeStyle = colorToCSS(Colors.enemy_background, 0.7);
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x + v.side * 0.12, y + v.side * 0.12, v.side * 0.76, v.side * 0.76);
+    this.drawDimPanelLines(ctx, x, y, v.side);
     const c = v.side * 0.12;
     ctx.fillStyle = colorToCSS(Colors.menu_background_detail, 0.45);
     ctx.fillRect(x, y, c, c); ctx.fillRect(x + v.side - c, y, c, c); ctx.fillRect(x, y + v.side - c, c, c); ctx.fillRect(x + v.side - c, y + v.side - c, c, c);
@@ -138,7 +133,7 @@ export abstract class BuildingBase extends Entity {
   }
 
   private drawSunEdgeGlare(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, simple: boolean, camera: Camera): void {
-    const band = Math.max(3, s * (simple ? 0.24 : 0.20));
+    const band = Math.max(3, s * (simple ? 0.28 : 0.22));
     const sun = getDistantSunScreenPosition(camera, ctx.canvas.width, ctx.canvas.height);
     const cx = x + s * 0.5;
     const cy = y + s * 0.5;
@@ -160,17 +155,19 @@ export abstract class BuildingBase extends Entity {
     for (const side of sides) {
       const facing = side.nx * lx + side.ny * ly;
       if (facing <= 0.02) continue;
-      const alpha = Math.min(0.92, 0.22 + facing * 0.78);
+      const alpha = Math.min(1, 0.30 + facing * 0.92);
       const grad = ctx.createLinearGradient(side.gx0, side.gy0, side.gx1, side.gy1);
-      grad.addColorStop(0, `rgba(255, 232, 121, ${(alpha * 0.68).toFixed(3)})`);
-      grad.addColorStop(0.22, `rgba(255, 126, 31, ${(alpha * 0.72).toFixed(3)})`);
+      grad.addColorStop(0, `rgba(255, 249, 190, ${(alpha * 0.86).toFixed(3)})`);
+      grad.addColorStop(0.18, `rgba(255, 178, 54, ${(alpha * 0.86).toFixed(3)})`);
       grad.addColorStop(1, 'rgba(177, 45, 11, 0)');
       ctx.fillStyle = grad;
       ctx.fillRect(side.x, side.y, side.w, side.h);
     }
 
-    ctx.strokeStyle = 'rgba(255, 151, 40, 0.94)';
-    ctx.lineWidth = Math.max(1, s * 0.018);
+    ctx.strokeStyle = 'rgba(255, 237, 152, 0.98)';
+    ctx.lineWidth = Math.max(1.2, s * 0.026);
+    ctx.shadowColor = 'rgba(255, 151, 40, 0.8)';
+    ctx.shadowBlur = Math.max(3, s * 0.07);
     ctx.beginPath();
     for (const side of sides) {
       const facing = side.nx * lx + side.ny * ly;
@@ -180,6 +177,18 @@ export abstract class BuildingBase extends Entity {
       ctx.lineTo(line[2], line[3]);
     }
     ctx.stroke();
+    ctx.restore();
+  }
+
+  private drawDimPanelLines(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
+    ctx.save();
+    ctx.strokeStyle = colorToCSS(Colors.enemy_background, 0.38);
+    ctx.lineWidth = Math.max(1, s * 0.01);
+    ctx.strokeRect(x + s * 0.12, y + s * 0.12, s * 0.76, s * 0.76);
+
+    ctx.strokeStyle = 'rgba(8, 13, 14, 0.55)';
+    ctx.lineWidth = Math.max(1, s * 0.012);
+    ctx.strokeRect(x + 1, y + 1, s - 2, s - 2);
     ctx.restore();
   }
 

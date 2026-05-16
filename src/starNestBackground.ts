@@ -100,7 +100,7 @@ void main() {
   // Tint toward deep navy / violet / blue-white — suppress warm orange
   v *= vec3(0.55, 0.62, 1.00);
   // Additional clamp to keep it dark
-  v = clamp(v * 0.34, 0.0, 1.0);
+  v = clamp(v * 0.24, 0.0, 1.0);
 
   gl_FragColor = vec4(v, u_opacity);
 }

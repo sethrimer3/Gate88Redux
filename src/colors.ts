@@ -22,7 +22,7 @@ function c(r: number, g: number, b: number, intensity: number): Color {
 export const Colors = {
   menu_background:            c(0, 50, 130, 1.0),
   menu_background_detail:     c(107, 0, 1, 1.0),
-  friendly_background:        c(2, 18, 28, 1.0),
+  friendly_background:        c(0, 7, 13, 1.0),
   enemy_background:           c(25, 15, 8, 1.0),
   friendly_starfield:         c(11, 80, 124, 0.65),
   enemy_starfield:            c(121, 57, 57, 0.63),
