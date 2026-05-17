@@ -32,15 +32,15 @@ export interface Doctrine {
   label: string;
   ringRecipes: DoctrineRingRecipe[];
   /**
-   * Number of spokes per difficulty index (0=Easy … 4=Nightmare).
+   * Number of spokes per difficulty index (0=Easy ... 5=Zenith).
    * Spokes are radial conduit paths from the Command Post to outer rings.
    */
-  spokesPerDifficulty: [number, number, number, number, number];
+  spokesPerDifficulty: [number, number, number, number, number, number];
   /**
    * Probability that an arc segment in a ring is left empty, per difficulty
    * index. 0 = no gaps, 0.5 = half the segments are open.
    */
-  gapProbPerDifficulty: [number, number, number, number, number];
+  gapProbPerDifficulty: [number, number, number, number, number, number];
   /**
    * Multiplier applied to the base raid cooldown (lower = more raids).
    * 1.0 is the baseline; Swarm uses 0.6 for frequent raids.
@@ -97,8 +97,8 @@ const BALANCED: Doctrine = {
       counts: { bomberyard: 1, massdriverturret: 2, exciterturret: 2, powergenerator: 2, fighteryard: 1 },
     },
   ],
-  spokesPerDifficulty: [2, 3, 4, 5, 6],
-  gapProbPerDifficulty: [0.40, 0.25, 0.15, 0.07, 0.02],
+  spokesPerDifficulty: [2, 3, 4, 5, 6, 8],
+  gapProbPerDifficulty: [0.40, 0.25, 0.15, 0.07, 0.02, 0.0],
   raidCooldownMul: 1.0,
   favoredRaidTypes: ['probe', 'shipyard_sup', 'conduit_cut', 'retaliation', 'punishment'],
   useForwardBastions: false,
@@ -131,8 +131,8 @@ const TURTLE: Doctrine = {
       counts: { missileturret: 3, powergenerator: 2, exciterturret: 2, regenturret: 2 },
     },
   ],
-  spokesPerDifficulty: [3, 4, 5, 6, 6],
-  gapProbPerDifficulty: [0.30, 0.18, 0.10, 0.04, 0.01],
+  spokesPerDifficulty: [3, 4, 5, 6, 6, 7],
+  gapProbPerDifficulty: [0.30, 0.18, 0.10, 0.04, 0.01, 0.0],
   raidCooldownMul: 1.8,   // fewer raids — it turtles
   favoredRaidTypes: ['retaliation', 'probe', 'conduit_cut', 'punishment'],
   useForwardBastions: false,
@@ -165,8 +165,8 @@ const SWARM: Doctrine = {
       counts: { fighteryard: 3, powergenerator: 2, exciterturret: 2 },
     },
   ],
-  spokesPerDifficulty: [2, 3, 3, 4, 5],
-  gapProbPerDifficulty: [0.45, 0.30, 0.20, 0.10, 0.04],
+  spokesPerDifficulty: [2, 3, 3, 4, 5, 8],
+  gapProbPerDifficulty: [0.45, 0.30, 0.20, 0.10, 0.04, 0.0],
   raidCooldownMul: 0.55,   // very frequent raids
   favoredRaidTypes: ['probe', 'shipyard_sup', 'punishment', 'retaliation', 'conduit_cut'],
   useForwardBastions: false,
@@ -199,8 +199,8 @@ const ARTILLERY: Doctrine = {
       counts: { massdriverturret: 4, powergenerator: 2, exciterturret: 2, missileturret: 2 },
     },
   ],
-  spokesPerDifficulty: [3, 4, 5, 6, 6],
-  gapProbPerDifficulty: [0.35, 0.22, 0.12, 0.05, 0.01],
+  spokesPerDifficulty: [3, 4, 5, 6, 6, 7],
+  gapProbPerDifficulty: [0.35, 0.22, 0.12, 0.05, 0.01, 0.0],
   raidCooldownMul: 1.3,
   favoredRaidTypes: ['conduit_cut', 'retaliation', 'probe', 'shipyard_sup', 'punishment'],
   useForwardBastions: false,
@@ -233,8 +233,8 @@ const RAIDER: Doctrine = {
       counts: { fighteryard: 3, powergenerator: 2, missileturret: 2, bomberyard: 1 },
     },
   ],
-  spokesPerDifficulty: [2, 2, 3, 4, 5],
-  gapProbPerDifficulty: [0.50, 0.35, 0.22, 0.12, 0.05],
+  spokesPerDifficulty: [2, 2, 3, 4, 5, 8],
+  gapProbPerDifficulty: [0.50, 0.35, 0.22, 0.12, 0.05, 0.0],
   raidCooldownMul: 0.7,
   favoredRaidTypes: ['punishment', 'shipyard_sup', 'conduit_cut', 'probe', 'retaliation'],
   useForwardBastions: true,

@@ -47,6 +47,7 @@ import {
   PracticeConfig,
   difficultyIndex,
   difficultyTickMul,
+  isZenithDifficulty,
 } from './practiceconfig.js';
 import {
   generateRingCells,
@@ -257,7 +258,7 @@ export class EnemyBasePlanner {
     this.team = team;
     this.config = config;
     this.seed = seed;
-    this.doctrineType = pickDoctrine(seed);
+    this.doctrineType = isZenithDifficulty(config.difficulty) ? 'swarm' : pickDoctrine(seed);
     this.doctrine = DOCTRINES[this.doctrineType];
     this.plannedRingCount = this.doctrine.ringRecipes.length;
   }
@@ -390,7 +391,7 @@ export class EnemyBasePlanner {
 
   private generateBastions(outerRadius: number): void {
     const idx = difficultyIndex(this.config.difficulty);
-    const count = 1 + idx; // Easy=1, Nightmare=5
+    const count = 1 + idx; // Easy=1, Nightmare=5, Zenith=6
     for (let i = 0; i < count; i++) {
       const angle = (i / count) * Math.PI * 2 + this.seed * 0.001 + i * 0.5;
       const dist  = outerRadius + 5;
@@ -489,7 +490,7 @@ export class EnemyBasePlanner {
   private updateAdaptive(state: GameState): void {
     this.auditTimer -= 1;
     if (this.auditTimer <= 0) {
-      this.auditTimer = Math.max(45, 120 - difficultyIndex(this.config.difficulty) * 15);
+      this.auditTimer = Math.max(30, 120 - difficultyIndex(this.config.difficulty) * 15);
       this.auditConstructionState(state);
     }
 
@@ -544,7 +545,7 @@ export class EnemyBasePlanner {
 
   private auditPowerRestoration(state: GameState): void {
     const idx = difficultyIndex(this.config.difficulty);
-    const maxOrders = [0, 2, 4, 7, 10][idx];
+    const maxOrders = [0, 2, 4, 7, 10, 14][idx];
     let added = 0;
     const unpowered = state.buildings
       .filter((b) => b.alive && b.team === this.team && b.buildProgress >= 1 && !b.powered && !(b instanceof PowerGenerator))
@@ -562,7 +563,7 @@ export class EnemyBasePlanner {
       const path = this.findPowerRepairPath(state, c.cx, c.cy, idx >= 3 ? 18 : 12);
       if (path.length > 0) added += this.enqueueConduitPath(state, path, maxOrders - added);
 
-      if (idx >= 3 && stat.count >= [99, 99, 3, 2, 1][idx] && stat.redundantLinks < [0, 0, 1, 2, 3][idx]) {
+      if (idx >= 3 && stat.count >= [99, 99, 3, 2, 1, 1][idx] && stat.redundantLinks < [0, 0, 1, 2, 3, 4][idx]) {
         const redundant = this.findRedundantRingConnector(state, c.cx, c.cy);
         if (redundant.length > 0) {
           added += this.enqueueConduitPath(state, redundant, maxOrders - added);
@@ -716,8 +717,8 @@ export class EnemyBasePlanner {
     // Thresholds scale with difficulty: higher difficulty → more complete ring
     // required before expanding.  Conduit completion is weighted more heavily
     // because unpowered rings waste build effort.
-    const reqConduit  = [0.45, 0.55, 0.65, 0.75, 0.85][idx];
-    const reqBuilding = [0.20, 0.30, 0.40, 0.50, 0.60][idx];
+    const reqConduit  = [0.45, 0.55, 0.65, 0.75, 0.85, 0.9][idx];
+    const reqBuilding = [0.20, 0.30, 0.40, 0.50, 0.60, 0.55][idx];
     const ready = conduitFrac >= reqConduit && buildingFrac >= reqBuilding;
 
     if (!ready) {
@@ -785,7 +786,7 @@ export class EnemyBasePlanner {
    */
   private replanQueue(state: GameState): void {
     const idx = difficultyIndex(this.config.difficulty);
-    const TARGET = [5, 8, 12, 18, 28][idx];
+    const TARGET = [5, 8, 12, 18, 28, 42][idx];
     while (this.queue.length < TARGET) {
       const order = this.nextBuildOrder(state);
       if (!order) break;
@@ -876,10 +877,10 @@ export class EnemyBasePlanner {
     // Relaxed turret gating: only require 1+ turrets on Normal, 2+ on Hard+.
     // (Previously required 3-5 turrets at Hard+, which delayed shipyards far too long.)
     const turretCoverage = this.countEnemyBuildings(state, (b) => b instanceof TurretBase);
-    if (turretCoverage < [99, 1, 1, 2, 2][idx]) return null;
+    if (turretCoverage < [99, 1, 1, 2, 2, 0][idx]) return null;
 
     // Desired counts scale with difficulty AND with urgencyLevel.
-    // Base targets per difficulty: Easy=0, Normal=2, Hard=4, Expert=6, Nightmare=8 fighter yards.
+    // Base targets per difficulty: Easy=0, Normal=2, Hard=4, Expert=6, Nightmare=8, Zenith=14 fighter yards.
     const urgencyBonus = this.urgencyLevel; // +1 or +2 extra yards when stalling
     const gameTime = state.gameTime;
     // Time-based escalation: every 3 minutes (180 s) add 1 more desired yard at Hard+.
@@ -887,10 +888,10 @@ export class EnemyBasePlanner {
     const timeBonus = idx >= 2 ? Math.min(4, Math.floor(gameTime / 180)) : 0;
 
     const desired = [
-      { key: 'fighteryard', count: [0, 2, 4, 6, 8][idx] + urgencyBonus + timeBonus },
-      { key: 'bomberyard',  count: [0, 0, 2, 3, 4][idx] + (idx >= 2 ? urgencyBonus : 0) },
-      { key: 'researchlab', count: [0, 1, 2, 3, 4][idx] },
-      { key: 'factory',     count: [0, 1, 1, 2, 3][idx] },
+      { key: 'fighteryard', count: [0, 2, 4, 6, 8, 14][idx] + urgencyBonus + timeBonus },
+      { key: 'researchlab', count: [0, 1, 2, 3, 4, 5][idx] },
+      { key: 'bomberyard',  count: [0, 0, 2, 3, 4, 5][idx] + (idx >= 2 ? urgencyBonus : 0) },
+      { key: 'factory',     count: [0, 1, 1, 2, 3, 3][idx] },
     ];
 
     for (const want of desired) {
@@ -1219,8 +1220,9 @@ export class EnemyBasePlanner {
         if (this.claimedBuildingKeys.has(cellKey(cx, cy))) continue;
         if (!this.canAIPlaceStructure(state, def, cx, cy)) continue;
         const threat = this.aiScore.threatAt(state, this.team, cx, cy);
-        const spacingPenalty = this.nearbyFriendlyBuildingCount(state, cx, cy, 7) * 20;
-        const score = -Math.abs(tangent) * 3 - radial - threat - spacingPenalty;
+        const nearby = this.nearbyFriendlyBuildingCount(state, cx, cy, 7);
+        const spacing = isZenithDifficulty(this.config.difficulty) ? nearby * 14 : -nearby * 20;
+        const score = -Math.abs(tangent) * 3 - radial - threat + spacing;
         if (!best || score > best.score) best = { cx, cy, score };
       }
     }
@@ -1283,7 +1285,7 @@ export class EnemyBasePlanner {
     const wallDef = getBuildDef('wall');
     if (!wallDef) return;
 
-    let cap = [0, 2, 4, 7, 10][idx];
+    let cap = [0, 2, 4, 7, 10, 4][idx];
     const fp = def.footprintCells;
     const originCx = buildingCx - Math.floor(fp / 2);
     const originCy = buildingCy - Math.floor(fp / 2);
@@ -1404,7 +1406,7 @@ export class EnemyBasePlanner {
 
     const idx = difficultyIndex(this.config.difficulty);
     const maxRepairers = Math.max(1, Math.floor(
-      this.builders.length * [0.4, 0.5, 0.6, 0.7, 0.8][idx],
+      this.builders.length * [0.4, 0.5, 0.6, 0.7, 0.8, 0.9][idx],
     ));
     const currentRepairers = this.builders.filter((b) => b.mode === 'repair' && b.alive).length;
 
@@ -1451,7 +1453,7 @@ export class EnemyBasePlanner {
   private dispatchAutoBuilds(state: GameState, cp: CommandPost, enemyResources: number): number {
     if (this.queue.length === 0) return 0;
     const idx = difficultyIndex(this.config.difficulty);
-    const maxActive = [1, 1, 2, 3, 4][idx];
+    const maxActive = [1, 1, 2, 3, 4, 6][idx];
     let spent = 0;
     while (this.activeAutoBuilds.length < maxActive) {
       const orderIndex = this.pickAffordableAutoOrderIndex(enemyResources - spent);
@@ -1542,11 +1544,11 @@ export class EnemyBasePlanner {
   }
 
   private savingsPatience(): number {
-    return [0, 25, 90, 170, 260][difficultyIndex(this.config.difficulty)];
+    return [0, 25, 90, 170, 260, 380][difficultyIndex(this.config.difficulty)];
   }
 
   private bankPressureThreshold(): number {
-    return [0, 80, 180, 320, 520][difficultyIndex(this.config.difficulty)];
+    return [0, 80, 180, 320, 520, 760][difficultyIndex(this.config.difficulty)];
   }
 
   private collectFinishedBuilds(state: GameState): void {
@@ -1599,7 +1601,7 @@ export class EnemyBasePlanner {
   private collectFinishedAutoBuilds(state: GameState, dt: number): void {
     for (let i = this.activeAutoBuilds.length - 1; i >= 0; i--) {
       const active = this.activeAutoBuilds[i];
-      active.remaining -= dt * this.config.enemyBuildSpeedMul * [0.85, 1.0, 1.15, 1.30, 1.50][difficultyIndex(this.config.difficulty)];
+      active.remaining -= dt * this.config.enemyBuildSpeedMul * [0.85, 1.0, 1.15, 1.30, 1.50, 2.1][difficultyIndex(this.config.difficulty)];
       if (active.remaining > 0) continue;
 
       const order = active.order;
@@ -1692,7 +1694,7 @@ export class EnemyBasePlanner {
   private spawnBuilder(state: GameState, cp: CommandPost): void {
     const drone = new BuilderDrone(cp.position.clone(), this.team, 'build');
     const idx   = difficultyIndex(this.config.difficulty);
-    drone.speedMul     = [0.85, 1.0, 1.15, 1.30, 1.50][idx] * this.config.enemyBuildSpeedMul;
+    drone.speedMul     = [0.85, 1.0, 1.15, 1.30, 1.50, 2.0][idx] * this.config.enemyBuildSpeedMul;
     drone.buildSpeedMul = drone.speedMul;
     state.addEntity(drone);
     this.builders.push(drone);
@@ -1824,8 +1826,8 @@ export class EnemyBasePlanner {
     const urgencyBonus = this.urgencyLevel;
     // Cap at +4 to match the backfill timeBonus cap (prevents unreachable targets).
     const timeBonus = idx >= 2 ? Math.min(4, Math.floor(state.gameTime / 180)) : 0;
-    // Base: Easy=1, Normal=3, Hard=5, Expert=7, Nightmare=10 + time + urgency
-    return [1, 3, 5, 7, 10][idx] + urgencyBonus + timeBonus;
+    // Base: Easy=1, Normal=3, Hard=5, Expert=7, Nightmare=10, Zenith=16 + time + urgency
+    return [1, 3, 5, 7, 10, 16][idx] + urgencyBonus + timeBonus;
   }
 
   // ---------------------------------------------------------------------------

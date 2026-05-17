@@ -38,8 +38,11 @@ import {
   VsAIConfig,
   cloneDefaultVsAIConfig,
   cloneRankedVsAIConfig,
+  clampRank,
   rankedApm,
   rankedDifficultyName,
+  rankedMaxScore,
+  rankedScoreMultiplier,
   VSAI_RANKED_SCORE_KEY,
 } from './vsaiconfig.js';
 import { LanClient } from './lan/lanClient.js';
@@ -969,6 +972,14 @@ export class MainMenu {
         cfg.playerRace, (v) => cfg.playerRace = v);
       y = this.drawRaceRow(ctx, cx - 210, y, rowH, 'AI Race',
         cfg.aiRace, (v) => cfg.aiRace = v);
+      y = this.drawCheckboxRow(ctx, cx - 210, y, rowH, 'AI Full Map Knowledge (+x0.25)',
+        cfg.cheatFullMapKnowledge, (v) => cfg.cheatFullMapKnowledge = v);
+      y = this.drawCheckboxRow(ctx, cx - 210, y, rowH, 'AI 1.25x Resources (+x0.25)',
+        cfg.cheat125xResources, (v) => cfg.cheat125xResources = v);
+      ctx.font = '15px "Poiret One", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = colorToCSS(TextColors.normal, 0.78);
+      ctx.fillText(`Ranked score multiplier: x${rankedScoreMultiplier(cfg).toFixed(2)}`, cx - 210, y + 10);
     } else {
       y = this.drawDifficultyRow(ctx, left, y, rowH, 'AI Difficulty',
         cfg.difficulty, (v) => cfg.difficulty = v);
@@ -1072,8 +1083,6 @@ export class MainMenu {
     cfg.mapSize = 'medium';
     cfg.startingDistance = 3000;
     cfg.fogOfWar = true;
-    cfg.cheatFullMapKnowledge = false;
-    cfg.cheat125xResources = false;
   }
 
   private drawRankedHighScore(ctx: CanvasRenderingContext2D, cx: number, y: number): void {
@@ -1099,7 +1108,7 @@ export class MainMenu {
     try {
       const raw = window.localStorage?.getItem(VSAI_RANKED_SCORE_KEY);
       const parsed = raw ? Number.parseInt(raw, 10) : 0;
-      return Number.isFinite(parsed) ? Math.max(0, Math.min(3000, parsed)) : 0;
+      return Number.isFinite(parsed) ? Math.max(0, Math.min(rankedMaxScore(), parsed)) : 0;
     } catch {
       return 0;
     }
@@ -1115,7 +1124,7 @@ export class MainMenu {
     const sx = x + 180;
     const sw = 620;
     const trackY = y + 28;
-    const rank = Math.max(0, Math.min(3000, cfg.aiRank));
+    const rank = clampRank(cfg.aiRank);
     const t = rank / 3000;
     const knobX = sx + t * sw;
 

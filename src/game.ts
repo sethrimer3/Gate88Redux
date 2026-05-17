@@ -35,7 +35,14 @@ import type { MsgMatchStart, MsgRelayedInput, SerializedShip, SerializedBuilding
 import { createBuildingFromDef, getBuildDef, buildDefForEntityType } from './builddefs.js';
 import { isConfluenceFaction, isSynonymousFaction, resolveRaceSelection, type FactionType, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_BASE_RADIUS } from './confluence.js';
 import { SYNONYMOUS_BUILD_COST, SYNONYMOUS_CURRENCY_SYMBOL } from './synonymous.js';
-import { cloneDefaultVsAIConfig, rankedDifficultyName, VSAI_RANKED_SCORE_KEY } from './vsaiconfig.js';
+import {
+  cloneDefaultVsAIConfig,
+  rankedCheaterModifierCount,
+  rankedDifficultyName,
+  rankedScore,
+  rankedScoreMultiplier,
+  VSAI_RANKED_SCORE_KEY,
+} from './vsaiconfig.js';
 import { GlowLayer } from './glowlayer.js';
 import { DEFAULT_VISUAL_QUALITY, VISUAL_QUALITY_PRESETS, type VisualQuality, type VisualQualityPreset, loadVisualQuality, saveVisualQuality } from './visualquality.js';
 import { drawCombatTargetingDebug, drawConfluenceTerritory, drawDebugOverlay, drawWaypointMarkers, type ShipCommandGroup, type WaypointMarker } from './gameRender.js';
@@ -733,7 +740,7 @@ export class Game {
     this.rankedVsAIResultRecorded = true;
     if (!this.practiceMode.victory) return;
 
-    const score = Math.max(0, Math.min(3000, Math.round(cfg.aiRank)));
+    const score = rankedScore(cfg);
     let previous = 0;
     try {
       previous = Number.parseInt(window.localStorage?.getItem(VSAI_RANKED_SCORE_KEY) ?? '0', 10) || 0;
@@ -741,6 +748,14 @@ export class Game {
     } catch {
       previous = 0;
     }
+    const modifierSummary = rankedCheaterModifierCount(cfg) > 0
+      ? `${cfg.cheatFullMapKnowledge ? 'Full Map ' : ''}${cfg.cheat125xResources ? '1.25x Res ' : ''}`.trim()
+      : 'no modifiers';
+    this.hud.showMessage(
+      `Ranked score: ${score} (${cfg.difficulty} ${cfg.aiRank}, ${modifierSummary}, x${rankedScoreMultiplier(cfg).toFixed(2)})`,
+      Colors.alert2,
+      8,
+    );
     if (score > previous) {
       this.hud.showMessage(`New ranked high score: ${score}`, Colors.alert2, 8);
     }
@@ -1070,8 +1085,6 @@ export class Game {
         vcfg.mapSize = 'medium';
         vcfg.startingDistance = 3000;
         vcfg.fogOfWar = true;
-        vcfg.cheatFullMapKnowledge = false;
-        vcfg.cheat125xResources = false;
       }
       const pcfg = cloneDefaultPracticeConfig();
       pcfg.difficulty = vcfg.difficulty;
@@ -1098,7 +1111,9 @@ export class Game {
       this.vsAIDirector.planner = this.practiceMode.getPlanner();
 
       this.hud.showMessage(
-        (vcfg.ranked ? `Ranked Vs. AI started - rank ${vcfg.aiRank}` : `Vs. AI started - ${vcfg.difficulty}`) +
+        (vcfg.ranked
+          ? `Ranked Vs. AI started - ${vcfg.difficulty} rank ${vcfg.aiRank} x${rankedScoreMultiplier(vcfg).toFixed(2)}`
+          : `Vs. AI started - ${vcfg.difficulty}`) +
           (vcfg.cheatFullMapKnowledge ? ' [+full map]' : '') +
           (vcfg.cheat125xResources ? ' [+1.25x res]' : ''),
         Colors.alert2, 4,
@@ -2141,6 +2156,17 @@ export class Game {
       `Bases destroyed: ${this.practiceMode.score.basesDestroyed} | Time: ${Math.floor(this.practiceMode.score.timeSurvived)}s`,
       10, 10,
     );
+    const cfg = this.mainMenu.vsAIConfig;
+    if (this.state.gameMode === 'vs_ai' && cfg.ranked) {
+      const cheatCount = rankedCheaterModifierCount(cfg);
+      const modText = cheatCount > 0
+        ? ` | Modifiers: ${cfg.cheatFullMapKnowledge ? 'Full Map ' : ''}${cfg.cheat125xResources ? '1.25x Res ' : ''}x${rankedScoreMultiplier(cfg).toFixed(2)}`
+        : ' | Modifiers: none x1.00';
+      ctx.fillText(
+        `Ranked: ${cfg.difficulty} ${cfg.aiRank} | Score: ${rankedScore(cfg)}${modText}`,
+        10, 26,
+      );
+    }
 
     // AI strategy debug info — shown when debug overlay is active.
     if (this.debugOverlay) {

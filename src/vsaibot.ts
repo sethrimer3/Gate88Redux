@@ -254,6 +254,7 @@ export class VsAIDirector {
    * Initialized to a positive value so scouting doesn't happen at game-start.
    */
   private scoutCooldown: number = 30;
+  private zenithShieldInitialized = false;
   /**
    * Optional reference to the base planner for coordination.
    * When set, the director can escort construction sites, defend damaged
@@ -283,6 +284,10 @@ export class VsAIDirector {
 
   update(state: GameState, dt: number): void {
     if (!this.ship.alive) return;
+    if (!this.zenithShieldInitialized && this.config.difficulty === 'Zenith') {
+      this.ship.applyResearchUpgrade('shipShield');
+      this.zenithShieldInitialized = true;
+    }
 
     // Refill APM tokens (cap at 1 second worth so they don't accumulate forever).
     const apm = effectiveApm(this.config);
@@ -322,7 +327,7 @@ export class VsAIDirector {
   }
 
   private replanInterval(): number {
-    return interpolateDifficulty([4.0, 2.5, 1.6, 1.0, 0.18], this.config);
+    return interpolateDifficulty([4.0, 2.5, 1.6, 1.0, 0.18, 0.08], this.config);
   }
 
   private spendToken(): boolean {
@@ -345,7 +350,7 @@ export class VsAIDirector {
     this.chatPhraseIndex++;
     this.pendingChats.push(text);
     // Longer cooldown on Easy (less chatty rival) to match its sluggish personality.
-    this.chatCooldown = interpolateDifficulty([12, 8, 5, 4, 1.5], this.config);
+    this.chatCooldown = interpolateDifficulty([12, 8, 5, 4, 1.5, 0.8], this.config);
   }
 
   // -------------------------------------------------------------------
@@ -535,7 +540,7 @@ export class VsAIDirector {
       if (scoutTarget) {
         this.setGoal('scout', state);
         this.goalTarget = scoutTarget;
-        this.scoutCooldown = interpolateDifficulty([0, 58, 40, 25, 14], this.config);
+        this.scoutCooldown = interpolateDifficulty([0, 58, 40, 25, 14, 8], this.config);
         this.reactionTimer = this.reactionDelay();
         return;
       }
@@ -569,7 +574,7 @@ export class VsAIDirector {
   }
 
   private reactionDelay(): number {
-    return interpolateDifficulty([0.6, 0.35, 0.18, 0.08, 0.0], this.config);
+    return interpolateDifficulty([0.6, 0.35, 0.18, 0.08, 0.0, 0.0], this.config);
   }
 
   private findOwnCP(state: GameState): CommandPost | null {
@@ -795,7 +800,7 @@ export class VsAIDirector {
       return;
     }
 
-    const target = this.goalTarget;
+    const target = this.zenithShieldSupportTarget(state) ?? this.goalTarget;
     const intelligence = Math.floor(effectiveDifficultyScalar(this.config));
     const moveTarget = this.goal === 'retreat'
       ? this.resolveRetreatMoveTarget(state, target, intelligence)
@@ -895,6 +900,23 @@ export class VsAIDirector {
   private isCombatGoal(): boolean {
     // 'scout' is intentionally excluded — it's a movement goal, not a dedicated combat state.
     return this.goal === 'attack' || this.goal === 'harass' || this.goal === 'defend' || this.goal === 'chase';
+  }
+
+  private zenithShieldSupportTarget(state: GameState): Vec2 | null {
+    if (this.config.difficulty !== 'Zenith' || !this.ship.shieldUnlocked || !this.isCombatGoal()) return null;
+    const fighters = state.fighters.filter((f) =>
+      f.alive && !f.docked && f.team === this.ship.team && f.order === 'attack' &&
+      f.position.distanceTo(this.ship.position) < 900,
+    );
+    if (fighters.length < 4) return null;
+    const center = fighters
+      .reduce((sum, f) => sum.add(f.position), new Vec2(0, 0))
+      .scale(1 / fighters.length);
+    const ownCp = this.findOwnCP(state);
+    const anchor = ownCp?.position ?? this.ship.position;
+    const towardBase = anchor.sub(center);
+    const dir = towardBase.length() > 1 ? towardBase.normalize() : new Vec2(1, 0);
+    return center.add(dir.scale(120));
   }
 
   private deploySingleMine(state: GameState, aimWorld: Vec2): void {

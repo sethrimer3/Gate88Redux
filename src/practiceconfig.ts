@@ -7,10 +7,10 @@
  * Keep ranges sane — extreme values shouldn't crash the game.
  */
 
-export type DifficultyName = 'Easy' | 'Normal' | 'Hard' | 'Expert' | 'Nightmare';
+export type DifficultyName = 'Easy' | 'Normal' | 'Hard' | 'Expert' | 'Nightmare' | 'Zenith';
 
 export const DIFFICULTY_NAMES: DifficultyName[] = [
-  'Easy', 'Normal', 'Hard', 'Expert', 'Nightmare',
+  'Easy', 'Normal', 'Hard', 'Expert', 'Nightmare', 'Zenith',
 ];
 
 export type ResearchUnlock = 'none' | 'basic_turrets' | 'all_turrets' | 'full_tech';
@@ -64,20 +64,24 @@ export const DEFAULT_PRACTICE_CONFIG: PracticeConfig = {
   defeatCondition: 'cp_destroyed',
 };
 
-/** Numeric difficulty index 0..4 used by planner cadence / scaling. */
+/** Numeric difficulty index 0..5 used by planner cadence / scaling. */
 export function difficultyIndex(d: DifficultyName): number {
   return Math.max(0, DIFFICULTY_NAMES.indexOf(d));
 }
 
+export function isZenithDifficulty(d: DifficultyName): boolean {
+  return d === 'Zenith';
+}
+
 /** Multiplier applied to AI tick frequency at higher difficulty. */
 export function difficultyTickMul(d: DifficultyName): number {
-  // Easy=0.6, Normal=1, Hard=1.3, Expert=1.7, Nightmare=2.2
-  return [0.6, 1.0, 1.3, 1.7, 2.2][difficultyIndex(d)];
+  // Easy=0.6, Normal=1, Hard=1.3, Expert=1.7, Nightmare=2.2, Zenith=3.0
+  return [0.6, 1.0, 1.3, 1.7, 2.2, 3.0][difficultyIndex(d)];
 }
 
 /** Defensive redundancy: how much the planner cross-links its rings. */
 export function difficultyRedundancy(d: DifficultyName): number {
-  return [0.0, 0.15, 0.3, 0.5, 0.75][difficultyIndex(d)];
+  return [0.0, 0.15, 0.3, 0.5, 0.75, 0.95][difficultyIndex(d)];
 }
 
 /** Returns a fresh copy so the menu can mutate without touching the constant. */

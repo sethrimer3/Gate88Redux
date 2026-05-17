@@ -19,6 +19,7 @@ import {
   PracticeConfig,
   cloneDefaultPracticeConfig,
   difficultyIndex,
+  isZenithDifficulty,
 } from './practiceconfig.js';
 import { BuilderDrone, isBuilderDrone } from './builderdrone.js';
 import { isSynonymousFaction } from './confluence.js';
@@ -38,7 +39,7 @@ const THREAT_EVAL_INTERVAL = 10;
  * Tiered: [Easy, Normal, Hard, Expert, Nightmare] — lower difficulties are more
  * forgiving (and don't use wave-staging at all below Hard anyway).
  */
-const STAGNATION_THRESHOLDS = [9999, 9999, 150, 100, 75];
+const STAGNATION_THRESHOLDS = [9999, 9999, 150, 100, 75, 35];
 /**
  * If the AI is above the first stagnation threshold, upgrade urgency to level 2
  * (critical stall) after this many additional seconds.
@@ -112,8 +113,8 @@ export class PracticeMode {
     this.enemyResources = cfg.enemyStartingResources;
     // Difficulty raises raid cadence floor.
     const idx = difficultyIndex(cfg.difficulty);
-    this.raidTimer = [60, 45, 30, 22, 16][idx];
-    this.enemyWaveTimer = [0, 0, 34, 28, 22][idx];
+    this.raidTimer = [60, 45, 30, 22, 16, 9][idx];
+    this.enemyWaveTimer = [0, 0, 34, 28, 22, 12][idx];
   }
 
   /**
@@ -194,7 +195,7 @@ export class PracticeMode {
         b.powered &&
         b.buildProgress >= 1,
     ).length;
-    const difficultyIncomeMul = [0.55, 0.8, 1.0, 1.2, 1.45][difficultyIndex(this.config.difficulty)];
+    const difficultyIncomeMul = [0.55, 0.8, 1.0, 1.2, 1.45, 1.85][difficultyIndex(this.config.difficulty)];
     this.enemyResources += this.enemyIncomeMul *
       (BASELINE_RESOURCE_GAIN * difficultyIncomeMul + poweredFactories * RESOURCE_GAIN_RATE) *
       dt;
@@ -355,11 +356,16 @@ export class PracticeMode {
         const groupIndex = this._spawnGroupCounter++ % SPAWN_GROUPS.length;
         const spawnGroup = SPAWN_GROUPS[groupIndex];
         const synonymous = isSynonymousFaction(state.factionByTeam, Team.Enemy);
+        const zenith = isZenithDifficulty(this.config.difficulty);
         const fighter = synonymous && b.type === EntityType.BomberYard
           ? new SynonymousNovaBomberShip(b.bayPosition(), Team.Enemy, spawnGroup, b)
           : synonymous
-            ? new SynonymousFighterShip(b.bayPosition(), Team.Enemy, spawnGroup, b, state.researchedItems.has('advancedFighters'))
+            ? new SynonymousFighterShip(b.bayPosition(), Team.Enemy, spawnGroup, b, zenith || state.researchedItems.has('advancedFighters'))
           : new FighterShip(b.position.clone(), Team.Enemy, spawnGroup, b);
+        if (zenith && !(fighter instanceof SynonymousNovaBomberShip)) {
+          fighter.weaponDamage = Math.max(fighter.weaponDamage, 2);
+          fighter.enableShield();
+        }
         fighter.launch();
         b.activeShips++;
         state.addEntity(fighter);
@@ -549,12 +555,14 @@ export class PracticeMode {
     if (!readyToLaunch) return;
     if (staged.length === 0) {
       // Nothing to send but timer expired — reset timer and wait for production.
-      const baseInterval = [0, 0, 34, 28, 22][idx];
+      const baseInterval = [0, 0, 34, 28, 22, 12][idx];
       this.enemyWaveTimer = Math.max(8, baseInterval * 0.5);
       return;
     }
 
-    const target = this.findNearestPlayerBuilding(state, state.player.position) ?? { position: state.player.position };
+    const target = isZenithDifficulty(this.config.difficulty)
+      ? this.findZenithAssaultTarget(state) ?? { position: state.player.position }
+      : this.findNearestPlayerBuilding(state, state.player.position) ?? { position: state.player.position };
 
     // On Expert+ (idx >= 3), split the wave into groups that attack from
     // different angles, making it harder for the player to defend a single side.
@@ -598,7 +606,7 @@ export class PracticeMode {
     // Reset wave cooldown. After a failed wave, shorten the wait proportionally
     // (minimum = 40% of base interval) so we don't idle too long after a failed
     // attack. After success, use the full interval.
-    const baseInterval = [0, 0, 34, 28, 22][idx];
+    const baseInterval = [0, 0, 34, 28, 22, 12][idx];
     const failedPenalty = Math.max(0, this.consecutiveFailedWaves - 1) * 4;
     this.enemyWaveTimer = Math.max(Math.round(baseInterval * 0.4), baseInterval - failedPenalty);
   }
@@ -618,7 +626,7 @@ export class PracticeMode {
    */
   private enemyWaveLaunchThreshold(state: GameState, idx: number): number {
     // Base threshold per difficulty.
-    let base = [0, 0, 5, 8, 10][idx];
+    let base = [0, 0, 5, 8, 10, 18][idx];
 
     // Scale with game time: +1 per 2 minutes past 2 minutes, capped.
     const gameTimeMins = state.gameTime / 60;
@@ -642,7 +650,7 @@ export class PracticeMode {
       if (!b.alive || b.team !== Team.Player || !(b instanceof TurretBase)) continue;
       playerTurretCount++;
     }
-    const defenseBonus = Math.min(4, Math.floor(playerTurretCount / 3));
+    const defenseBonus = Math.min(idx >= 5 ? 8 : 4, Math.floor(playerTurretCount / 3));
 
     const threshold = base + timeBonus + yardBonus + failureBonus + defenseBonus;
 
@@ -825,6 +833,38 @@ export class PracticeMode {
       if (d < bestDist) best = state.player;
     }
     return best;
+  }
+
+  private findZenithAssaultTarget(state: GameState): { position: Vec2 } | null {
+    let best: { position: Vec2; score: number } | null = null;
+    for (const b of state.buildings) {
+      if (!b.alive || b.team !== Team.Player) continue;
+      let priority = 1;
+      if (b instanceof TurretBase) {
+        priority = b.type === EntityType.MassDriverTurret ? 8 : 10;
+      } else if (b instanceof Shipyard) {
+        priority = 9;
+      } else if (b.type === EntityType.ResearchLab) {
+        priority = 8;
+      } else if (b.type === EntityType.Factory || b.type === EntityType.PowerGenerator) {
+        priority = 6;
+      } else if (b.type === EntityType.CommandPost) {
+        priority = 4;
+      }
+      const massDriverPenalty = this.nearPlayerMassDriver(state, b.position) ? 220 : 0;
+      const distance = state.player.position.distanceTo(b.position);
+      const score = priority * 100 - distance * 0.02 - massDriverPenalty;
+      if (!best || score > best.score) best = { position: b.position.clone(), score };
+    }
+    return best ? { position: best.position } : null;
+  }
+
+  private nearPlayerMassDriver(state: GameState, pos: Vec2): boolean {
+    for (const b of state.buildings) {
+      if (!b.alive || b.team !== Team.Player || b.type !== EntityType.MassDriverTurret) continue;
+      if (b.position.distanceTo(pos) <= 360) return true;
+    }
+    return false;
   }
 
   /** Optional: planner snapshot for debug overlays. */

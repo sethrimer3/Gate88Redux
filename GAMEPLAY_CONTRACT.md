@@ -25,6 +25,8 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 - Practice and Vs. AI are won by destroying the enemy Command Post.
 - Practice/Vs. AI defeat depends on setup, but the default is losing the player Command Post.
 - The player ship can respawn after destruction if the match is not otherwise lost.
+- Ranked Vs. AI difficulties progress through Easy, Normal, Hard, Expert, Nightmare, and Zenith. Ranked APM scales over the full rank ladder from 10 APM at rank 0 to 500 APM at the top of Zenith.
+- Ranked Vs. AI can opt into the existing full-map-knowledge and 1.25x-resource AI modifiers. Each adds +0.25 to the score multiplier; both together score at x1.5 total.
 
 ## Resources
 
@@ -67,6 +69,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 - Higher difficulty enemies stage produced fighters near base before attacking. Nightmare timing waits for near-full shipyard output so ship production is not left capped and idle.
 - Medium and higher enemies periodically audit power connectivity. Hard and Nightmare enemies prioritize reconnecting unpowered production, research, and turret areas before normal expansion, and add bounded redundant conduit links after repeated outages.
 - Hard and Nightmare enemies avoid wasting Power Generators inside already-powered main rings, backfill safer inner rings with extra Fighter Yards, Bomber Yards, Research Labs, and Factories after outer defenses exist, and add protective wall patterns around key shipyards, labs, and turrets.
+- Zenith enemies use a swarm-biased doctrine with compact placement, high shipyard targets, faster build execution, larger staged fighter waves, advanced shielded fighters, and target priorities that favor anti-fighter turrets, shipyards, research, and production. Zenith reacts to 4+ player shipyards by favoring Mass Driver Turrets and keeps the rival hero ship near attack waves after shield research while still retreating when endangered.
 
 ## Research
 
