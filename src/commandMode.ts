@@ -114,6 +114,67 @@ export function updateNumberGroupHotkeys(
   issueShipOrder(group, 'waypoint', aimWorld);
 }
 
+export function issueShipOrder(
+  ctx: CommandModeCtx,
+  group: ShipCommandGroup,
+  order: string,
+  targetOverride?: Vec2,
+): void {
+  const fighters = getPlayerFightersForCommand(ctx.state, group);
+  const label = groupLabel(group);
+
+  switch (order) {
+    case 'waypoint': {
+      const target = targetOverride?.clone() ?? ctx.camera.screenToWorld(Input.mousePos);
+      recordWaypointMarker(ctx, group, target);
+      for (const yard of playerShipyardsForCommand(ctx.state, group)) {
+        yard.holdDocked = false;
+      }
+      for (const f of fighters) {
+        f.order = 'waypoint';
+        f.targetPos = target.clone();
+        if (f.docked) f.launch();
+      }
+      ctx.hud.showMessage(`${label}: Waypoint`, Colors.general_building, 2);
+      break;
+    }
+    case 'dock':
+      clearWaypointMarker(ctx.waypointMarkers, group);
+      for (const yard of playerShipyardsForCommand(ctx.state, group)) {
+        yard.holdDocked = true;
+      }
+      for (const f of fighters) {
+        f.order = 'dock';
+      }
+      ctx.hud.showMessage(`${label}: Dock`, Colors.general_building, 2);
+      break;
+    case 'protect': {
+      clearWaypointMarker(ctx.waypointMarkers, group);
+      const cp = ctx.state.getPlayerCommandPost();
+      const protectPos = cp?.position ?? ctx.state.player.position;
+      for (const f of fighters) {
+        f.order = 'protect';
+        f.targetPos = protectPos.clone();
+        if (f.docked) f.launch();
+      }
+      ctx.hud.showMessage(`${label}: Protect Base`, Colors.general_building, 2);
+      break;
+    }
+    case 'follow': {
+      clearWaypointMarker(ctx.waypointMarkers, group);
+      for (const f of fighters) {
+        f.order = 'follow';
+        f.targetPos = ctx.state.player.position.clone();
+        if (f.docked) f.launch();
+      }
+      ctx.hud.showMessage(`${label}: Follow Player`, Colors.general_building, 2);
+      break;
+    }
+    default:
+      break;
+  }
+}
+
 function selectCommandUnits(
   ctx: CommandModeCtx,
   commandModeState: CommandModeState,
@@ -277,4 +338,47 @@ function findPlayerShipyardAt(state: GameState, pos: Vec2): Shipyard | null {
     }
   }
   return best;
+}
+
+function getPlayerFightersForCommand(state: GameState, group: ShipCommandGroup): FighterShip[] {
+  if (group === 'all') {
+    return state.fighters.filter((f) => f.alive && f.team === Team.Player);
+  }
+  return state.getFightersByGroup(Team.Player, group);
+}
+
+function groupLabel(group: ShipCommandGroup): string {
+  return group === 'all' ? 'ALL' : `Group ${group + 1}`;
+}
+
+function recordWaypointMarker(ctx: CommandModeCtx, group: ShipCommandGroup, pos: Vec2): void {
+  if (group === 'all') {
+    ctx.waypointMarkers.clear();
+    ctx.waypointMarkers.set('all', { pos: pos.clone(), issuedAt: ctx.state.gameTime });
+    return;
+  }
+  ctx.waypointMarkers.delete('all');
+  ctx.waypointMarkers.set(group, { pos: pos.clone(), issuedAt: ctx.state.gameTime });
+}
+
+function clearWaypointMarker(
+  waypointMarkers: Map<ShipCommandGroup, WaypointMarker>,
+  group: ShipCommandGroup,
+): void {
+  if (group === 'all') {
+    waypointMarkers.clear();
+    return;
+  }
+  waypointMarkers.delete(group);
+  waypointMarkers.delete('all');
+}
+
+function playerShipyardsForCommand(state: GameState, group: ShipCommandGroup): Shipyard[] {
+  return state.buildings.filter(
+    (b): b is Shipyard =>
+      b.alive &&
+      b.team === Team.Player &&
+      b instanceof Shipyard &&
+      (group === 'all' || b.assignedGroup === group),
+  );
 }
