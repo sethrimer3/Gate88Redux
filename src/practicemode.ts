@@ -1,7 +1,7 @@
 /** Practice mode game logic for Gate 88. */
 
 import { Vec2, randomRange } from './math.js';
-import { Team, EntityType, ShipGroup } from './entities.js';
+import { Team, EntityType, ShipGroup, Entity } from './entities.js';
 import { GameState } from './gamestate.js';
 import { BuildingBase, CommandPost, Shipyard } from './building.js';
 import { TurretBase } from './turret.js';
@@ -780,7 +780,7 @@ export class PracticeMode {
     const dy = end.y - start.y;
     const lenSq = dx * dx + dy * dy;
     if (lenSq <= 0) return;
-    const hits: Array<{ target: { position: Vec2; radius: number; alive: boolean; team: Team; takeDamage: (amount: number, source?: FighterShip) => void; id: number }; t: number }> = [];
+    const hits: Array<{ target: Entity; t: number; hitPoint: Vec2 }> = [];
     for (const target of state.allEntities()) {
       if (!target.alive || target.team === source.team || target.team === Team.Neutral) continue;
       const tx = target.position.x - start.x;
@@ -788,13 +788,22 @@ export class PracticeMode {
       const t = Math.max(0, Math.min(1, (tx * dx + ty * dy) / lenSq));
       const px = start.x + dx * t;
       const py = start.y + dy * t;
-      if (Math.hypot(target.position.x - px, target.position.y - py) <= target.radius + 3) hits.push({ target, t });
+      if (Math.hypot(target.position.x - px, target.position.y - py) <= target.radius + 3) hits.push({ target, t, hitPoint: new Vec2(px, py) });
     }
     hits.sort((a, b) => a.t - b.t);
     for (let i = 0; i < Math.min(2, hits.length); i++) {
       const target = hits[i].target;
       target.takeDamage(1, source);
       state.recentlyDamaged.add(target.id);
+      if (target instanceof BuildingBase && target.alive) {
+        let inward = target.position.sub(hits[i].hitPoint);
+        if (inward.length() <= 0.001) inward = new Vec2(1, 0);
+        inward = inward.normalize();
+        state.particles.emitBuildingDamageSparks(
+          target.position.sub(inward.scale(target.radius)),
+          Math.atan2(-inward.y, -inward.x),
+        );
+      }
     }
   }
 

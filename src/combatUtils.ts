@@ -12,6 +12,22 @@ import { GameState } from './gamestate.js';
 import { Vec2 } from './math.js';
 import { SpaceFluid } from './spacefluid.js';
 
+function buildingImpactFromPoint(building: BuildingBase, from: Vec2): { pos: Vec2; outwardAngle: number } {
+  let outward = building.position.sub(from);
+  if (outward.length() <= 0.001) outward = new Vec2(1, 0);
+  outward = outward.normalize();
+  return {
+    pos: building.position.sub(outward.scale(building.radius)),
+    outwardAngle: Math.atan2(-outward.y, -outward.x),
+  };
+}
+
+function emitBuildingDamageSparks(state: GameState, target: Entity, hitPoint: Vec2): void {
+  if (!(target instanceof BuildingBase)) return;
+  const impact = buildingImpactFromPoint(target, hitPoint);
+  state.particles.emitBuildingDamageSparks(impact.pos, impact.outwardAngle);
+}
+
 // ---------------------------------------------------------------------------
 // Target-selection helpers
 // ---------------------------------------------------------------------------
@@ -95,6 +111,7 @@ export function damageLaserLine(
         state.particles.emitExplosion(target.position, target.radius);
         spaceFluid?.addExplosion(target.position.x, target.position.y, 1.2, 214, 134, 48);
       } else {
+        emitBuildingDamageSparks(state, target, new Vec2(px, py));
         state.particles.emitSpark(target.position);
       }
     }
@@ -145,6 +162,10 @@ export function damageLaserLineLimited(
       state.particles.emitExplosion(target.position, target.radius);
       spaceFluid.addExplosion(target.position.x, target.position.y, 0.75, 42, 190, 120);
     } else {
+      const hit = hits[i];
+      const px = start.x + dx * hit.t;
+      const py = start.y + dy * hit.t;
+      emitBuildingDamageSparks(state, target, new Vec2(px, py));
       state.particles.emitSpark(target.position);
     }
   }

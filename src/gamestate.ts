@@ -507,6 +507,7 @@ export class GameState {
       } else {
         // Non-fatal hit — play hit sound, emit directional impact sparks
         const hitAngle = Math.atan2(proj.velocity.y, proj.velocity.x);
+        this.emitBuildingDamageSparks(target, proj.position);
         this.particles.emitImpact(target.position, hitAngle);
         const playerDist = this.player.position.distanceTo(target.position);
         Audio.playSoundAt('bhit0', playerDist);
@@ -825,6 +826,7 @@ export class GameState {
       this.playEntityExplosionSound(target);
     } else {
       const hitAngle = Math.atan2(proj.velocity.y, proj.velocity.x);
+      this.emitBuildingDamageSparks(target, proj.position);
       this.particles.emitImpact(target.position, hitAngle);
       const playerDist = this.player.position.distanceTo(target.position);
       Audio.playSoundAt('bhit0', playerDist);
@@ -845,6 +847,7 @@ export class GameState {
       e.takeDamage(e === directTarget ? proj.damage : proj.damage * falloff, proj);
       this.recentlyDamaged.add(e.id);
       if (!e.alive) this.playEntityExplosionSound(e);
+      else this.emitBuildingDamageSparks(e, proj.position);
     }
   }
 
@@ -984,6 +987,7 @@ export class GameState {
       e.takeDamage(proj.pulseDamage, proj);
       this.recentlyDamaged.add(e.id);
       if (!e.alive) this.playEntityExplosionSound(e);
+      else this.emitBuildingDamageSparks(e, proj.position);
     }
     this.spawnExplosionGlow(proj.position, proj.aoeRadius);
     this.ringEffects.spawn('shockwave', proj.position, proj.aoeRadius * 0.05, proj.aoeRadius, 0.45, 0.9);
@@ -1066,9 +1070,26 @@ export class GameState {
       e.takeDamage(proj.damage * falloff, proj);
       this.recentlyDamaged.add(e.id);
       if (!e.alive) this.playEntityExplosionSound(e);
+      else this.emitBuildingDamageSparks(e, proj.position);
     }
     this.ringEffects.spawn('shockwave', proj.position.clone(), radius * 0.35, radius, 0.22, 1.1);
     Audio.playSoundAt('explode1', this.player.position.distanceTo(proj.position));
+  }
+
+  private emitBuildingDamageSparks(target: Entity, hitSource: Vec2): void {
+    if (!(target instanceof BuildingBase)) return;
+    const impact = this.buildingImpactFromPoint(target, hitSource);
+    this.particles.emitBuildingDamageSparks(impact.pos, impact.outwardAngle);
+  }
+
+  private buildingImpactFromPoint(building: BuildingBase, from: Vec2): { pos: Vec2; outwardAngle: number } {
+    let inward = building.position.sub(from);
+    if (inward.length() <= 0.001) inward = new Vec2(1, 0);
+    inward = inward.normalize();
+    return {
+      pos: building.position.sub(inward.scale(building.radius)),
+      outwardAngle: Math.atan2(-inward.y, -inward.x),
+    };
   }
 
   sellAtGridCell(pos: Vec2, team: Team): 'building' | 'conduit' | null {

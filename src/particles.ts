@@ -12,6 +12,8 @@ import { renderBudget } from './renderBudget.js';
 
 /** Maximum sparks emitted per impact (scaled by particleScale). */
 const IMPACT_SPARK_COUNT = 6;
+/** Maximum small outward sparks emitted when a building takes damage. */
+const BUILDING_DAMAGE_SPARK_COUNT = 5;
 /** Maximum sparks emitted per muzzle flash (scaled by particleScale). */
 const MUZZLE_SPARK_COUNT = 3;
 /** Share of player thrust particles that should originate from the ship rear. */
@@ -467,6 +469,31 @@ export class ParticleSystem {
       p.life = randomRange(0.06, 0.18);
       p.maxLife = p.life;
       p.size = randomRange(0.8, 2.2);
+      p.additive = true;
+    }
+  }
+
+  /**
+   * Emit a small directional shower from a building impact point.
+   * `outwardAngle` points away from the building body.
+   */
+  emitBuildingDamageSparks(pos: Vec2, outwardAngle: number): void {
+    const count = Math.max(1, Math.round(BUILDING_DAMAGE_SPARK_COUNT * this._effectiveScale));
+    const sparkColors: Color[] = [Colors.particles_impact, Colors.particles_ember, Colors.particles_nova];
+    for (let i = 0; i < count; i++) {
+      const p = this.acquire();
+      p.active = true;
+      p.x = pos.x + Math.cos(outwardAngle) * randomRange(0, 3);
+      p.y = pos.y + Math.sin(outwardAngle) * randomRange(0, 3);
+      const scatter = randomRange(-0.8, 0.8);
+      const spd = randomRange(70, 180);
+      p.vx = Math.cos(outwardAngle + scatter) * spd;
+      p.vy = Math.sin(outwardAngle + scatter) * spd;
+      p.color = sparkColors[i % sparkColors.length];
+      p.alpha = 0.95;
+      p.life = randomRange(0.08, 0.22);
+      p.maxLife = p.life;
+      p.size = randomRange(0.7, 1.8);
       p.additive = true;
     }
   }
