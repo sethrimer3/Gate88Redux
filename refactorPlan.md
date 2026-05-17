@@ -151,7 +151,7 @@ Removed from `game.ts`:
 - `pressedNumberCommandGroup`
 - `findPlayerShipyardAt`
 
-### `src/game.ts` — Build 045 (this PR)
+### `src/game.ts` — Build 045 (earlier in this branch)
 
 **Extended extraction → `src/commandMode.ts`** (order utilities)
 
@@ -170,7 +170,7 @@ Removed from `game.ts`:
 `Game` now delegates both action-menu order results and number-group hotkey
 callbacks through the extracted `issueShipOrder` utility.
 
-### `src/game.ts` — Build 046 (this PR)
+### `src/game.ts` — Build 045 (continued in this PR)
 
 **Extracted → `src/respawnRuntime.ts`** (respawn/ghost runtime)
 
