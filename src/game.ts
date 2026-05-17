@@ -25,7 +25,7 @@ import { cloneDefaultPracticeConfig } from './practiceconfig.js';
 import { TutorialMode } from './tutorial.js';
 import { AIShip, VsAIDirector } from './vsaibot.js';
 import { PlayerShip } from './ship.js';
-import { isHostile, isPlayableTeam, teamForSlot } from './teamutils.js';
+import { teamForSlot } from './teamutils.js';
 import { worldToCell, footprintCenter, GRID_CELL_SIZE } from './grid.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
 import { gameFont } from './fonts.js';
@@ -72,6 +72,16 @@ import {
   updateNumberGroupHotkeys,
   updatePlayerFighterOrderTargets,
 } from './commandMode.js';
+import {
+  type PlayerRespawnRuntime,
+  type AIRespawnRuntime,
+  createPlayerRespawnRuntime,
+  createAIRespawnRuntime,
+  resetRespawnRuntime,
+  updatePlayerRespawn,
+  updateAIShipRespawn,
+  updateGhostSpectator,
+} from './respawnRuntime.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 
@@ -137,17 +147,10 @@ export class Game {
   private bgGradientW = 0;
   private bgGradientH = 0;
 
-  /** Respawn timer: counts down after the player ship dies. */
-  private playerRespawnTimer: number = 0;
-  /** True once the death has been registered so we don't re-trigger. */
-  private playerDeathHandled: boolean = false;
-  private playerLoss: boolean = false;
-  private ghostSpectatorPos: Vec2 | null = null;
-  private ghostSpectatorVel: Vec2 = new Vec2(0, 0);
+  private playerRespawn: PlayerRespawnRuntime = createPlayerRespawnRuntime();
   /** Delay (seconds) before the player ship respawns. */
   private static readonly RESPAWN_DELAY = 3;
-  private aiRespawnTimer: number = 0;
-  private aiDeathHandled: boolean = false;
+  private aiRespawn: AIRespawnRuntime = createAIRespawnRuntime();
   private static readonly AI_RESPAWN_DELAY = 8;
   /** Interval (seconds) between fighter exhaust particle emissions (~30 Hz). */
   private static readonly FIGHTER_EXHAUST_EMIT_INTERVAL = 1 / 30;
@@ -542,7 +545,7 @@ export class Game {
     this.distantSuns.update(DT);
 
     // Camera follows the living ship, or the ghost spectator while dead.
-    this.camera.update(this.ghostSpectatorPos ?? this.state.player.position, DT);
+    this.camera.update(this.playerRespawn.ghostPos ?? this.state.player.position, DT);
 
     // Drain accumulated shake requests from the game state and apply to camera
     // if the current quality preset has camera shake enabled.
@@ -750,90 +753,18 @@ export class Game {
    * it costs to die) — clamped to zero so you can never go negative.
    */
   private updatePlayerRespawn(): void {
-    if (!this.localTeamHasRespawnCommandPost()) {
-      this.playerLoss = true;
-    }
-
-    if (this.state.player.alive) {
-      // Reset tracking whenever the player is alive.
-      this.playerDeathHandled = false;
-      this.playerRespawnTimer = 0;
-      this.ghostSpectatorPos = null;
-      this.ghostSpectatorVel = new Vec2(0, 0);
-      return;
-    }
-
-    if (!this.ghostSpectatorPos) {
-      this.ghostSpectatorPos = this.state.player.position.clone();
-      this.ghostSpectatorVel = new Vec2(0, 0);
-    }
-
-    const respawnCp = this.findRespawnCommandPost();
-    if (!respawnCp) {
-      if (!this.playerLoss) {
-        this.hud.showMessage('Loss. No Command Post remains.', Colors.alert1, 10);
-      }
-      this.playerLoss = true;
-      this.playerRespawnTimer = 0;
-      return;
-    }
-
-    // First frame of death — register it.
-    if (!this.playerDeathHandled) {
-      this.playerDeathHandled = true;
-      this.playerRespawnTimer = Game.RESPAWN_DELAY;
-
-      const penalty = 40 + this.countShipResearchUpgrades() * 10;
-      this.state.resources = Math.max(0, this.state.resources - penalty);
-
-      this.hud.showMessage(
-        `Ship destroyed! Respawning in ${Game.RESPAWN_DELAY}s  (-${penalty} resources)`,
-        Colors.alert1,
-        Game.RESPAWN_DELAY + 1,
-      );
-    }
-
-    // Count down and respawn when the timer expires.
-    this.playerRespawnTimer -= DT;
-    if (this.playerRespawnTimer <= 0) {
-      const spawnPos = new Vec2(respawnCp.position.x, respawnCp.position.y - 60);
-
-      this.state.player.revive(spawnPos);
-      this.playerLoss = false;
-      this.ghostSpectatorPos = null;
-      this.ghostSpectatorVel = new Vec2(0, 0);
-      this.hud.showMessage('Respawned!', Colors.friendly_status, 2);
-    }
+    updatePlayerRespawn(
+      this.state,
+      this.hud,
+      this.localPlayerTeam(),
+      this.playerRespawn,
+      DT,
+      Game.RESPAWN_DELAY,
+    );
   }
 
   private updateAIShipRespawn(dt: number): void {
-    if (this.state.gameMode !== 'vs_ai' || !this.state.aiPlayerShip) return;
-    const ship = this.state.aiPlayerShip;
-    if (!(ship instanceof AIShip)) return;
-    if (ship.alive) {
-      this.aiDeathHandled = false;
-      this.aiRespawnTimer = 0;
-      return;
-    }
-
-    const enemyCp = this.state.getEnemyCommandPost();
-    if (!enemyCp) return;
-
-    if (!this.aiDeathHandled) {
-      this.aiDeathHandled = true;
-      this.aiRespawnTimer = Game.AI_RESPAWN_DELAY;
-      this.hud.showMessage(`Rival ship destroyed - respawning in ${Game.AI_RESPAWN_DELAY}s`, Colors.alert2, 3);
-    }
-
-    this.aiRespawnTimer -= dt;
-    if (this.aiRespawnTimer <= 0) {
-      ship.revive(new Vec2(enemyCp.position.x, enemyCp.position.y - 80));
-      ship.desiredMove = new Vec2(0, 0);
-      ship.desiredAim = this.state.player.position.clone();
-      ship.wantsFire = false;
-      this.aiDeathHandled = false;
-      this.hud.showMessage('Rival ship respawned!', Colors.alert2, 2);
-    }
+    updateAIShipRespawn(this.state, this.hud, this.aiRespawn, dt, Game.AI_RESPAWN_DELAY);
   }
 
   private localPlayerTeam(): Team {
@@ -856,50 +787,8 @@ export class Game {
     };
   }
 
-  private localTeamHasRespawnCommandPost(): boolean {
-    return this.findRespawnCommandPost() !== null;
-  }
-
-  private findRespawnCommandPost(): CommandPost | null {
-    const localTeam = this.localPlayerTeam();
-    const own = this.state.getCommandPostForTeam(localTeam);
-    if (own) return own;
-
-    for (const b of this.state.buildings) {
-      if (!b.alive || b.type !== EntityType.CommandPost || !(b instanceof CommandPost)) continue;
-      if (!isPlayableTeam(b.team)) continue;
-      if (!isHostile(localTeam, b.team)) return b;
-    }
-    return null;
-  }
-
   private updateGhostSpectator(dt: number): void {
-    if (this.state.player.alive || !this.ghostSpectatorPos) return;
-
-    let dx = 0;
-    let dy = 0;
-    if (Input.isDown('w')) dy -= 1;
-    if (Input.isDown('s')) dy += 1;
-    if (Input.isDown('a')) dx -= 1;
-    if (Input.isDown('d')) dx += 1;
-
-    if (dx !== 0 || dy !== 0) {
-      const len = Math.hypot(dx, dy);
-      const speed = Input.isDown('Shift') ? 1200 : 720;
-      this.ghostSpectatorVel = this.ghostSpectatorVel.add(new Vec2((dx / len) * speed * dt, (dy / len) * speed * dt));
-    }
-    this.ghostSpectatorVel = this.ghostSpectatorVel.scale(1 / (1 + 5 * dt));
-    this.ghostSpectatorPos = this.ghostSpectatorPos.add(this.ghostSpectatorVel.scale(dt));
-    this.ghostSpectatorPos.x = Math.max(0, Math.min(WORLD_WIDTH, this.ghostSpectatorPos.x));
-    this.ghostSpectatorPos.y = Math.max(0, Math.min(WORLD_HEIGHT, this.ghostSpectatorPos.y));
-  }
-
-  private countShipResearchUpgrades(): number {
-    let count = 0;
-    for (const key of this.state.researchedItems) {
-      if (key === 'shipHull' || key === 'shipBattery' || key === 'shipEngine' || key === 'shipShield') count++;
-    }
-    return count;
+    updateGhostSpectator(this.state, this.playerRespawn, dt);
   }
 
   private updatePlayerShipyards(): void {
@@ -1093,13 +982,7 @@ export class Game {
     this.rankedVsAIResultRecorded = false;
 
     // Reset respawn tracking.
-    this.playerDeathHandled = false;
-    this.playerRespawnTimer = 0;
-    this.playerLoss = false;
-    this.ghostSpectatorPos = null;
-    this.ghostSpectatorVel = new Vec2(0, 0);
-    this.aiRespawnTimer = 0;
-    this.aiDeathHandled = false;
+    resetRespawnRuntime(this.playerRespawn, this.aiRespawn);
     this.activeGuidedMissile = null;
     this.damageFlashTimer = 0;
     this.playerPrevHealth = -1;
@@ -1293,13 +1176,7 @@ export class Game {
     }
     this.applyVisualQuality(this.visualQuality);
     this.vsAIDirector = null;
-    this.playerDeathHandled = false;
-    this.playerRespawnTimer = 0;
-    this.playerLoss = false;
-    this.ghostSpectatorPos = null;
-    this.ghostSpectatorVel = new Vec2(0, 0);
-    this.aiRespawnTimer = 0;
-    this.aiDeathHandled = false;
+    resetRespawnRuntime(this.playerRespawn, this.aiRespawn);
     this.activeGuidedMissile = null;
     this.damageFlashTimer = 0;
     this.playerPrevHealth = -1;
@@ -1481,13 +1358,7 @@ export class Game {
 
     this.applyVisualQuality(this.visualQuality);
     this.vsAIDirector = null;
-    this.playerDeathHandled = false;
-    this.playerRespawnTimer = 0;
-    this.playerLoss = false;
-    this.ghostSpectatorPos = null;
-    this.ghostSpectatorVel = new Vec2(0, 0);
-    this.aiRespawnTimer = 0;
-    this.aiDeathHandled = false;
+    resetRespawnRuntime(this.playerRespawn, this.aiRespawn);
     this.activeGuidedMissile = null;
     this.damageFlashTimer = 0;
     this.playerPrevHealth = -1;
@@ -2152,7 +2023,7 @@ export class Game {
       );
     }
     this.state.drawEntities(ctx, this.camera);
-    drawGhostSpectator(ctx, this.camera, this.state, this.ghostSpectatorPos);
+    drawGhostSpectator(ctx, this.camera, this.state, this.playerRespawn.ghostPos);
     drawWaypointMarkers(ctx, this.camera, this.state, this.waypointMarkers);
     drawCommandModeOverlay(
       ctx,
@@ -2176,7 +2047,7 @@ export class Game {
     }
 
     drawScreenOverlays(ctx, w, h, this.camera, this.visualPreset, this.damageFlashTimer, this.overlayCache);
-    drawLossOverlay(ctx, w, this.playerLoss);
+    drawLossOverlay(ctx, w, this.playerRespawn.loss);
 
     // Action menu
     this.actionMenu.draw(ctx, this.state, this.camera, w, h);

@@ -170,6 +170,24 @@ Removed from `game.ts`:
 `Game` now delegates both action-menu order results and number-group hotkey
 callbacks through the extracted `issueShipOrder` utility.
 
+### `src/game.ts` — Build 046 (this PR)
+
+**Extracted → `src/respawnRuntime.ts`** (respawn/ghost runtime)
+
+- Moved player/AI respawn runtime orchestration out of `Game`:
+  - `updatePlayerRespawn` (penalty, countdown, revive near CP, loss handling),
+  - `updateAIShipRespawn` (vs-AI rival respawn),
+  - `updateGhostSpectator` (dead-player free-fly movement).
+- Added small runtime state interfaces to keep per-tick updates mutable and
+  allocation-free:
+  - `PlayerRespawnRuntime`
+  - `AIRespawnRuntime`
+- Added `resetRespawnRuntime(...)` and switched `startGame`, LAN start, and
+  online start to reuse the same reset path.
+
+`Game` now delegates respawn/ghost updates and uses `playerRespawn.ghostPos`
+for camera/dead-ship overlay targeting.
+
 ---
 
 ## Planned splits (not yet started)
