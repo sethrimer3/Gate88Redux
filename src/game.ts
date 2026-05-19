@@ -46,7 +46,9 @@ import {
 } from './vsaiconfig.js';
 import { GlowLayer } from './glowlayer.js';
 import { DEFAULT_VISUAL_QUALITY, VISUAL_QUALITY_PRESETS, type VisualQuality, type VisualQualityPreset, loadVisualQuality, saveVisualQuality } from './visualquality.js';
-import { drawCombatTargetingDebug, drawConfluenceTerritory, drawDebugOverlay, drawWaypointMarkers, type ShipCommandGroup, type WaypointMarker } from './gameRender.js';
+import {
+  drawCombatTargetingDebug, drawConfluenceTerritory, drawDebugOverlay, drawWaypointMarkers, drawBaseTerritoryGlow, type ShipCommandGroup, type WaypointMarker,
+} from './gameRender.js';
 import { renderBudget } from './renderBudget.js';
 import type { NetInputSnapshot, NetGameSnapshot } from './net/protocol.js';
 import type { WebRtcTransport } from './online/webrtcTransport.js';
@@ -2009,10 +2011,10 @@ export class Game {
       this.bgGradientW = w;
       this.bgGradientH = h;
       const grad = ctx.createRadialGradient(w * 0.35, h * 0.25, 0, w * 0.5, h * 0.5, Math.hypot(w, h) * 0.72);
-      grad.addColorStop(0.00, 'rgba(4, 10, 28, 0)');     // transparent centre — shows base fill
-      grad.addColorStop(0.35, 'rgba(6, 4, 22, 0.38)');   // deep indigo tint
-      grad.addColorStop(0.68, 'rgba(14, 4, 32, 0.52)');  // dark violet
-      grad.addColorStop(1.00, 'rgba(8, 2, 18, 0.62)');   // near-black purple periphery
+      grad.addColorStop(0.00, 'rgba(2, 4, 12, 0)');      // transparent centre — shows base fill
+      grad.addColorStop(0.35, 'rgba(3, 2, 14, 0.52)');   // deep indigo tint
+      grad.addColorStop(0.68, 'rgba(8, 2, 20, 0.68)');   // dark violet
+      grad.addColorStop(1.00, 'rgba(4, 1, 10, 0.78)');   // near-black periphery
       this.bgGradient = grad;
     }
     ctx.fillStyle = this.bgGradient;
@@ -2034,6 +2036,9 @@ export class Game {
     // Layer 1: distant suns / solar glow (deepest parallax background)
     this.distantSuns.draw(ctx, this.camera, w, h);
     this.nebula.draw(ctx, this.camera, w, h);
+    // Base territory glow — faint team-coloured halos that grow with the base.
+    // Drawn before the starfield so the stars appear on top of the tinted space.
+    drawBaseTerritoryGlow(ctx, this.camera, this.state, w, h);
     this.starfield.draw(ctx, this.camera, w, h);
     // Layer 2: asteroid field (disabled via asteroidFieldLayers:0; kept for code stability)
     this.asteroidField.draw(ctx, this.camera, w, h);
