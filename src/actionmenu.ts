@@ -1229,8 +1229,8 @@ class ShipMenu {
     this.weaponRects.length = 0;
     const panelW = Math.min(360, Math.max(300, screenW - 24));
     const x = 12;
-    const panelH = Math.min(screenH - 36, Math.max(560, screenH - 96));
-    const y = Math.max(18, Math.min(72, (screenH - panelH) * 0.5));
+    const panelH = Math.min(screenH - 150, Math.max(440, screenH - 190));
+    const y = Math.max(10, Math.min(48, (screenH - panelH) * 0.5 - 18));
     ctx.save();
     fillMenuPanel(ctx, x, y, panelW, panelH);
 
@@ -1241,7 +1241,7 @@ class ShipMenu {
     drawDecodedText(ctx, '[Z] Ship', x + 12, y + 12, 20, this.openedAt);
 
     const ship = state.player;
-    const statsY = y + 52;
+    const statsY = y + 48;
     const shieldText = ship.shieldUnlocked
       ? `${Math.ceil(ship.shield)}/${ship.maxShield}`
       : 'offline';
@@ -1258,13 +1258,13 @@ class ShipMenu {
     ];
     ctx.font = '16px "Poiret One", sans-serif';
     for (let i = 0; i < stats.length; i++) {
-      const sy = statsY + i * 21;
-      drawMenuRow(ctx, x + 10, sy - 2, panelW - 20, 18, false, false);
+      const sy = statsY + i * 18;
+      drawMenuRow(ctx, x + 10, sy - 2, panelW - 20, 16, false, false);
       ctx.fillStyle = colorToCSS(Colors.general_building, 0.86);
       drawDecodedText(ctx, stats[i], x + 18, sy, 16, this.openedAt);
     }
 
-    const upgradeY = statsY + stats.length * 21 + 20;
+    const upgradeY = statsY + stats.length * 18 + 12;
     ctx.font = '18px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
     drawDecodedText(ctx, 'Upgrades', x + 12, upgradeY, 18, this.openedAt);
@@ -1291,24 +1291,24 @@ class ShipMenu {
     } else {
       for (let i = 0; i < unlockedUpgrades.length; i++) {
         const [label] = unlockedUpgrades[i];
-        const uy = upgradeY + 26 + i * 20;
-        drawMenuRow(ctx, x + 10, uy - 1, panelW - 20, 17, false, false);
+        const uy = upgradeY + 24 + i * 17;
+        drawMenuRow(ctx, x + 10, uy - 1, panelW - 20, 15, false, false);
         ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.9);
         drawDecodedText(ctx, label, x + 18, uy, 16, this.openedAt);
       }
     }
 
-    const weaponsY = upgradeY + 42 + Math.max(1, unlockedUpgrades.length) * 20;
+    const weaponsY = upgradeY + 38 + Math.max(1, unlockedUpgrades.length) * 17;
     ctx.font = '18px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
     drawDecodedText(ctx, 'Weapons', x + 12, weaponsY, 18, this.openedAt);
     const factionWeapons = SHIP_WEAPON_OPTIONS.filter((w) =>
       isPlayerSynonymous(state) ? w.id === 'synonymousLaser' : w.id !== 'synonymousLaser',
     );
-    const rowH = Math.max(34, Math.min(62, (y + panelH - weaponsY - 54) / factionWeapons.length - 6));
+    const rowH = Math.max(30, Math.min(52, (y + panelH - weaponsY - 46) / factionWeapons.length - 4));
     for (let i = 0; i < factionWeapons.length; i++) {
       const weapon = factionWeapons[i];
-      const wy = weaponsY + 20 + i * (rowH + 6);
+      const wy = weaponsY + 20 + i * (rowH + 4);
       const selected = ship.primaryWeaponId === weapon.id;
       const unlocked = this.weaponUnlocked(state, weapon.id);
       this.weaponRects.push({ id: weapon.id, x: x + 10, y: wy, w: panelW - 20, h: rowH });
@@ -1316,7 +1316,7 @@ class ShipMenu {
       ctx.font = '16px "Poiret One", sans-serif';
       ctx.fillStyle = unlocked ? colorToCSS(Colors.general_building, 0.95) : colorToCSS(Colors.radar_gridlines, 0.48);
       drawDecodedText(ctx, weapon.label, x + 20, wy + 7, 16, this.openedAt);
-      if (rowH >= 46) {
+      if (rowH >= 42) {
         ctx.font = '14px "Poiret One", sans-serif';
         ctx.fillStyle = unlocked ? colorToCSS(Colors.radar_gridlines, 0.78) : colorToCSS(Colors.radar_gridlines, 0.44);
         drawDecodedText(ctx, unlocked ? weapon.description : 'Research required', x + 20, wy + 29, 14, this.openedAt);
@@ -1763,22 +1763,25 @@ class QuickBuildMenu {
   ): void {
     this.iconRects.length = 0;
     const x = 12;
-    const y0 = 96;
+    const y0 = 68;
     const w = 231;
-    const h = 45;
-    const gap = 9;
+    const itemH = 39;
+    const headerH = 28;
+    const gap = 5;
     ctx.save();
-    const panelH = Math.max(1, palette.length) * (h + gap) + 16;
+    const contentH = palette.reduce((sum, item) => sum + (item.type === 'header' ? headerH : itemH) + gap, 0);
+    const panelH = Math.max(1, contentH) + 12;
     fillMenuPanel(ctx, x - 8, y0 - 10, w + 16, panelH);
     ctx.font = '15px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
+    let y = y0;
     for (let i = 0; i < palette.length; i++) {
-      const y = y0 + i * (h + gap);
       const item = palette[i];
       if (item.type === 'header') {
         ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
-        drawDecodedText(ctx, item.label, x + 8, y + h * 0.55, 15, this.openedAt);
+        drawDecodedText(ctx, item.label, x + 8, y + headerH * 0.56, 15, this.openedAt);
+        y += headerH + gap;
         continue;
       }
       const selected = i === this.selectedIndex;
@@ -1788,19 +1791,20 @@ class QuickBuildMenu {
         : item.type === 'shape'
           ? item.label
         : `${isPlayerSynonymous(state) && item.def.key === 'bomberyard' ? 'Nova Bombers' : item.def.label} ${item.def.footprintCells}x${item.def.footprintCells}`;
-      this.iconRects.push({ index: i, x, y, w, h });
-      drawMenuRow(ctx, x, y, w, h, selected, false);
+      this.iconRects.push({ index: i, x, y, w, h: itemH });
+      drawMenuRow(ctx, x, y, w, itemH, selected, false);
       ctx.fillStyle = item.type === 'shape' || canAffordAmount(cost, state)
         ? colorToCSS(Colors.general_building, selected ? 1.0 : 0.82)
         : colorToCSS(Colors.alert1, 0.7);
-      drawDecodedText(ctx, label, x + 8, y + h * 0.5, 15, this.openedAt);
+      drawDecodedText(ctx, label, x + 8, y + itemH * 0.5, 15, this.openedAt);
       ctx.textAlign = 'right';
       const price = item.type === 'shape' ? 'free' : formatCost(cost, state);
       ctx.font = usesSynonymousSymbol(price) ? `15px ${MENU_CANVAS_FONT}` : '15px "Poiret One", sans-serif';
-      if (usesSynonymousSymbol(price)) ctx.fillText(price, x + w - 8, y + h * 0.5);
-      else drawDecodedText(ctx, price, x + w - 8, y + h * 0.5, 15, this.openedAt, 'right');
+      if (usesSynonymousSymbol(price)) ctx.fillText(price, x + w - 8, y + itemH * 0.5);
+      else drawDecodedText(ctx, price, x + w - 8, y + itemH * 0.5, 15, this.openedAt, 'right');
       ctx.font = '15px "Poiret One", sans-serif';
       ctx.textAlign = 'left';
+      y += itemH + gap;
     }
     ctx.restore();
 

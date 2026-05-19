@@ -224,38 +224,27 @@ export class HUD {
     const hpFrac = Math.max(0, Math.min(1, health / maxHealth));
     const shieldFrac = maxShield > 0 ? Math.max(0, Math.min(1, shield / maxShield)) : 0;
     const barW = 220;
-    const barH = 14;
+    const barH = 8;
     const x = 10;
-    const y = screenH - 24;
-    const panelY = maxShield > 0 ? y - 112 : y - 86;
-    this.drawGlassPanel(ctx, x - 8, panelY, barW + 18, y - panelY + 8, 0.68);
-
-    // Label
-    ctx.font = `${Math.floor(HUD_FONT_SIZE * 0.5)}px "Poiret One", sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'bottom';
+    const y = screenH - 18;
+    const barCount = maxShield > 0 ? 3 : 2;
+    const blockH = barCount * barH;
+    const panelY = y - blockH;
+    this.drawGlassPanel(ctx, x - 8, panelY - 7, barW + 18, blockH + 16, 0.68);
 
     let barColor: string;
-    let labelColor: string;
     if (frac > 0.6) {
-      barColor = colorToCSS(Colors.radar_friendly_status, 0.85);
-      labelColor = colorToCSS(Colors.general_building, 0.6);
+      barColor = colorToCSS(Colors.powergenerator_detail, 0.9);
     } else if (frac > 0.3) {
       barColor = colorToCSS(Colors.alert2, 0.9);
-      labelColor = colorToCSS(Colors.alert2, 0.8);
     } else {
       const flash = frac < 0.15 ? 0.5 + 0.5 * Math.sin(this.animTime * 10) : 1;
       barColor = colorToCSS(Colors.alert1, 0.9 * flash);
-      labelColor = colorToCSS(Colors.alert1, 0.9 * flash);
     }
 
-    ctx.fillStyle = labelColor;
-    ctx.fillText('ENERGY', x, y - barH - 8);
-
-    const hpY = y - barH - 30;
-    ctx.fillStyle = colorToCSS(Colors.healthbar, 0.9);
-    ctx.fillText('HP', x, hpY - barH - 6);
-    this.drawStatusBar(ctx, x, hpY - barH, barW, barH, hpFrac, colorToCSS(Colors.healthbar, 0.92), 'rgba(118,255,178,0.95)');
+    const energyY = y - barH;
+    const hpBarY = energyY - barH;
+    this.drawStatusBar(ctx, x, hpBarY, barW, barH, hpFrac, colorToCSS(Colors.healthbar, 0.92), 'rgba(118,255,178,0.95)');
     if (healthRegenActive && hpFrac > 0) {
       const shimmerW = 42;
       const shimmerX = x + ((this.animTime * 78) % (barW + shimmerW)) - shimmerW;
@@ -265,25 +254,23 @@ export class HUD {
       grad.addColorStop(1, colorToCSS(Colors.particles_healing, 0));
       ctx.save();
       ctx.beginPath();
-      ctx.rect(x, hpY - barH, barW * hpFrac, barH);
+      ctx.rect(x, hpBarY, barW * hpFrac, barH);
       ctx.clip();
       ctx.globalCompositeOperation = 'lighter';
       ctx.fillStyle = grad;
-      ctx.fillRect(shimmerX, hpY - barH - 4, shimmerW, barH + 8);
+      ctx.fillRect(shimmerX, hpBarY - 4, shimmerW, barH + 8);
       const pulse = 0.5 + 0.5 * Math.sin(this.animTime * 8);
       ctx.strokeStyle = colorToCSS(Colors.particles_healing, 0.24 + pulse * 0.24);
       ctx.lineWidth = 2;
-      ctx.strokeRect(x - 1, hpY - barH - 1, barW + 2, barH + 2);
+      ctx.strokeRect(x - 1, hpBarY - 1, barW + 2, barH + 2);
       ctx.restore();
     }
     if (maxShield > 0) {
-      const shieldY = hpY - barH - 22;
-      ctx.fillStyle = colorToCSS(Colors.radar_allied_status, 0.86);
-      ctx.fillText('SHIELD', x, shieldY - barH - 6);
-      this.drawStatusBar(ctx, x, shieldY - barH, barW, barH, shieldFrac, colorToCSS(Colors.radar_allied_status, 0.78), 'rgba(120,178,255,0.92)');
+      const shieldBarY = hpBarY - barH;
+      this.drawStatusBar(ctx, x, shieldBarY, barW, barH, shieldFrac, colorToCSS(Colors.radar_allied_status, 0.78), 'rgba(120,178,255,0.92)');
     }
 
-    this.drawStatusBar(ctx, x, y - barH, barW, barH, frac, barColor, colorToCSS(Colors.alert2, 0.85));
+    this.drawStatusBar(ctx, x, energyY, barW, barH, frac, barColor, colorToCSS(Colors.powergenerator_detail, 0.85));
   }
 
   /**
