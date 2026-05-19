@@ -64,16 +64,16 @@ function drawMenuBanner(
 ): void {
   const w = Math.min(screenW - 32, 760);
   const x = screenW * 0.5 - w * 0.5;
-  fillMenuPanel(ctx, x, y, w, 54);
+  fillMenuPanel(ctx, x, y, w, 68);
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  ctx.font = '13px "Poiret One", sans-serif';
+  ctx.font = '20px "Poiret One", sans-serif';
   ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.9);
-  drawDecodedText(ctx, primary, screenW * 0.5, y + 10, 13, openedAt, 'center');
-  ctx.font = '10px "Poiret One", sans-serif';
+  drawDecodedText(ctx, primary, screenW * 0.5, y + 7, 20, openedAt, 'center');
+  ctx.font = '15px "Poiret One", sans-serif';
   ctx.fillStyle = colorToCSS(Colors.general_building, 0.68);
-  drawDecodedText(ctx, secondary, screenW * 0.5, y + 31, 10, openedAt, 'center');
+  drawDecodedText(ctx, secondary, screenW * 0.5, y + 34, 15, openedAt, 'center');
   ctx.restore();
 }
 
@@ -565,7 +565,7 @@ class HoldMenu {
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '10px "Poiret One", sans-serif';
+    ctx.font = '15px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.9);
     ctx.fillText(this.title, cx, cy - (this.stack.length > 1 ? 7 : 0));
     if (this.stack.length > 1) {
@@ -764,7 +764,7 @@ class PaintMenu {
       24,
     );
     // Conduit count for feedback.
-    ctx.font = '10px "Poiret One", sans-serif';
+    ctx.font = '15px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
     ctx.fillText(
       `conduits: ${state.grid.conduitCount()}  •  queued: ${state.grid.pendingConduitCount()}  •  cell ${cell.cx},${cell.cy}  •  resources: $${Math.floor(state.resources)}`,
@@ -778,6 +778,7 @@ class LeftHoldMenu {
   open = false;
 
   private stack: RadialItem[][] = [];
+  private path: string[] = [];
   private selectedIdx = 0;
   private hoveredIdx = -1;
   private openedAt = 0;
@@ -801,24 +802,29 @@ class LeftHoldMenu {
     if (keyDown && !this.open) {
       this.open = true;
       this.stack = [this.rootFactory(state)];
+      this.path = [];
       this.selectedIdx = 0;
       this.openedAt = performance.now() * 0.001;
       Audio.playSound('menucursor');
     } else if (!keyDown && this.open) {
       this.open = false;
       this.stack = [];
+      this.path = [];
     }
     if (!this.open) return { action: 'none' };
+    this.refreshStack(state);
 
     if (Input.mouse2Pressed) {
       Input.consumeMouseButton(2);
       if (this.stack.length > 1) {
         this.stack.pop();
+        this.path.pop();
         this.selectedIdx = 0;
         Audio.playSound('menucursor');
       } else {
         this.open = false;
         this.stack = [];
+        this.path = [];
       }
       return { action: 'none' };
     }
@@ -877,18 +883,36 @@ class LeftHoldMenu {
       const filtered = item.children.filter((i) => !i.condition || i.condition(state));
       if (filtered.length > 0) {
         this.stack.push(filtered);
+        this.path.push(item.label);
         this.selectedIdx = 0;
       }
       return { action: 'none' };
     }
     this.open = false;
     this.stack = [];
+    this.path = [];
     if (item.buildingType) return { action: 'build', buildingType: item.buildingType };
     if (item.orderGroup !== undefined && item.tacticalOrder !== undefined) {
       return { action: 'order', group: item.orderGroup, order: item.tacticalOrder };
     }
     if (item.researchItem) return { action: 'research', item: item.researchItem };
     return { action: 'none' };
+  }
+
+  private refreshStack(state: GameState): void {
+    const stack: RadialItem[][] = [this.rootFactory(state)];
+    const refreshedPath: string[] = [];
+    let level = stack[0];
+    for (const label of this.path) {
+      const parent = level.find((item) => item.label === label && item.children);
+      const children = parent?.children?.filter((i) => !i.condition || i.condition(state));
+      if (!children || children.length === 0) break;
+      stack.push(children);
+      refreshedPath.push(label);
+      level = children;
+    }
+    this.stack = stack;
+    this.path = refreshedPath;
   }
 
   draw(ctx: CanvasRenderingContext2D, state: GameState): void {
@@ -900,27 +924,27 @@ class LeftHoldMenu {
 
     const x = 12;
     const y = 96;
-    const w = 230;
-    const rowH = 34;
-    const gap = 6;
-    const headerH = 42;
+    const w = 345;
+    const rowH = 51;
+    const gap = 9;
+    const headerH = 63;
     const panelH = headerH + Math.max(1, items.length) * (rowH + gap) + 14;
 
     ctx.save();
     fillMenuPanel(ctx, x, y, w, panelH);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.font = '14px "Poiret One", sans-serif';
+    ctx.font = '21px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.95);
-    drawDecodedText(ctx, this.title, x + 12, y + 24, 14, this.openedAt);
+    drawDecodedText(ctx, this.title, x + 18, y + 34, 21, this.openedAt);
     if (this.stack.length > 1) {
-      ctx.font = '10px "Poiret One", sans-serif';
+      ctx.font = '15px "Poiret One", sans-serif';
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
-      ctx.fillText('RMB back', x + w - 70, y + 15);
+      ctx.fillText('RMB back', x + w - 104, y + 22);
     }
 
     if (items.length === 0) {
-      ctx.font = '10px "Poiret One", sans-serif';
+      ctx.font = '15px "Poiret One", sans-serif';
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
       ctx.fillText('(nothing available)', x + 12, y + headerH);
       ctx.restore();
@@ -933,7 +957,7 @@ class LeftHoldMenu {
       const active = i === this.selectedIdx || i === this.hoveredIdx;
       this.rowRects.push({ index: i, x: x + 10, y: rowY, w: w - 20, h: rowH });
       drawMenuRow(ctx, x + 10, rowY, w - 20, rowH, active, !!item.disabled);
-      ctx.font = '10px "Poiret One", sans-serif';
+      ctx.font = '15px "Poiret One", sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = item.disabled
@@ -941,10 +965,10 @@ class LeftHoldMenu {
         : active
           ? colorToCSS(Colors.radar_friendly_status)
           : colorToCSS(Colors.general_building, 0.9);
-      drawDecodedText(ctx, item.label.replace(/\n/g, ' '), x + 20, rowY + rowH * 0.5, 10, this.openedAt);
+      drawDecodedText(ctx, item.label.replace(/\n/g, ' '), x + 20, rowY + rowH * 0.5, 15, this.openedAt);
       ctx.textAlign = 'right';
       if (item.sublabel) {
-        ctx.font = usesSynonymousSymbol(item.sublabel) ? `12px ${MENU_CANVAS_FONT}` : '12px "Poiret One", sans-serif';
+        ctx.font = usesSynonymousSymbol(item.sublabel) ? `18px ${MENU_CANVAS_FONT}` : '18px "Poiret One", sans-serif';
         ctx.fillStyle = item.disabled
           ? colorToCSS(Colors.radar_gridlines, 0.3)
           : active
@@ -961,30 +985,30 @@ class LeftHoldMenu {
   }
 
   private drawResearchQueue(ctx: CanvasRenderingContext2D, state: GameState, x: number, y: number, w: number): void {
-    const rowH = 28;
-    const gap = 5;
+    const rowH = 42;
+    const gap = 8;
     const shown = [
       ...(state.researchProgress.item ? [{ item: state.researchProgress.item, active: true }] : []),
       ...state.researchQueue.map((item) => ({ item, active: false })),
     ];
-    const panelH = 38 + Math.max(1, shown.length) * (rowH + gap) + 9;
+    const panelH = 56 + Math.max(1, shown.length) * (rowH + gap) + 12;
     ctx.save();
     fillMenuPanel(ctx, x, y, w, panelH);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.86);
-    drawDecodedText(ctx, 'Research Queue', x + 12, y + 14, 13, this.openedAt);
+    drawDecodedText(ctx, 'Research Queue', x + 12, y + 20, 20, this.openedAt);
 
     if (shown.length === 0) {
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
-      drawDecodedText(ctx, 'No queued research', x + 12, y + 38, 10, this.openedAt);
+      drawDecodedText(ctx, 'No queued research', x + 12, y + 52, 15, this.openedAt);
       ctx.restore();
       return;
     }
 
     for (let i = 0; i < shown.length; i++) {
       const entry = shown[i];
-      const rowY = y + 36 + i * (rowH + gap);
+      const rowY = y + 54 + i * (rowH + gap);
       const hovered = Input.mousePos.x >= x + 10 && Input.mousePos.x <= x + w - 10 &&
         Input.mousePos.y >= rowY && Input.mousePos.y <= rowY + rowH;
       if (!entry.active) this.queueRects.push({ index: i - (state.researchProgress.item ? 1 : 0), item: entry.item, x: x + 10, y: rowY, w: w - 20, h: rowH });
@@ -992,10 +1016,11 @@ class LeftHoldMenu {
       ctx.fillStyle = colorToCSS(Colors.general_building, 0.88);
       const queueNumber = state.researchProgress.item ? i : i + 1;
       const prefix = entry.active ? 'Now' : `${queueNumber}.`;
-      drawDecodedText(ctx, `${prefix} ${researchDisplayName(entry.item)}`, x + 18, rowY + rowH * 0.5, 10, this.openedAt);
+      drawDecodedText(ctx, `${prefix} ${researchDisplayName(entry.item)}`, x + 18, rowY + rowH * 0.5, 15, this.openedAt);
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.62);
+      ctx.font = '15px "Poiret One", sans-serif';
       ctx.fillText(entry.active ? 'active' : 'cancel', x + w - 18, rowY + rowH * 0.5);
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
@@ -1608,13 +1633,13 @@ class QuickBuildMenu {
     this.iconRects.length = 0;
     const x = 12;
     const y0 = 96;
-    const w = 154;
-    const h = 30;
-    const gap = 6;
+    const w = 231;
+    const h = 45;
+    const gap = 9;
     ctx.save();
     const panelH = Math.max(1, palette.length) * (h + gap) + 16;
     fillMenuPanel(ctx, x - 8, y0 - 10, w + 16, panelH);
-    ctx.font = '10px "Poiret One", sans-serif';
+    ctx.font = '15px "Poiret One", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     for (let i = 0; i < palette.length; i++) {
@@ -1622,7 +1647,7 @@ class QuickBuildMenu {
       const item = palette[i];
       if (item.type === 'header') {
         ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
-        drawDecodedText(ctx, item.label, x + 8, y + h * 0.55, 10, this.openedAt);
+        drawDecodedText(ctx, item.label, x + 8, y + h * 0.55, 15, this.openedAt);
         continue;
       }
       const selected = i === this.selectedIndex;
@@ -1637,13 +1662,13 @@ class QuickBuildMenu {
       ctx.fillStyle = item.type === 'shape' || canAffordAmount(cost, state)
         ? colorToCSS(Colors.general_building, selected ? 1.0 : 0.82)
         : colorToCSS(Colors.alert1, 0.7);
-      drawDecodedText(ctx, label, x + 8, y + h * 0.5, 10, this.openedAt);
+      drawDecodedText(ctx, label, x + 8, y + h * 0.5, 15, this.openedAt);
       ctx.textAlign = 'right';
       const price = item.type === 'shape' ? 'free' : formatCost(cost, state);
-      ctx.font = usesSynonymousSymbol(price) ? `10px ${MENU_CANVAS_FONT}` : '10px "Poiret One", sans-serif';
+      ctx.font = usesSynonymousSymbol(price) ? `15px ${MENU_CANVAS_FONT}` : '15px "Poiret One", sans-serif';
       if (usesSynonymousSymbol(price)) ctx.fillText(price, x + w - 8, y + h * 0.5);
-      else drawDecodedText(ctx, price, x + w - 8, y + h * 0.5, 10, this.openedAt, 'right');
-      ctx.font = '10px "Poiret One", sans-serif';
+      else drawDecodedText(ctx, price, x + w - 8, y + h * 0.5, 15, this.openedAt, 'right');
+      ctx.font = '15px "Poiret One", sans-serif';
       ctx.textAlign = 'left';
     }
     ctx.restore();
