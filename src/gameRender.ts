@@ -8,6 +8,7 @@ import { recentCombatAimSamples } from './targeting.js';
 import { getShipPathDebugStats } from './shippath.js';
 import { renderBudget } from './renderBudget.js';
 import type { VisualQuality } from './visualquality.js';
+import { teamColor } from './teamutils.js';
 
 export type ShipCommandGroup = ShipGroup | 'all';
 export type WaypointMarker = { pos: Vec2; issuedAt: number };
@@ -287,4 +288,136 @@ export function drawConfluenceTerritory(
       ctx.restore();
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Base territory glow
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimum world-unit radius for the base glow gradient even when a base has
+ * very few buildings.
+ */
+const BASE_GLOW_MIN_RADIUS = 420;
+
+/**
+ * How much the gradient radius grows per additional alive building beyond the
+ * CommandPost (world units per building).
+ */
+const BASE_GLOW_GROWTH_PER_BUILDING = 55;
+
+/**
+ * Extra padding (world units) added beyond the furthest building from the
+ * centre.  This creates a soft halo beyond the physical footprint.
+ */
+const BASE_GLOW_EXTENT_PADDING = 280;
+
+/**
+ * Maximum opacity at the gradient centre (keep very faint so the background
+ * remains dark overall).
+ */
+const BASE_GLOW_CENTER_ALPHA = 0.13;
+
+/**
+ * Draws soft, faint team-coloured radial gradients around each team's base.
+ * Called before the starfield so the colour tints the stars naturally.
+ *
+ * The gradient radius grows as the base expands with more structures.
+ */
+export function drawBaseTerritoryGlow(
+  ctx: CanvasRenderingContext2D,
+  camera: Camera,
+  state: GameState,
+  screenW: number,
+  screenH: number,
+): void {
+  // Collect per-team data: centroid, max extent, building count.
+  const teamData = new Map<Team, {
+    cx: number; cy: number;   // centroid
+    maxDist: number;           // max distance of any building from centroid
+    count: number;             // number of alive buildings
+    commandPostX: number | null;
+    commandPostY: number | null;
+  }>();
+
+  for (const b of state.buildings) {
+    if (!b.alive || b.team === Team.Neutral) continue;
+    const t = b.team;
+    if (!teamData.has(t)) {
+      teamData.set(t, { cx: 0, cy: 0, maxDist: 0, count: 0, commandPostX: null, commandPostY: null });
+    }
+    const d = teamData.get(t)!;
+    d.cx += b.position.x;
+    d.cy += b.position.y;
+    d.count++;
+    if (b.type === EntityType.CommandPost) {
+      d.commandPostX = b.position.x;
+      d.commandPostY = b.position.y;
+    }
+  }
+
+  // Compute centroid and max extent for each team.
+  for (const [, d] of teamData) {
+    if (d.count === 0) continue;
+    d.cx /= d.count;
+    d.cy /= d.count;
+    // Use command post as the focal centre if present, otherwise the centroid.
+    const ox = d.commandPostX ?? d.cx;
+    const oy = d.commandPostY ?? d.cy;
+    d.cx = ox;
+    d.cy = oy;
+  }
+
+  // Recompute max distance from the chosen focal centre.
+  for (const b of state.buildings) {
+    if (!b.alive || b.team === Team.Neutral) continue;
+    const d = teamData.get(b.team);
+    if (!d) continue;
+    const dx = b.position.x - d.cx;
+    const dy = b.position.y - d.cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > d.maxDist) d.maxDist = dist;
+  }
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+
+  for (const [team, d] of teamData) {
+    if (d.count === 0) continue;
+
+    const color = teamColor(team);
+    const r = color.r * color.intensity;
+    const g = color.g * color.intensity;
+    const b = color.b * color.intensity;
+
+    // World-space radius: at least MIN, grows with building count and physical extent.
+    const worldRadius = Math.max(
+      BASE_GLOW_MIN_RADIUS,
+      d.maxDist + BASE_GLOW_EXTENT_PADDING + (d.count - 1) * BASE_GLOW_GROWTH_PER_BUILDING,
+    );
+
+    // Convert to screen space.
+    const sx = camera.screenX(d.cx);
+    const sy = camera.screenY(d.cy);
+    const screenRadius = worldRadius * camera.zoom;
+
+    // Cull gradient entirely when the centre is very far off screen.
+    if (
+      sx < -screenRadius || sx > screenW + screenRadius ||
+      sy < -screenRadius || sy > screenH + screenRadius
+    ) continue;
+
+    const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, screenRadius);
+    grad.addColorStop(0.00, `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${BASE_GLOW_CENTER_ALPHA})`);
+    grad.addColorStop(0.40, `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${(BASE_GLOW_CENTER_ALPHA * 0.5).toFixed(3)})`);
+    grad.addColorStop(0.75, `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${(BASE_GLOW_CENTER_ALPHA * 0.12).toFixed(3)})`);
+    grad.addColorStop(1.00, `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},0)`);
+
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(sx, sy, screenRadius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
 }
