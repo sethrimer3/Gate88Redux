@@ -95,6 +95,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
   commandpost: {
     key: 'commandpost',
     label: 'Command Post',
+    description: 'Your command center. Allows construction within its radius. Losing this ends the game.',
     cost: COMMANDPOST_REBUILD_COST,
     footprintCells: 6,
     buildTime: COMMANDPOST_REBUILD_TIME,
@@ -106,6 +107,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
   powergenerator: {
     key: 'powergenerator',
     label: 'Power Generator',
+    description: 'Powers all buildings within its coverage radius via conduit connections.',
     cost: BUILDING_COST.powergenerator,
     footprintCells: 3,
     buildTime: BUILD_TIME.powergenerator,
@@ -116,6 +118,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
   wall: {
     key: 'wall',
     label: 'Wall',
+    description: 'Durable defensive barrier. Blocks enemy movement and projectiles.',
     cost: BUILDING_COST.wall,
     footprintCells: 2,
     buildTime: BUILD_TIME.wall,
@@ -125,6 +128,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
   fighteryard: {
     key: 'fighteryard',
     label: 'Fighter Yard',
+    description: 'Continuously produces fighter ships for your fleet.',
     cost: BUILDING_COST.fighteryard,
     footprintCells: 5,
     buildTime: BUILD_TIME.fighteryard,
@@ -135,6 +139,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
   bomberyard: {
     key: 'bomberyard',
     label: 'Bomber Yard',
+    description: 'Produces nova bombers with devastating area-of-effect attacks.',
     cost: BUILDING_COST.bomberyard,
     footprintCells: 6,
     buildTime: BUILD_TIME.bomberyard,
@@ -146,6 +151,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
   researchlab: {
     key: 'researchlab',
     label: 'Research Lab',
+    description: 'Enables research of new technologies and ship upgrades.',
     cost: BUILDING_COST.researchlab,
     footprintCells: 4,
     buildTime: BUILD_TIME.researchlab,
@@ -156,6 +162,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
   factory: {
     key: 'factory',
     label: 'Factory',
+    description: 'Passively increases your resource income rate.',
     cost: BUILDING_COST.factory,
     footprintCells: 4,
     buildTime: BUILD_TIME.factory,
@@ -165,6 +172,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
   missileturret: {
     key: 'missileturret',
     label: 'Missile Turret',
+    description: 'Fires guided missiles that track targets. High single-target damage.',
     cost: BUILDING_COST.missileturret,
     footprintCells: 3,
     buildTime: BUILD_TIME.missileturret,
@@ -176,7 +184,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
   gatlingturret: {
     key: 'gatlingturret',
     label: 'Gatling Turret',
-    description: 'Long-range suppressive bullet turret.',
+    description: 'Long-range suppressive bullet turret. Consistent damage output at range.',
     cost: BUILDING_COST.gatlingturret,
     footprintCells: 3,
     buildTime: BUILD_TIME.gatlingturret,
@@ -187,6 +195,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
   synonymousminelayer: {
     key: 'synonymousminelayer',
     label: 'Mine Layer',
+    description: 'Deploys proximity mines that detonate on enemy contact.',
     cost: BUILDING_COST.synonymousminelayer,
     footprintCells: 5,
     buildTime: BUILD_TIME.synonymousminelayer,
@@ -198,6 +207,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
   exciterturret: {
     key: 'exciterturret',
     label: 'Exciter Turret',
+    description: 'Fires a sustained energy beam dealing continuous damage to a target.',
     cost: BUILDING_COST.exciterturret,
     footprintCells: 6,
     buildTime: BUILD_TIME.exciterturret,
@@ -209,6 +219,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
   massdriverturret: {
     key: 'massdriverturret',
     label: 'Mass Driver',
+    description: 'Fires high-velocity kinetic slugs with extreme range and stopping power.',
     cost: BUILDING_COST.massdriverturret,
     footprintCells: 3,
     buildTime: BUILD_TIME.massdriverturret,
@@ -220,6 +231,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
   regenturret: {
     key: 'regenturret',
     label: 'Regen Turret',
+    description: 'Emits a healing field that slowly repairs nearby allied buildings.',
     cost: BUILDING_COST.regenturret,
     footprintCells: 3,
     buildTime: BUILD_TIME.regenturret,

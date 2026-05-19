@@ -35,6 +35,98 @@ const UI_CYAN = 'rgba(118,242,255,';
 const UI_GOLD = 'rgba(255,218,116,';
 const UI_PANEL_DARK = 'rgba(2,10,22,';
 
+// ---------------------------------------------------------------------------
+// Description tooltip box
+// ---------------------------------------------------------------------------
+
+const DESC_BOX_W = 220;
+const DESC_BOX_GAP = 10;
+const DESC_BOX_PAD_X = 10;
+const DESC_BOX_PAD_Y = 8;
+const DESC_BOX_LINE_H = 16;
+const DESC_BOX_FONT = '13px "Poiret One", sans-serif';
+
+/**
+ * Short descriptions shown in the tooltip box for each research item.
+ * Building-unlock research items fall back to the BuildDef description.
+ */
+const RESEARCH_DESCRIPTIONS: Record<string, string> = {
+  shipHp:               'Increases player ship maximum HP.',
+  shipSpeedEnergy:      'Boosts max movement speed and energy regeneration rate.',
+  shipFireSpeed:        'Reduces weapon fire cooldown for a faster rate of fire.',
+  shipShield:           'Unlocks a rechargeable shield aura that absorbs incoming damage.',
+  synonymousPierce:     'Harmonic tunneling lets shots phase through multiple targets.',
+  synonymousSpeed:      'Enhances drone cohesion and overall movement speed.',
+  synonymousFireSpeed1: 'Speeds up pulse fire rate. Level 1 of 4.',
+  synonymousFireSpeed2: 'Speeds up pulse fire rate. Level 2 of 4.',
+  synonymousFireSpeed3: 'Speeds up pulse fire rate. Level 3 of 4.',
+  synonymousFireSpeed4: 'Speeds up pulse fire rate. Level 4 of 4 — maximum.',
+  synonymousVitality:   'Distributes total health evenly across all active drones.',
+  weaponGatling:        'Unlocks the Gatling Cannon: rapid fire at close range.',
+  weaponLaser:          'Unlocks the Laser: slow-firing beam that pierces all targets.',
+  weaponGuidedMissile:  'Unlocks the Guided Missile: steerable heavy explosive.',
+  weaponCannon:         'Unlocks Cannon V.2 with improved homing shells.',
+  missileturret:        'Unlocks construction of Missile Turrets. Guided-missile defense.',
+  synonymousminelayer:  'Unlocks construction of Mine Layer turrets.',
+  exciterturret:        'Unlocks construction of Exciter Turrets. Sustained-beam defense.',
+  massdriverturret:     'Unlocks construction of Mass Driver Turrets. Extreme-range kinetics.',
+  regenturret:          'Unlocks construction of Regen Turrets. Heals nearby structures.',
+  bomberyard:           'Unlocks construction of Bomber Yards for nova bombers.',
+  advancedFighters:     'Improves fighter ships with enhanced stats and combat AI.',
+};
+
+function wrapDescriptionText(ctx: CanvasRenderingContext2D, text: string): string[] {
+  const maxW = DESC_BOX_W - DESC_BOX_PAD_X * 2;
+  ctx.save();
+  ctx.font = DESC_BOX_FONT;
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let line = '';
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (ctx.measureText(test).width > maxW && line) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = test;
+    }
+  }
+  if (line) lines.push(line);
+  ctx.restore();
+  return lines;
+}
+
+/**
+ * Draw a description tooltip box to the right of a menu panel.
+ * @param panelRightX - the right edge of the menu panel (pixels)
+ * @param itemCenterY - vertical centre of the highlighted item (pixels)
+ */
+function drawDescriptionBox(
+  ctx: CanvasRenderingContext2D,
+  description: string,
+  panelRightX: number,
+  itemCenterY: number,
+  screenW: number,
+  screenH: number,
+): void {
+  const x = panelRightX + DESC_BOX_GAP;
+  if (x + DESC_BOX_W > screenW - 8) return;
+  const lines = wrapDescriptionText(ctx, description);
+  if (lines.length === 0) return;
+  const boxH = lines.length * DESC_BOX_LINE_H + DESC_BOX_PAD_Y * 2;
+  const y = Math.max(8, Math.min(screenH - boxH - 8, itemCenterY - boxH / 2));
+  ctx.save();
+  fillMenuPanel(ctx, x, y, DESC_BOX_W, boxH);
+  ctx.font = DESC_BOX_FONT;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = colorToCSS(Colors.general_building, 0.85);
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], x + DESC_BOX_PAD_X, y + DESC_BOX_PAD_Y + i * DESC_BOX_LINE_H);
+  }
+  ctx.restore();
+}
+
 function fillMenuPanel(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
   const grad = ctx.createLinearGradient(x, y, x + w, y + h);
   grad.addColorStop(0, 'rgba(4,18,31,0.86)');
@@ -915,7 +1007,7 @@ class LeftHoldMenu {
     this.path = refreshedPath;
   }
 
-  draw(ctx: CanvasRenderingContext2D, state: GameState): void {
+  draw(ctx: CanvasRenderingContext2D, state: GameState, screenW: number = 800, screenH: number = 600): void {
     if (!this.open) return;
     const items = this.currentItems(state);
     this.normalizeSelectedIndex(items);
@@ -981,6 +1073,26 @@ class LeftHoldMenu {
       }
     }
     ctx.restore();
+
+    // Description tooltip: show for hovered/selected leaf item
+    const activeIdx = this.hoveredIdx >= 0 ? this.hoveredIdx : this.selectedIdx;
+    if (activeIdx >= 0 && activeIdx < items.length) {
+      const item = items[activeIdx];
+      let description: string | undefined;
+      if (item.researchItem) {
+        description = RESEARCH_DESCRIPTIONS[item.researchItem]
+          ?? getBuildDef(item.researchItem)?.description;
+      } else if (item.buildingType) {
+        description = getBuildDef(item.buildingType)?.description;
+      }
+      if (description) {
+        const rect = this.rowRects.find((r) => r.index === activeIdx);
+        if (rect) {
+          drawDescriptionBox(ctx, description, x + w, rect.y + rect.h / 2, screenW, screenH);
+        }
+      }
+    }
+
     if (this.showResearchQueue) this.drawResearchQueue(ctx, state, x, y + panelH + 8, w);
   }
 
@@ -1216,6 +1328,23 @@ class ShipMenu {
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.7);
     drawDecodedText(ctx, 'click or mouse wheel changes weapon', x + panelW * 0.5, y + panelH - 18, 14, this.openedAt, 'center');
     ctx.restore();
+
+    // Description tooltip: show for hovered or selected weapon
+    let descWeapon = factionWeapons.find((w) => w.id === ship.primaryWeaponId);
+    let descRect = this.weaponRects.find((r) => r.id === ship.primaryWeaponId);
+    for (const rect of this.weaponRects) {
+      if (
+        Input.mousePos.x >= rect.x && Input.mousePos.x <= rect.x + rect.w &&
+        Input.mousePos.y >= rect.y && Input.mousePos.y <= rect.y + rect.h
+      ) {
+        descWeapon = factionWeapons.find((w) => w.id === rect.id);
+        descRect = rect;
+        break;
+      }
+    }
+    if (descWeapon && descRect) {
+      drawDescriptionBox(ctx, descWeapon.description, x + panelW, descRect.y + descRect.h / 2, screenW, screenH);
+    }
   }
 
   private weaponUnlocked(state: GameState, id: ShipWeaponId): boolean {
@@ -1473,7 +1602,7 @@ class QuickBuildMenu {
     state: GameState,
     camera: Camera,
     screenW: number,
-    _screenH: number,
+    screenH: number,
   ): void {
     if (!this.open) return;
     const palette = this.paletteItems(state);
@@ -1488,7 +1617,7 @@ class QuickBuildMenu {
       const mode: 'paint' | 'erase' = this.dragMode === 'erase' ? 'erase' : 'paint';
       this.drawConduitBrushCursor(ctx, camera, cell, mode);
     }
-    this.drawPalette(ctx, state, palette);
+    this.drawPalette(ctx, state, palette, screenW, screenH);
 
     const primaryHint = selected?.type === 'shape'
       ? '[Q] Synonymous Shape - hold LMB to draw swarm trails - RMB recalls nearby drones'
@@ -1629,6 +1758,8 @@ class QuickBuildMenu {
     ctx: CanvasRenderingContext2D,
     state: GameState,
     palette: QuickPaletteItem[],
+    screenW: number,
+    screenH: number,
   ): void {
     this.iconRects.length = 0;
     const x = 12;
@@ -1672,6 +1803,24 @@ class QuickBuildMenu {
       ctx.textAlign = 'left';
     }
     ctx.restore();
+
+    // Description tooltip for selected palette item
+    const selectedRect = this.iconRects.find((r) => r.index === this.selectedIndex);
+    if (selectedRect) {
+      const selected = palette[this.selectedIndex];
+      let description: string | undefined;
+      if (selected?.type === 'building') {
+        description = selected.def.description;
+      } else if (selected?.type === 'conduit') {
+        description = 'Connects buildings to your power network. LMB to paint cells, RMB to erase.';
+      } else if (selected?.type === 'shape') {
+        description = 'Synonymous swarm formation. LMB to draw trails, RMB to recall nearby drones.';
+      }
+      if (description) {
+        const panelRightX = x - 8 + w + 16; // right edge of the palette panel
+        drawDescriptionBox(ctx, description, panelRightX, selectedRect.y + selectedRect.h / 2, screenW, screenH);
+      }
+    }
   }
 }
 
@@ -1732,7 +1881,7 @@ export class ActionMenu {
     screenH: number,
   ): void {
     this.shipMenu.draw(ctx, state, screenW, screenH);
-    this.researchMenu.draw(ctx, state);
+    this.researchMenu.draw(ctx, state, screenW, screenH);
     this.paintMenu.draw(ctx, state, camera, screenW, screenH);
   }
 
