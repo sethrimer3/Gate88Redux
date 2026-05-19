@@ -146,6 +146,7 @@ interface ActiveAutoBuild {
 
 export class EnemyBasePlanner {
   readonly team: Team;
+  private rootCommandPost: CommandPost | null = null;
   readonly config: PracticeConfig;
 
   /** Command Post grid cell — center of all ring geometry. */
@@ -295,6 +296,7 @@ export class EnemyBasePlanner {
    * plan, and spawn the first builder drone.
    */
   init(state: GameState, cp: CommandPost): void {
+    this.rootCommandPost = cp;
     const c = cellOf(cp.position);
     this.centerCx = c.cx;
     this.centerCy = c.cy;
@@ -468,7 +470,7 @@ export class EnemyBasePlanner {
   }
 
   private updateChatNarration(state: GameState): void {
-    const cp = state.getEnemyCommandPost();
+    const cp = this.rootCommandPost?.alive ? this.rootCommandPost : null;
     if (!cp) return;
 
     // Announce if the player is rushing the command post.
@@ -509,7 +511,7 @@ export class EnemyBasePlanner {
     }
 
     // Track Command Post rushes.
-    const cp = state.getEnemyCommandPost();
+    const cp = this.rootCommandPost?.alive ? this.rootCommandPost : null;
     if (cp && state.player.alive) {
       if (state.player.position.distanceTo(cp.position) < GRID_CELL_SIZE * 10) {
         this.adaptive.commandPostRushes++;

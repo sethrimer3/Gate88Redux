@@ -31,6 +31,7 @@ const AI_MAIN_SHIP_ORDER_RADIUS = 1000;
 const SPAWN_GROUPS = [ShipGroup.Red, ShipGroup.Green, ShipGroup.Blue] as const;
 /** Pixel variance added to the flank target so repeated attacks vary slightly. */
 const FLANK_POSITION_VARIANCE = 60;
+const SURVIVAL_BASE_INTERVAL_SECONDS = 60;
 
 /** Interval (seconds) between player-threat evaluations. */
 const THREAT_EVAL_INTERVAL = 10;
@@ -62,9 +63,19 @@ export interface PracticeScore {
   timeSurvived: number;
 }
 
+interface EnemyBaseRuntime {
+  cp: CommandPost;
+  planner: EnemyBasePlanner;
+  resources: number;
+}
+
 export class PracticeMode {
   private turretCheckTimer: number = 0;
   private planner: EnemyBasePlanner | null = null;
+  private primaryBase: EnemyBaseRuntime | null = null;
+  private extraBases: EnemyBaseRuntime[] = [];
+  private countedDestroyedBaseIds: Set<number> = new Set();
+  private survivalSpawnTimer: number = SURVIVAL_BASE_INTERVAL_SECONDS;
   private config: PracticeConfig = cloneDefaultPracticeConfig();
   /**
    * If true, this mode will *also* drive an enemy main ship and a more
@@ -73,6 +84,7 @@ export class PracticeMode {
    * via {@link setVsAIMode}.
    */
   vsAIMode: boolean = false;
+  survivalMode: boolean = false;
   /** Income multipliers, applied to the resource baseline. */
   private playerIncomeMul: number = 1.0;
   private enemyIncomeMul: number = 1.0;
@@ -126,6 +138,10 @@ export class PracticeMode {
     this.score = { basesDestroyed: 0, timeSurvived: 0 };
     this.gameOver = false;
     this.victory = false;
+    this.primaryBase = null;
+    this.extraBases = [];
+    this.countedDestroyedBaseIds.clear();
+    this.survivalSpawnTimer = SURVIVAL_BASE_INTERVAL_SECONDS;
 
     state.resources = this.config.playerStartingResources;
 
@@ -139,14 +155,9 @@ export class PracticeMode {
     );
     const baseCell = worldToCell(rawBasePos);
     const basePos = footprintCenter(baseCell.cx, baseCell.cy, 6);
-    const cp = new CommandPost(basePos, Team.Enemy);
-    if (isSynonymousFaction(state.factionByTeam, Team.Enemy)) cp.synonymousVisualKind = 'base';
-    state.addEntity(cp);
-    state.ensureConfluenceSeedCircle(Team.Enemy, basePos);
-    state.ensureSynonymousSeedSwarm(Team.Enemy, basePos);
-
-    this.planner = new EnemyBasePlanner(Team.Enemy, this.config, Math.floor(Math.random() * 0xffffff));
-    this.planner.init(state, cp);
+    const base = this.createEnemyBase(state, basePos);
+    this.primaryBase = base;
+    this.planner = base.planner;
 
     hud.showMessage('Enemy base is constructing — destroy it before it grows!',
       Colors.alert1, 5);
@@ -170,8 +181,9 @@ export class PracticeMode {
       return;
     }
 
-    // Victory check
-    if (this.checkVictory(state)) {
+    // Victory check. Survival is an endurance mode, so clearing the current
+    // bases buys breathing room instead of ending the run.
+    if (!this.survivalMode && this.checkVictory(state)) {
       this.gameOver = true;
       this.victory = true;
       hud.showMessage('Victory! Enemy Command Post destroyed.',
@@ -179,6 +191,7 @@ export class PracticeMode {
       this.score.basesDestroyed++;
       return;
     }
+    if (this.survivalMode) this.updateSurvivalDestroyedBaseCount();
 
     // Income — apply multipliers (player baseline accumulation lives in
     // GameState; we simulate the multiplier by sprinkling extra resources).
@@ -186,6 +199,14 @@ export class PracticeMode {
       const extra = (this.playerIncomeMul - 1.0) * 2.0 * dt;
       if (extra > 0) state.resources += extra;
       else if (extra < 0) state.resources = Math.max(0, state.resources + extra);
+    }
+
+    if (this.survivalMode) {
+      this.survivalSpawnTimer -= dt;
+      if (this.survivalSpawnTimer <= 0) {
+        this.survivalSpawnTimer += SURVIVAL_BASE_INTERVAL_SECONDS;
+        this.spawnSurvivalBase(state, hud);
+      }
     }
 
     const poweredFactories = state.buildings.filter(
@@ -201,12 +222,24 @@ export class PracticeMode {
       dt;
 
     // Drive the planner — only when there's still a CP.
-    const cp = state.getEnemyCommandPost();
+    const cp = this.primaryBase?.cp.alive ? this.primaryBase.cp : null;
     if (cp && this.planner) {
       const spent = this.planner.update(state, cp, dt, this.enemyResources);
       this.enemyResources = Math.max(0, this.enemyResources - spent);
       // Drain planner chat narration and forward to HUD.
       for (const msg of this.planner.drainChats()) {
+        hud.showAIChat('BASE', msg, Colors.alert1);
+      }
+    }
+
+    for (const base of this.extraBases) {
+      if (!base.cp.alive) continue;
+      base.resources += this.enemyIncomeMul *
+        (BASELINE_RESOURCE_GAIN * difficultyIncomeMul + poweredFactories * RESOURCE_GAIN_RATE) *
+        dt;
+      const spent = base.planner.update(state, base.cp, dt, base.resources);
+      base.resources = Math.max(0, base.resources - spent);
+      for (const msg of base.planner.drainChats()) {
         hud.showAIChat('BASE', msg, Colors.alert1);
       }
     }
@@ -253,6 +286,57 @@ export class PracticeMode {
       case 'ship_and_no_cp':
         return !state.player.alive && state.getPlayerCommandPost() === null;
     }
+  }
+
+  private createEnemyBase(state: GameState, basePos: Vec2): EnemyBaseRuntime {
+    const cp = new CommandPost(basePos, Team.Enemy);
+    if (isSynonymousFaction(state.factionByTeam, Team.Enemy)) cp.synonymousVisualKind = 'base';
+    state.addEntity(cp);
+    state.ensureConfluenceSeedCircle(Team.Enemy, basePos);
+    state.ensureSynonymousSeedSwarm(Team.Enemy, basePos);
+
+    const planner = new EnemyBasePlanner(Team.Enemy, this.config, Math.floor(Math.random() * 0xffffff));
+    planner.init(state, cp);
+    return { cp, planner, resources: this.config.enemyStartingResources };
+  }
+
+  private updateSurvivalDestroyedBaseCount(): void {
+    const bases = [
+      ...(this.primaryBase ? [this.primaryBase] : []),
+      ...this.extraBases,
+    ];
+    for (const base of bases) {
+      if (base.cp.alive || this.countedDestroyedBaseIds.has(base.cp.id)) continue;
+      this.countedDestroyedBaseIds.add(base.cp.id);
+      this.score.basesDestroyed++;
+    }
+  }
+
+  private spawnSurvivalBase(state: GameState, hud: HUD): void {
+    const playerPos = state.player.position;
+    const existing = state.buildings.filter((b) => b.alive && b.type === EntityType.CommandPost);
+    let bestPos: Vec2 | null = null;
+    let bestScore = -Infinity;
+    for (let i = 0; i < 24; i++) {
+      const angle = randomRange(0, Math.PI * 2);
+      const dist = randomRange(2200, 4200);
+      const raw = new Vec2(
+        Math.max(300, Math.min(WORLD_WIDTH - 300, playerPos.x + Math.cos(angle) * dist)),
+        Math.max(300, Math.min(WORLD_HEIGHT - 300, playerPos.y + Math.sin(angle) * dist)),
+      );
+      const cell = worldToCell(raw);
+      const pos = footprintCenter(cell.cx, cell.cy, 6);
+      const nearest = existing.reduce((min, b) => Math.min(min, b.position.distanceTo(pos)), Infinity);
+      const score = nearest + playerPos.distanceTo(pos) * 0.25;
+      if (score > bestScore) {
+        bestScore = score;
+        bestPos = pos;
+      }
+    }
+    if (!bestPos) return;
+    this.extraBases.push(this.createEnemyBase(state, bestPos));
+    hud.showMessage('Survival escalation: another enemy base is constructing!', Colors.alert1, 6);
+    Audio.playSound('enemyhere');
   }
 
   // --------------------------------------------------------------------

@@ -43,6 +43,7 @@ import {
   rankedDifficultyName,
   rankedMaxScore,
   rankedScoreMultiplier,
+  SURVIVAL_RANKED_SCORE_KEY,
   VSAI_RANKED_SCORE_KEY,
 } from './vsaiconfig.js';
 import { LanClient } from './lan/lanClient.js';
@@ -418,13 +419,21 @@ export class MainMenu {
       case 'play':
         return [
           { label: 'Vs. AI [Unranked]', action: () => {
-            this.vsAIConfig = { ...this.vsAIConfig, ranked: false };
+            this.vsAIConfig = { ...this.vsAIConfig, mode: 'duel', ranked: false };
             this.setState('vs_ai_setup');
           }, description: 'Custom match against an AI opponent' },
           { label: 'Vs. AI [Ranked]', action: () => {
-            this.vsAIConfig = cloneRankedVsAIConfig(this.vsAIConfig);
+            this.vsAIConfig = { ...cloneRankedVsAIConfig(this.vsAIConfig), mode: 'duel' };
             this.setState('vs_ai_setup');
           }, description: 'Fair fog-of-war duel with a ranked AI climb' },
+          { label: 'Survival [Unranked]', action: () => {
+            this.vsAIConfig = { ...this.vsAIConfig, mode: 'survival', ranked: false };
+            this.setState('vs_ai_setup');
+          }, description: 'Hold out as another enemy base appears every minute' },
+          { label: 'Survival [Ranked]', action: () => {
+            this.vsAIConfig = { ...cloneRankedVsAIConfig(this.vsAIConfig), mode: 'survival' };
+            this.setState('vs_ai_setup');
+          }, description: 'Survive against escalating bases for ranked score' },
           { label: 'LAN Multiplayer', action: () => this.setState('lan_type'),
             description: 'Host or join a LAN game with up to 8 players' },
           { label: 'Online Multiplayer', action: () => this.setState('online_multiplayer'),
@@ -954,7 +963,8 @@ export class MainMenu {
     ctx.textBaseline = 'middle';
     ctx.font = 'bold 34px "Poiret One", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.title);
-    ctx.fillText(cfg.ranked ? 'VS. AI [RANKED]' : 'VS. AI [UNRANKED]', cx, 70);
+    const modeTitle = cfg.mode === 'survival' ? 'SURVIVAL' : 'VS. AI';
+    ctx.fillText(`${modeTitle} [${cfg.ranked ? 'RANKED' : 'UNRANKED'}]`, cx, 70);
 
     const colW = 460;
     const left = cx - colW;
@@ -1018,9 +1028,9 @@ export class MainMenu {
     const btnY = h - 60;
     this.drawButtonRow(ctx, [
       { label: 'Reset Defaults', action: () => {
-        this.vsAIConfig = cfg.ranked ? cloneRankedVsAIConfig() : cloneDefaultVsAIConfig(); } },
+        this.vsAIConfig = { ...(cfg.ranked ? cloneRankedVsAIConfig() : cloneDefaultVsAIConfig()), mode: cfg.mode }; } },
       { label: 'Back',     action: () => this.setState('play') },
-      { label: 'Start Vs. AI', action: () => { this.pendingAction = 'start_vs_ai'; },
+      { label: cfg.mode === 'survival' ? 'Start Survival' : 'Start Vs. AI', action: () => { this.pendingAction = 'start_vs_ai'; },
         emphasis: true },
     ], cx, btnY);
   }
@@ -1106,9 +1116,14 @@ export class MainMenu {
 
   private readRankedHighScore(): number {
     try {
-      const raw = window.localStorage?.getItem(VSAI_RANKED_SCORE_KEY);
+      const raw = window.localStorage?.getItem(
+        this.vsAIConfig.mode === 'survival' ? SURVIVAL_RANKED_SCORE_KEY : VSAI_RANKED_SCORE_KEY,
+      );
       const parsed = raw ? Number.parseInt(raw, 10) : 0;
-      return Number.isFinite(parsed) ? Math.max(0, Math.min(rankedMaxScore(), parsed)) : 0;
+      if (!Number.isFinite(parsed)) return 0;
+      return this.vsAIConfig.mode === 'survival'
+        ? Math.max(0, parsed)
+        : Math.max(0, Math.min(rankedMaxScore(), parsed));
     } catch {
       return 0;
     }

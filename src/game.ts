@@ -41,6 +41,7 @@ import {
   rankedDifficultyName,
   rankedScore,
   rankedScoreMultiplier,
+  SURVIVAL_RANKED_SCORE_KEY,
   VSAI_RANKED_SCORE_KEY,
 } from './vsaiconfig.js';
 import { GlowLayer } from './glowlayer.js';
@@ -738,6 +739,25 @@ export class Game {
     const cfg = this.mainMenu.vsAIConfig;
     if (!cfg.ranked || !this.practiceMode.gameOver) return;
     this.rankedVsAIResultRecorded = true;
+    if (cfg.mode === 'survival') {
+      const score = this.currentRankedSurvivalScore();
+      let previous = 0;
+      try {
+        previous = Number.parseInt(window.localStorage?.getItem(SURVIVAL_RANKED_SCORE_KEY) ?? '0', 10) || 0;
+        if (score > previous) window.localStorage?.setItem(SURVIVAL_RANKED_SCORE_KEY, `${score}`);
+      } catch {
+        previous = 0;
+      }
+      this.hud.showMessage(
+        `Ranked Survival score: ${score} (${Math.floor(this.practiceMode.score.timeSurvived)}s at rank ${cfg.aiRank})`,
+        Colors.alert2,
+        8,
+      );
+      if (score > previous) {
+        this.hud.showMessage(`New ranked Survival high score: ${score}`, Colors.alert2, 8);
+      }
+      return;
+    }
     if (!this.practiceMode.victory) return;
 
     const score = rankedScore(cfg);
@@ -759,6 +779,11 @@ export class Game {
     if (score > previous) {
       this.hud.showMessage(`New ranked high score: ${score}`, Colors.alert2, 8);
     }
+  }
+
+  private currentRankedSurvivalScore(): number {
+    const cfg = this.mainMenu.vsAIConfig;
+    return Math.max(0, Math.floor((cfg.aiRank / 100) * this.practiceMode.score.timeSurvived));
   }
 
   /**
@@ -1097,6 +1122,7 @@ export class Game {
       this.practiceMode = new PracticeMode();
       this.practiceMode.configure(pcfg);
       this.practiceMode.vsAIMode = true;
+      this.practiceMode.survivalMode = vcfg.mode === 'survival';
       this.practiceMode.init(this.state, this.hud);
 
       // Spawn the bot-player ship near the enemy CP.
@@ -1112,8 +1138,8 @@ export class Game {
 
       this.hud.showMessage(
         (vcfg.ranked
-          ? `Ranked Vs. AI started - ${vcfg.difficulty} rank ${vcfg.aiRank} x${rankedScoreMultiplier(vcfg).toFixed(2)}`
-          : `Vs. AI started - ${vcfg.difficulty}`) +
+          ? `${vcfg.mode === 'survival' ? 'Ranked Survival' : 'Ranked Vs. AI'} started - ${vcfg.difficulty} rank ${vcfg.aiRank} x${rankedScoreMultiplier(vcfg).toFixed(2)}`
+          : `${vcfg.mode === 'survival' ? 'Survival' : 'Vs. AI'} started - ${vcfg.difficulty}`) +
           (vcfg.cheatFullMapKnowledge ? ' [+full map]' : '') +
           (vcfg.cheat125xResources ? ' [+1.25x res]' : ''),
         Colors.alert2, 4,
@@ -2158,6 +2184,13 @@ export class Game {
     );
     const cfg = this.mainMenu.vsAIConfig;
     if (this.state.gameMode === 'vs_ai' && cfg.ranked) {
+      if (cfg.mode === 'survival') {
+        ctx.fillText(
+          `Ranked Survival: ${cfg.difficulty} ${cfg.aiRank} | Score: ${this.currentRankedSurvivalScore()}`,
+          10, 26,
+        );
+        return;
+      }
       const cheatCount = rankedCheaterModifierCount(cfg);
       const modText = cheatCount > 0
         ? ` | Modifiers: ${cfg.cheatFullMapKnowledge ? 'Full Map ' : ''}${cfg.cheat125xResources ? '1.25x Res ' : ''}x${rankedScoreMultiplier(cfg).toFixed(2)}`

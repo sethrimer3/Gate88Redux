@@ -9,9 +9,11 @@ import type { DifficultyName } from './practiceconfig.js';
 import type { RaceSelection } from './confluence.js';
 
 export const VSAI_RANKED_SCORE_KEY = 'gate88.vsai.rankedHighestScore';
+export const SURVIVAL_RANKED_SCORE_KEY = 'gate88.survival.rankedHighestScore';
 export const RANKED_MAX_RANK = 3000;
 
 export interface VsAIConfig {
+  mode: 'duel' | 'survival';
   ranked: boolean;
   aiRank: number;
   difficulty: DifficultyName;
@@ -30,6 +32,7 @@ export interface VsAIConfig {
 }
 
 export const DEFAULT_VSAI_CONFIG: VsAIConfig = {
+  mode: 'duel',
   ranked: false,
   aiRank: 1000,
   difficulty: 'Normal',
@@ -137,6 +140,7 @@ export function cloneDefaultVsAIConfig(): VsAIConfig {
 export function cloneRankedVsAIConfig(previous?: VsAIConfig): VsAIConfig {
   return {
     ...RANKED_VSAI_CONFIG,
+    mode: previous?.mode ?? RANKED_VSAI_CONFIG.mode,
     aiRank: previous?.aiRank ?? RANKED_VSAI_CONFIG.aiRank,
     playerRace: previous?.playerRace ?? RANKED_VSAI_CONFIG.playerRace,
     aiRace: previous?.aiRace ?? RANKED_VSAI_CONFIG.aiRace,
