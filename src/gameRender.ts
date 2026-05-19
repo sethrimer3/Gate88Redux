@@ -319,6 +319,17 @@ const BASE_GLOW_EXTENT_PADDING = 280;
 const BASE_GLOW_CENTER_ALPHA = 0.13;
 
 /**
+ * Alpha factor at 40% radius — halfway between centre and mid-fade.
+ * Kept as a named constant for clarity.
+ */
+const BASE_GLOW_MID_ALPHA_FACTOR = 0.5;
+
+/**
+ * Alpha factor at 75% radius — near the outer edge of the gradient.
+ */
+const BASE_GLOW_OUTER_ALPHA_FACTOR = 0.12;
+
+/**
  * Draws soft, faint team-coloured radial gradients around each team's base.
  * Called before the starfield so the colour tints the stars naturally.
  *
@@ -331,11 +342,13 @@ export function drawBaseTerritoryGlow(
   screenW: number,
   screenH: number,
 ): void {
-  // Collect per-team data: centroid, max extent, building count.
+  // Collect per-team data in one pass: focal centre (CommandPost preferred),
+  // cumulative sum for centroid fallback, building count, and max extent.
   const teamData = new Map<Team, {
-    cx: number; cy: number;   // centroid
-    maxDist: number;           // max distance of any building from centroid
-    count: number;             // number of alive buildings
+    sumX: number; sumY: number;  // cumulative sum for centroid fallback
+    cx: number; cy: number;      // resolved focal centre (set after first pass)
+    maxDist: number;
+    count: number;
     commandPostX: number | null;
     commandPostY: number | null;
   }>();
@@ -344,11 +357,11 @@ export function drawBaseTerritoryGlow(
     if (!b.alive || b.team === Team.Neutral) continue;
     const t = b.team;
     if (!teamData.has(t)) {
-      teamData.set(t, { cx: 0, cy: 0, maxDist: 0, count: 0, commandPostX: null, commandPostY: null });
+      teamData.set(t, { sumX: 0, sumY: 0, cx: 0, cy: 0, maxDist: 0, count: 0, commandPostX: null, commandPostY: null });
     }
     const d = teamData.get(t)!;
-    d.cx += b.position.x;
-    d.cy += b.position.y;
+    d.sumX += b.position.x;
+    d.sumY += b.position.y;
     d.count++;
     if (b.type === EntityType.CommandPost) {
       d.commandPostX = b.position.x;
@@ -356,19 +369,18 @@ export function drawBaseTerritoryGlow(
     }
   }
 
-  // Compute centroid and max extent for each team.
+  // Resolve focal centres: CommandPost takes priority; fall back to centroid.
   for (const [, d] of teamData) {
-    if (d.count === 0) continue;
-    d.cx /= d.count;
-    d.cy /= d.count;
-    // Use command post as the focal centre if present, otherwise the centroid.
-    const ox = d.commandPostX ?? d.cx;
-    const oy = d.commandPostY ?? d.cy;
-    d.cx = ox;
-    d.cy = oy;
+    if (d.commandPostX !== null) {
+      d.cx = d.commandPostX;
+      d.cy = d.commandPostY!;
+    } else {
+      d.cx = d.sumX / d.count;
+      d.cy = d.sumY / d.count;
+    }
   }
 
-  // Recompute max distance from the chosen focal centre.
+  // Second pass: compute max building distance from the focal centre.
   for (const b of state.buildings) {
     if (!b.alive || b.team === Team.Neutral) continue;
     const d = teamData.get(b.team);
@@ -383,8 +395,6 @@ export function drawBaseTerritoryGlow(
   ctx.globalCompositeOperation = 'lighter';
 
   for (const [team, d] of teamData) {
-    if (d.count === 0) continue;
-
     const color = teamColor(team);
     const r = color.r * color.intensity;
     const g = color.g * color.intensity;
@@ -407,11 +417,14 @@ export function drawBaseTerritoryGlow(
       sy < -screenRadius || sy > screenH + screenRadius
     ) continue;
 
+    const ri = Math.round(r);
+    const gi = Math.round(g);
+    const bi = Math.round(b);
     const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, screenRadius);
-    grad.addColorStop(0.00, `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${BASE_GLOW_CENTER_ALPHA})`);
-    grad.addColorStop(0.40, `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${(BASE_GLOW_CENTER_ALPHA * 0.5).toFixed(3)})`);
-    grad.addColorStop(0.75, `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${(BASE_GLOW_CENTER_ALPHA * 0.12).toFixed(3)})`);
-    grad.addColorStop(1.00, `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},0)`);
+    grad.addColorStop(0.00, `rgba(${ri},${gi},${bi},${BASE_GLOW_CENTER_ALPHA})`);
+    grad.addColorStop(0.40, `rgba(${ri},${gi},${bi},${(BASE_GLOW_CENTER_ALPHA * BASE_GLOW_MID_ALPHA_FACTOR).toFixed(3)})`);
+    grad.addColorStop(0.75, `rgba(${ri},${gi},${bi},${(BASE_GLOW_CENTER_ALPHA * BASE_GLOW_OUTER_ALPHA_FACTOR).toFixed(3)})`);
+    grad.addColorStop(1.00, `rgba(${ri},${gi},${bi},0)`);
 
     ctx.fillStyle = grad;
     ctx.beginPath();
