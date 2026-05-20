@@ -1430,7 +1430,6 @@ class QuickBuildMenu {
     }
 
     if (Input.mouse2Pressed) {
-      Input.consumeMouseButton(2);
       this.touchedThisDrag.clear();
       this.buildingDragCells.clear();
       this.dragMode = 'erase';

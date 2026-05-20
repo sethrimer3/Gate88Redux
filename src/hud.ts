@@ -51,6 +51,8 @@ const HUD_GOLD = 'rgba(255,218,116,';
 export class HUD {
   private messages: HudMessage[] = [];
   private animTime: number = 0;
+  private playerBarsCompact = 0;
+  private lastPlayerBarsAnimTime = 0;
   private chatEntries: AIChatEntry[] = [];
 
   /** Queue a new message to display. */
@@ -219,31 +221,74 @@ export class HUD {
     healthRegenActive: boolean,
     screenW: number,
     screenH: number,
+    compact: boolean = false,
   ): void {
     const frac = Math.max(0, Math.min(1, battery / maxBattery));
     const hpFrac = Math.max(0, Math.min(1, health / maxHealth));
     const shieldFrac = maxShield > 0 ? Math.max(0, Math.min(1, shield / maxShield)) : 0;
+    const elapsed = Math.max(0, Math.min(0.05, this.animTime - this.lastPlayerBarsAnimTime));
+    this.lastPlayerBarsAnimTime = this.animTime;
+    const targetCompact = compact ? 1 : 0;
+    const step = Math.min(1, elapsed * 8);
+    this.playerBarsCompact += (targetCompact - this.playerBarsCompact) * step;
+    const t = this.playerBarsCompact;
+    const lerp = (a: number, b: number) => a + (b - a) * t;
     const barW = 220;
-    const barH = 8;
+    const barH = lerp(14, 8);
     const x = 10;
-    const y = screenH - 18;
-    const barCount = maxShield > 0 ? 3 : 2;
-    const blockH = barCount * barH;
-    const panelY = y - blockH;
-    this.drawGlassPanel(ctx, x - 8, panelY - 7, barW + 18, blockH + 16, 0.68);
+    const y = lerp(screenH - 24, screenH - 18);
+    const compactBlockH = (maxShield > 0 ? 3 : 2) * 8;
+    const expandedPanelY = maxShield > 0 ? screenH - 24 - 112 : screenH - 24 - 86;
+    const compactPanelY = screenH - 18 - compactBlockH - 7;
+    const panelY = lerp(expandedPanelY, compactPanelY);
+    const expandedPanelH = screenH - 24 - expandedPanelY + 8;
+    const compactPanelH = compactBlockH + 16;
+    this.drawGlassPanel(ctx, x - 8, panelY, barW + 18, lerp(expandedPanelH, compactPanelH), 0.68);
 
     let barColor: string;
+    let labelColor: string;
     if (frac > 0.6) {
       barColor = colorToCSS(Colors.powergenerator_detail, 0.9);
+      labelColor = colorToCSS(Colors.powergenerator_detail, 0.6);
     } else if (frac > 0.3) {
       barColor = colorToCSS(Colors.alert2, 0.9);
+      labelColor = colorToCSS(Colors.alert2, 0.8);
     } else {
       const flash = frac < 0.15 ? 0.5 + 0.5 * Math.sin(this.animTime * 10) : 1;
       barColor = colorToCSS(Colors.alert1, 0.9 * flash);
+      labelColor = colorToCSS(Colors.alert1, 0.9 * flash);
     }
 
-    const energyY = y - barH;
-    const hpBarY = energyY - barH;
+    const expandedEnergyY = screenH - 24 - 14;
+    const expandedHpY = screenH - 24 - 14 - 30;
+    const expandedHpBarY = expandedHpY - 14;
+    const expandedShieldY = expandedHpY - 14 - 22;
+    const expandedShieldBarY = expandedShieldY - 14;
+    const compactEnergyY = screenH - 18 - 8;
+    const compactHpBarY = compactEnergyY - 8;
+    const compactShieldBarY = compactHpBarY - 8;
+    const energyY = lerp(expandedEnergyY, compactEnergyY);
+    const hpBarY = lerp(expandedHpBarY, compactHpBarY);
+    const shieldBarY = lerp(expandedShieldBarY, compactShieldBarY);
+    const labelAlpha = 1 - t;
+
+    if (labelAlpha > 0.04) {
+      ctx.save();
+      ctx.globalAlpha *= labelAlpha;
+      ctx.font = `${Math.floor(HUD_FONT_SIZE * 0.5)}px "Poiret One", sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.fillStyle = labelColor;
+      ctx.fillText('ENERGY', x, energyY - 8);
+      ctx.fillStyle = colorToCSS(Colors.healthbar, 0.9);
+      ctx.fillText('HP', x, hpBarY - 6);
+      if (maxShield > 0) {
+        ctx.fillStyle = colorToCSS(Colors.radar_allied_status, 0.86);
+        ctx.fillText('SHIELD', x, shieldBarY - 6);
+      }
+      ctx.restore();
+    }
+
     this.drawStatusBar(ctx, x, hpBarY, barW, barH, hpFrac, colorToCSS(Colors.healthbar, 0.92), 'rgba(118,255,178,0.95)');
     if (healthRegenActive && hpFrac > 0) {
       const shimmerW = 42;
@@ -266,7 +311,6 @@ export class HUD {
       ctx.restore();
     }
     if (maxShield > 0) {
-      const shieldBarY = hpBarY - barH;
       this.drawStatusBar(ctx, x, shieldBarY, barW, barH, shieldFrac, colorToCSS(Colors.radar_allied_status, 0.78), 'rgba(120,178,255,0.92)');
     }
 

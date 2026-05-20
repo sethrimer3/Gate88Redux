@@ -2126,6 +2126,7 @@ export class Game {
         this.state.player.passiveHealthRegenActive,
         w,
         h,
+        this.actionMenu.open,
       );
       this.hud.drawResearchStatus(ctx, this.state.researchProgress, this.state.researchedItems.size, h);
       if (!synonymousPlayer) {
