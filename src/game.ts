@@ -92,6 +92,7 @@ import {
   updateAIShipRespawn,
   updateGhostSpectator,
 } from './respawnRuntime.js';
+import { FighterGroupStatusUI } from './fighterGroupStatus.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
 
@@ -164,6 +165,7 @@ export class Game {
   private static readonly AI_RESPAWN_DELAY = 8;
   /** Interval (seconds) between fighter exhaust particle emissions (~30 Hz). */
   private static readonly FIGHTER_EXHAUST_EMIT_INTERVAL = 1 / 30;
+  private fighterGroupStatus: FighterGroupStatusUI = new FighterGroupStatusUI();
 
   // LAN multiplayer
   private lanClient: LanClient | null = null;
@@ -684,6 +686,7 @@ export class Game {
 
     // HUD
     this.hud.update(DT);
+    this.fighterGroupStatus.update(this.state, DT);
 
     // Mode-specific logic
     if (this.state.gameMode === 'practice' || this.state.gameMode === 'vs_ai') {
@@ -2103,6 +2106,8 @@ export class Game {
     Input.drawTouchJoysticks(ctx);
     this.hud.drawAIChat(ctx, w, h);
     drawBuildingHoverHitpoints(ctx, this.camera, this.state);
+    // Fighter control group status boxes (left side of screen)
+    this.fighterGroupStatus.draw(ctx, this.state, w, h, this.state.gameTime);
     const synonymousPlayer = isSynonymousFaction(this.state.factionByTeam, Team.Player);
     this.hud.drawResources(
       ctx,
