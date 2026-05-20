@@ -2,6 +2,29 @@
 
 ---
 
+## Fighter Control Group Status UI — Build 048 — Known Limitations
+
+Build 048 implemented the fighter control group status UI in `src/fighterGroupStatus.ts`.
+
+### Limitation: "assigned" count uses a running-maximum heuristic
+
+The `alive/assigned` fraction displayed per icon type tracks "assigned" as the highest
+alive count observed since the group was last cleared.  This is because
+`GameState.fighters` is pruned to only alive ships each tick (see
+`gamestate.ts` line ~1238: `this.fighters = this.fighters.filter((f) => f.alive)`),
+so the true original-assignment count is not retained after ships die.
+
+**Impact:** If 6 fighters are in group 1 and 2 die, the display correctly shows "4/6".
+If those 6 fighters are later reassigned from group 1 to group 2, group 1 may briefly
+show its old high-water-mark until the decay timer (8 seconds of zero alive) resets it.
+
+**To fix properly:** Add an explicit `assignedCount` field to the group tracking system
+that is incremented at shipyard spawn time and decremented on reassignment.  This
+requires hooking into `Shipyard.shouldSpawnShip()` (in `building.ts`) and the group
+reassignment path in `commandMode.ts → updateNumberGroupHotkeys`.
+
+---
+
 ## Rendering Performance — Build 037 — Remaining / Deferred Work
 
 Build 037 implemented:
