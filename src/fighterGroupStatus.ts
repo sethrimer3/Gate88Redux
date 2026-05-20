@@ -55,6 +55,8 @@ const BOX_X = 10;
 const BOX_START_Y = 50;
 /** Width of the badge area (group number / mode icon) on the right side of the box. */
 const BADGE_W = 20;
+/** Number of numbered control groups (0-based: 0, 1, 2). */
+const NUM_GROUPS = 3;
 /** How long (seconds) a zero-alive group stays visible before disappearing. */
 const RESET_DELAY_SECS = 8;
 
@@ -149,7 +151,7 @@ function drawSynonymousFighterIcon(ctx: CanvasRenderingContext2D, cx: number, cy
   // Hexagon
   const hexR = r * 0.5;
   ctx.strokeStyle = colorToCSS(color, 0.52);
-  ctx.lineWidth = Math.max(0.7, 0.8);
+  ctx.lineWidth = 0.8;
   ctx.beginPath();
   for (let j = 0; j < 6; j++) {
     const a = j * Math.PI / 3;
@@ -310,7 +312,7 @@ export class FighterGroupStatusUI {
     const playerFighters = state.fighters.filter((f) => f.alive && f.team === Team.Player);
 
     // Numbered groups
-    for (let g = 0; g <= 2; g++) {
+    for (let g = 0; g < NUM_GROUPS; g++) {
       this.updateForFilter(playerFighters, (f) => f.group === g, `group:${g}`, dt);
     }
 
@@ -334,7 +336,7 @@ export class FighterGroupStatusUI {
     let boxY = BOX_START_Y;
 
     // --- Numbered groups ---
-    for (let g = 0; g <= 2; g++) {
+    for (let g = 0; g < NUM_GROUPS; g++) {
       const entries = this.computeEntries(playerFighters, (f) => f.group === g, `group:${g}`);
       if (entries.length === 0) continue;
       boxY = this.drawBox(ctx, entries, boxY, g, null, animTime) + BOX_GAP;
