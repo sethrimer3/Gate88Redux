@@ -57,7 +57,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 
 ## Fighters And Shipyards
 
-- Fighter Yards produce fighters. Bomber Yards produce bombers after Bomber Yard research.
+- Fighter Yards produce fighters. Bomber Yards produce bombers after Bomber Yard research. Swarm Yards are Terran-only 6x6 shipyards unlocked through Fighters research; each fields up to 30 tiny 5 HP Swarm ships with short-range instant lasers.
 - Shipyards only produce while finished, powered, and below capacity.
 - Advanced Fighters research raises player shipyard capacity and speeds player ship production.
 - C-menu orders are active: Protect Base defends the player Command Post, Set Waypoint uses the cursor location, Follow Player follows the player ship, and Dock returns ships to their home yard. While holding C or a number key, player shipyards show a large group number.
@@ -76,6 +76,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 - Research requires at least one powered, finished Research Lab to progress.
 - One active research item can run at a time.
 - Active research items are turret unlocks, Bomber Yard, and Advanced Fighters.
+- Mine Layer research and construction are exclusive to The Synonymous faction; Terran players do not see or unlock Mine Layers.
 - Completed research is hidden from the research menu and summarized on the HUD.
 - Gatling Turret is a starter long-range suppressive bullet turret. Missile Turret costs $80 to research before it appears in the build menu. Exciter Turret remains research-gated and fires a 2-second lock-on laser with a 3-second cooldown. It may lock ships, fighters, buildings, and interceptable hostile missiles, but it must not lock ordinary bullets.
 - Player guided missiles and missile-swarm projectiles are interceptable hostile projectiles. Enemy shots and exciter beams can destroy them before impact.

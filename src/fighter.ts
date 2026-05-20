@@ -771,6 +771,60 @@ export class BomberShip extends FighterShip {
   }
 }
 
+// ---------------------------------------------------------------------------
+// SwarmShip - tiny Terran laser skirmisher from the Swarm Yard
+// ---------------------------------------------------------------------------
+
+export class SwarmShip extends FighterShip {
+  constructor(
+    position: Vec2,
+    team: Team,
+    group: ShipGroup,
+    homeYard: Shipyard | null = null,
+  ) {
+    super(position, team, group, homeYard);
+    this.health = HP_VALUES.swarm;
+    this.maxHealth = HP_VALUES.swarm;
+    this.maxShield = 0;
+    this.radius = 2.3 * (team === Team.Player ? PLAYER_SHIP_SCALE : 1);
+    this.turnRate = 5.5;
+    this.thrustPower = 310;
+    this.maxSpeed = 310;
+    this.fireRate = 26;
+    this.weaponRange = 175;
+    this.weaponDamage = 0.75;
+  }
+
+  protected override updatePassiveHealthRegen(_dt: number): void {
+    // Swarm craft stay fragile; their 5 HP is the balancing identity.
+  }
+
+  override draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
+    if (!this.alive || this.docked) return;
+    const screen = camera.worldToScreen(this.position);
+    const r = Math.max(1.6, this.radius * camera.zoom);
+    const color = teamColor(this.team);
+    ctx.save();
+    ctx.translate(screen.x, screen.y);
+    ctx.rotate(this.angle);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = colorToCSS(color, 0.74);
+    ctx.lineWidth = Math.max(0.8, camera.zoom);
+    ctx.beginPath();
+    ctx.moveTo(r * 1.25, 0);
+    ctx.lineTo(-r * 0.65, -r * 0.45);
+    ctx.lineTo(-r * 0.35, 0);
+    ctx.lineTo(-r * 0.65, r * 0.45);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.fillStyle = colorToCSS(color, 0.55);
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 0.34, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
 const NOVA_BOMBER_DRONES = 10;
 const NOVA_BOMBER_DRONE_HP = HP_VALUES.synonymousFighterDrone;
 const NOVA_BOMBER_MAX_AOE = 56;

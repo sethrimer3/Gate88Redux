@@ -213,7 +213,7 @@ export class GameState {
         if (entity.type === EntityType.CommandPost) entity.synonymousVisualKind = 'base';
         else if (entity.type === EntityType.Factory) entity.synonymousVisualKind = 'factory';
         else if (entity.type === EntityType.ResearchLab) entity.synonymousVisualKind = 'researchlab';
-        else if (entity.type === EntityType.FighterYard || entity.type === EntityType.BomberYard) entity.synonymousVisualKind = 'shipyard';
+        else if (entity.type === EntityType.FighterYard || entity.type === EntityType.BomberYard || entity.type === EntityType.SwarmYard) entity.synonymousVisualKind = 'shipyard';
         else if (entity.type === EntityType.MissileTurret) entity.synonymousVisualKind = 'laserturret';
         else if (entity.type === EntityType.GatlingTurret) entity.synonymousVisualKind = 'laserturret';
         else if (entity.type === EntityType.ExciterTurret) entity.synonymousVisualKind = 'laserturret';
@@ -486,6 +486,7 @@ export class GameState {
           target.type === EntityType.PowerGenerator ||
           target.type === EntityType.FighterYard ||
           target.type === EntityType.BomberYard ||
+          target.type === EntityType.SwarmYard ||
           target.type === EntityType.ResearchLab ||
           target.type === EntityType.Factory
         ) {
@@ -899,6 +900,7 @@ export class GameState {
       target.type === EntityType.PowerGenerator ||
       target.type === EntityType.FighterYard ||
       target.type === EntityType.BomberYard ||
+      target.type === EntityType.SwarmYard ||
       target.type === EntityType.ResearchLab ||
       target.type === EntityType.Factory
     ) {
@@ -1219,7 +1221,7 @@ export class GameState {
       if (b.alive || b.deleting) continue;
       // GOAL 1: When a shipyard is destroyed, release its docked fighters so
       // they defend the team's base instead of drifting idle.
-      if ((b.type === EntityType.FighterYard || b.type === EntityType.BomberYard) && b instanceof Shipyard) {
+      if ((b.type === EntityType.FighterYard || b.type === EntityType.BomberYard || b.type === EntityType.SwarmYard) && b instanceof Shipyard) {
         this.releaseDeferredFighters(b);
       }
       this.destroyedBuildings.push({
@@ -1706,9 +1708,10 @@ export class GameState {
   private getShipyardCapStatus(def: BuildDef, team: Team): { valid: boolean; reason: string } {
     const type = def.key === 'fighteryard' ? EntityType.FighterYard
       : def.key === 'bomberyard' ? EntityType.BomberYard
+      : def.key === 'swarmyard' ? EntityType.SwarmYard
       : null;
     if (type === null) return { valid: true, reason: 'OK' };
-    const cap = type === EntityType.FighterYard ? 10 : 5;
+    const cap = type === EntityType.FighterYard ? 10 : type === EntityType.SwarmYard ? 5 : 5;
     const count = this.buildings.filter((b) => b.alive && b.team === team && b.type === type).length;
     if (count >= cap) {
       return {

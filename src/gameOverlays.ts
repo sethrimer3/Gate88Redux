@@ -452,7 +452,7 @@ export function drawGlowLayer(
         glow.circleWorld(camera, b.position, b.radius * 2.0, Colors.building_glow_research, 0.042 * pulse);
       } else if (b.type === EntityType.Factory) {
         glow.circleWorld(camera, b.position, b.radius * 1.8, Colors.building_glow_factory, 0.048 * pulse);
-      } else if (b.type === EntityType.FighterYard || b.type === EntityType.BomberYard) {
+      } else if (b.type === EntityType.FighterYard || b.type === EntityType.BomberYard || b.type === EntityType.SwarmYard) {
         glow.circleWorld(camera, b.position, b.radius * 2.1, Colors.building_glow_shipyard, 0.038 * pulse);
       } else if (b.type === EntityType.CommandPost) {
         glow.circleWorld(camera, b.position, b.radius * 2.8, color, 0.028 * pulse);

@@ -78,7 +78,8 @@ export class AIScore {
         if (d <= r) score += 15 * (1 - d / r);
       } else if (
         b.type === EntityType.FighterYard ||
-        b.type === EntityType.BomberYard
+        b.type === EntityType.BomberYard ||
+        b.type === EntityType.SwarmYard
       ) {
         const r = 400;
         if (d <= r) score += 8 * (1 - d / r);
@@ -149,7 +150,7 @@ export class AIScore {
       if (!b.alive || b.team === t || b.team === Team.Neutral) continue;
       const d = b.position.distanceTo(pos);
       if (b.type === EntityType.CommandPost) v += 100 / (1 + d / 100);
-      if (b.type === EntityType.FighterYard || b.type === EntityType.BomberYard)
+      if (b.type === EntityType.FighterYard || b.type === EntityType.BomberYard || b.type === EntityType.SwarmYard)
         v += 60 / (1 + d / 100);
       if (b instanceof TurretBase) v -= 25 / (1 + d / 80);
     }

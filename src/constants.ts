@@ -37,6 +37,7 @@ export const BUILDING_COST = {
   signalstation: 70,
   fighteryard: 200,
   bomberyard: 250,
+  swarmyard: 300,
 } as const;
 
 // Build times (in ticks at 60fps)
@@ -55,6 +56,7 @@ export const BUILD_TIME = {
   signalstation: 150,
   fighteryard: 420,
   bomberyard: 480,
+  swarmyard: 540,
 } as const;
 
 // Research costs
@@ -81,6 +83,7 @@ export const RESEARCH_COST = {
   regenturret: 240,
   timebomb: 150,
   bomberyard: 300,
+  swarmyard: 340,
   cloak: 350,
   advancedFighters: 280,
   poweredWalls: 260,
@@ -110,6 +113,7 @@ export const RESEARCH_TIME = {
   regenturret: 680,
   timebomb: 480,
   bomberyard: 900,
+  swarmyard: 960,
   cloak: 840,
   advancedFighters: 780,
   poweredWalls: 660,
@@ -123,6 +127,7 @@ export const HP_VALUES = {
   fighter: 5,
   synonymousFighterDrone: 3,
   bomber: 15,
+  swarm: 5,
   builderDrone: 10,
   commandPost: 200,
   powerGenerator: 40,
@@ -131,6 +136,7 @@ export const HP_VALUES = {
   researchLab: 40,
   fighterYard: 50,
   bomberYard: 80,
+  swarmYard: 70,
   turret: 30,
   destructibleProjectile: 10,
   mine: 10,
@@ -159,6 +165,7 @@ export const ACTIVE_RESEARCH_ITEMS = [
   'massdriverturret',
   'regenturret',
   'bomberyard',
+  'swarmyard',
   'advancedFighters',
   'poweredWalls',
 ] as const;

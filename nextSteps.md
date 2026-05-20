@@ -333,8 +333,8 @@ Kills via `damageLaserLine` and `damageLaserLineLimited` in `src/combatUtils.ts`
 
 ### Synonymous mine layer notes
 
-- `synonymousminelayer` is a Synonymous-only offensive turret that costs 65 nanobots, builds in 210 ticks, and maintains up to 9 drifting mines. Each mine drifts toward a 250 world-unit radius, explodes at that radius, and accelerates toward enemies inside 78 world units.
-- Mine balance lives in `src/synonymousMine.ts`: 32 damage, 58 AOE radius, 6 mine HP, 23 initial drift speed, and 175 max chase speed. Mine AOE excludes same-team targets through the existing blast-damage team filter.
+- `synonymousminelayer` is a Synonymous-only offensive turret that costs 65 nanobots, builds in 210 ticks, and maintains up to 9 drifting mines. Each mine drifts toward a 250 world-unit radius, explodes at that radius, and accelerates toward enemies inside 125 world units.
+- Mine balance lives in `src/synonymousMine.ts`: 32 damage, 58 AOE radius, 6 mine HP, 23 initial drift speed, and 245 max chase speed. Mine AOE excludes same-team targets through the existing blast-damage team filter.
 - Manual visual QA should confirm the 20-nanobot spinning circle reads clearly and that both friendly and hostile projectiles can detonate mines.
 
 ### Synonymous Fighter Follow-up

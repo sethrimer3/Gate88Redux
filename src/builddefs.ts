@@ -148,6 +148,18 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     researchKey: 'bomberyard',
     factory: (pos, team) => new Shipyard(EntityType.BomberYard, pos, team),
   },
+  swarmyard: {
+    key: 'swarmyard',
+    label: 'Swarm Yard',
+    description: 'Produces small Swarm ships that strike nearby targets with instant lasers.',
+    cost: BUILDING_COST.swarmyard,
+    footprintCells: 6,
+    buildTime: BUILD_TIME.swarmyard,
+    tier: 'yard',
+    radialLabel: 'Swarm\nYard',
+    researchKey: 'swarmyard',
+    factory: (pos, team) => new Shipyard(EntityType.SwarmYard, pos, team),
+  },
   researchlab: {
     key: 'researchlab',
     label: 'Research Lab',
@@ -256,6 +268,8 @@ export function buildCostForBuildingType(type: EntityType): number {
       return BUILDING_COST.fighteryard;
     case EntityType.BomberYard:
       return BUILDING_COST.bomberyard;
+    case EntityType.SwarmYard:
+      return BUILDING_COST.swarmyard;
     case EntityType.ResearchLab:
       return BUILDING_COST.researchlab;
     case EntityType.Factory:
@@ -289,6 +303,8 @@ export function buildDefForEntityType(type: EntityType): BuildDef | undefined {
       return BUILD_DEFS.fighteryard;
     case EntityType.BomberYard:
       return BUILD_DEFS.bomberyard;
+    case EntityType.SwarmYard:
+      return BUILD_DEFS.swarmyard;
     case EntityType.ResearchLab:
       return BUILD_DEFS.researchlab;
     case EntityType.Factory:

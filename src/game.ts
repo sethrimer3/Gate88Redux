@@ -17,7 +17,7 @@ import { DT, WORLD_WIDTH, WORLD_HEIGHT, RESEARCH_COST, RESEARCH_TIME, TICK_RATE,
 import { BuildingBase, CommandPost } from './building.js';
 import { Shipyard } from './building.js';
 import { TurretBase } from './turret.js';
-import { FighterShip, BomberShip, SynonymousFighterShip, SynonymousNovaBomberShip } from './fighter.js';
+import { FighterShip, BomberShip, SynonymousFighterShip, SynonymousNovaBomberShip, SwarmShip } from './fighter.js';
 import { Bullet } from './projectile.js';
 import { GuidedMissile } from './projectile.js';
 import { PracticeMode } from './practicemode.js';
@@ -840,7 +840,7 @@ export class Game {
     for (const b of this.state.buildings) {
       if (!b.alive || b.team !== Team.Player) continue;
       if (!(b instanceof Shipyard)) continue;
-      if (this.state.researchedItems.has('advancedFighters')) {
+      if (this.state.researchedItems.has('advancedFighters') && b.type !== EntityType.SwarmYard) {
         b.shipCapacity = 7;
         b.buildInterval = 4;
       }
@@ -850,17 +850,20 @@ export class Game {
 
       if (b.shouldSpawnShip()) {
         const isBomber = b.type === EntityType.BomberYard;
+        const isSwarm = b.type === EntityType.SwarmYard;
         const group = b.assignedGroup;
         const synonymous = isSynonymousFaction(this.state.factionByTeam, Team.Player);
         const spawnPos = synonymous ? b.bayPosition() : b.position.clone();
-        const fighter = isBomber
+        const fighter = isSwarm
+          ? new SwarmShip(spawnPos.clone(), Team.Player, group, b)
+          : isBomber
           ? synonymous
             ? new SynonymousNovaBomberShip(spawnPos.clone(), Team.Player, group, b)
             : new BomberShip(spawnPos.clone(), Team.Player, group, b)
           : synonymous
             ? new SynonymousFighterShip(spawnPos.clone(), Team.Player, group, b, this.state.researchedItems.has('advancedFighters'))
             : new FighterShip(spawnPos.clone(), Team.Player, group, b);
-        if (!synonymous && !isBomber && this.state.researchedItems.has('advancedFighters')) fighter.weaponDamage = 2;
+        if (!synonymous && !isBomber && !isSwarm && this.state.researchedItems.has('advancedFighters')) fighter.weaponDamage = 2;
         b.activeShips++;
         this.state.addEntity(fighter);
         b.dockedShips++;

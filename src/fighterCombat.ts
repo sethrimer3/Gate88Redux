@@ -14,6 +14,7 @@ import {
   FighterShip,
   SynonymousFighterShip,
   SynonymousNovaBomberShip,
+  SwarmShip,
 } from './fighter.js';
 import {
   Bullet,
@@ -87,6 +88,12 @@ export function updateFighterWeaponFire(state: GameState, spaceFluid: SpaceFluid
         state.addEntity(new SynonymousDroneLaser(f.team, start, end, f));
         damageLaserLineLimited(state, spaceFluid, start, end, f.weaponDamage, 3, 2, f);
       }
+      Audio.playSound('laser');
+    } else if (f instanceof SwarmShip) {
+      const end = aim.aimPoint.clone();
+      f.consumeShot(f.fireRate);
+      state.addEntity(new SynonymousDroneLaser(f.team, f.position.clone(), end, f));
+      damageLaserLineLimited(state, spaceFluid, f.position.clone(), end, f.weaponDamage, 1, 1, f);
       Audio.playSound('laser');
     } else {
       f.consumeShot(WEAPON_STATS.fire.fireRate);

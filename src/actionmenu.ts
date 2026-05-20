@@ -308,6 +308,7 @@ const RESEARCH_LABELS: Record<string, string> = {
   massdriverturret: 'Mass Driver\nTurret',
   regenturret: 'Regen\nTurret',
   bomberyard: 'Bomber\nYard',
+  swarmyard: 'Swarm\nYard',
   advancedFighters: 'Advanced\nFighters',
 };
 
@@ -409,6 +410,7 @@ function isBuildDefForFaction(def: BuildDef, state: GameState): boolean {
   if (isSynonymousFaction(state.factionByTeam, Team.Player)) {
     return SYNONYMOUS_BUILD_KEYS.has(def.key);
   }
+  if (def.key === 'synonymousminelayer') return false;
   return true;
 }
 
@@ -437,7 +439,7 @@ function buildTurretItems(state: GameState): RadialItem[] {
 
 function buildYardItems(state: GameState): RadialItem[] {
   return defsByTier('yard')
-    .filter((d) => isBuildDefAvailable(d, state))
+    .filter((d) => isBuildDefForFaction(d, state) && isBuildDefAvailable(d, state))
     .map((d) => defToRadialItem(d, state));
 }
 
@@ -487,14 +489,14 @@ function buildResearchRoot(state: GameState): RadialItem[] {
     return [
       category('Ship', ['synonymousSpeed', 'synonymousVitality']),
       category('Weapons', ['synonymousPierce', nextFireSpeed]),
-      category('Fighters', ['advancedFighters']),
-      category('Structures', ['synonymousminelayer', 'exciterturret', 'massdriverturret', 'regenturret', 'bomberyard']),
+      category('Fighters', ['advancedFighters', 'bomberyard', 'swarmyard']),
+      category('Defensive Turrets', ['synonymousminelayer', 'exciterturret', 'massdriverturret', 'regenturret']),
     ];
   }
   return [
-    category('Structures', ['missileturret', 'synonymousminelayer', 'exciterturret', 'massdriverturret', 'regenturret', 'bomberyard']),
+    category('Defensive Turrets', ['missileturret', 'exciterturret', 'massdriverturret', 'regenturret']),
     category('Ship', ['shipHp', 'shipSpeedEnergy', 'shipFireSpeed', 'shipShield']),
-    category('Fighters', ['advancedFighters']),
+    category('Fighters', ['advancedFighters', 'bomberyard', 'swarmyard']),
     category('Weapons', ['weaponCannon', 'weaponGatling', 'weaponLaser', 'weaponGuidedMissile'], [
       { label: 'Cannon', sublabel: 'Ready', disabled: true, infoOnly: true },
     ]),
@@ -1610,11 +1612,12 @@ class QuickBuildMenu {
     const cell = worldToCell(worldPos);
     const selected = palette[this.selectedIndex];
 
-    if (selected?.type === 'building') {
+    if (this.dragMode === 'erase') {
+      this.drawEraseCellCursor(ctx, camera, cell);
+    } else if (selected?.type === 'building') {
       this.drawBuildingFootprintCursor(ctx, state, camera, cell, selected.def);
     } else if (selected?.type === 'conduit') {
-      const mode: 'paint' | 'erase' = this.dragMode === 'erase' ? 'erase' : 'paint';
-      this.drawConduitBrushCursor(ctx, camera, cell, mode);
+      this.drawConduitBrushCursor(ctx, camera, cell, 'paint');
     }
     this.drawPalette(ctx, state, palette, screenW, screenH);
 
@@ -1650,6 +1653,22 @@ class QuickBuildMenu {
     ctx.setLineDash([4, 3]);
     ctx.fillRect(topLeft.x - cellPx / 2, topLeft.y - cellPx / 2, cellPx * 2, cellPx * 2);
     ctx.strokeRect(topLeft.x - cellPx / 2, topLeft.y - cellPx / 2, cellPx * 2, cellPx * 2);
+    ctx.setLineDash([]);
+  }
+
+  private drawEraseCellCursor(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    cell: { cx: number; cy: number },
+  ): void {
+    const screen = camera.worldToScreen(cellCenter(cell.cx, cell.cy));
+    const cellPx = GRID_CELL_SIZE * camera.zoom;
+    ctx.fillStyle = colorToCSS(Colors.alert1, 0.10);
+    ctx.strokeStyle = colorToCSS(Colors.alert1, 0.9);
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 3]);
+    ctx.fillRect(screen.x - cellPx / 2, screen.y - cellPx / 2, cellPx, cellPx);
+    ctx.strokeRect(screen.x - cellPx / 2, screen.y - cellPx / 2, cellPx, cellPx);
     ctx.setLineDash([]);
   }
 

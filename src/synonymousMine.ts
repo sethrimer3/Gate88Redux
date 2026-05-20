@@ -7,15 +7,15 @@ import { ProjectileBase } from './projectile.js';
 import type { GameState } from './gamestate.js';
 
 export const SYNONYMOUS_MINE_LAYER_RANGE = 250;
-const MINE_RADIUS = 5.5;
+const MINE_RADIUS = 4.125;
 const MINE_DAMAGE = 32;
 const MINE_BLAST_RADIUS = 58;
-const MINE_ARM_RADIUS = 78;
+const MINE_ARM_RADIUS = 125;
 const MINE_CONTACT_RADIUS = 12;
 const MINE_DRIFT_SPEED = 23;
-const MINE_MAX_SPEED = 175;
-const MINE_ACCEL_BASE = 28;
-const MINE_ACCEL_SCALE = 360;
+const MINE_MAX_SPEED = 245;
+const MINE_ACCEL_BASE = 38;
+const MINE_ACCEL_SCALE = 560;
 
 export class SynonymousDriftMine extends ProjectileBase {
   readonly blastRadius = MINE_BLAST_RADIUS;

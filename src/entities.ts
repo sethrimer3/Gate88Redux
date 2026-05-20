@@ -75,6 +75,7 @@ export enum EntityType {
   FireBomb,
   // Effects
   Explosion,
+  SwarmYard,
 }
 
 let nextEntityId = 0;
