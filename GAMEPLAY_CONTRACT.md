@@ -52,7 +52,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 - Command Posts and completed Power Generators are power sources.
 - Same-team conduits carry power by 4-way adjacency from a source.
 - Non-source buildings are powered when their cell or a neighboring cell is energized.
-- Powered conduits are brighter; pending conduits are dashed. Unpowered player buildings show a HUD warning.
+- Powered conduits are brighter; pending conduits are dashed. Unpowered buildings show a HUD warning, faint flashing yellow outline, and intermittent sparks.
 - Shipyards, factories, labs, and turrets require construction completion and power for their active behavior.
 
 ## Fighters And Shipyards
@@ -60,7 +60,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 - Fighter Yards produce fighters. Bomber Yards produce bombers after Bomber Yard research.
 - Shipyards only produce while finished, powered, and below capacity.
 - Advanced Fighters research raises player shipyard capacity and speeds player ship production.
-- C-menu orders are active: Protect Base defends the player Command Post, Set Waypoint uses the cursor location, Follow Player follows the player ship, and Dock returns ships to their home yard.
+- C-menu orders are active: Protect Base defends the player Command Post, Set Waypoint uses the cursor location, Follow Player follows the player ship, and Dock returns ships to their home yard. While holding C or a number key, player shipyards show a large group number.
 
 ## Enemy AI
 
