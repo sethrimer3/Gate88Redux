@@ -6,6 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "npx tsc --noEmit && npx vite build",
+    "desktop": "npm run build && electron electron/main.cjs",
+    "electron": "npm run desktop",
+    "electron:debug": "npm run build && electron electron/main.cjs --devtools",
     "preview": "vite preview",
     "typecheck": "npx tsc --noEmit",
     "typecheck:server": "npx tsc --project tsconfig.server.json --noEmit",
@@ -14,6 +17,7 @@
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
+    "electron": "^42.2.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vite": "^8.0.8"

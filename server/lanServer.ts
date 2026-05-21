@@ -340,7 +340,7 @@ wss.on('connection', (ws: WebSocket) => {
         const validTypes: SlotType[] = ['open', 'closed', 'ai', 'human'];
         if (!validTypes.includes(slotType)) break;
         const slot = lobbySlots[slotIndex];
-        const validRaces: RaceSelection[] = ['terran', 'concentroid', 'random'];
+        const validRaces: RaceSelection[] = ['terran', 'synonymous', 'random'];
         const nextRace = validRaces.includes(race as RaceSelection)
           ? (race as RaceSelection)
           : slot.race ?? 'terran';
