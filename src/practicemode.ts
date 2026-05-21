@@ -5,8 +5,8 @@ import { Team, EntityType, ShipGroup, Entity } from './entities.js';
 import { GameState } from './gamestate.js';
 import { BuildingBase, CommandPost, Shipyard } from './building.js';
 import { TurretBase } from './turret.js';
-import { FighterShip, SynonymousFighterShip, SynonymousNovaBomberShip } from './fighter.js';
-import { Bullet, ExciterBeam, GatlingTurretBullet, Laser, MassDriverBullet, Missile, SynonymousDroneLaser, SynonymousNovaBomb } from './projectile.js';
+import { BomberShip, FighterShip, SwarmShip, SynonymousFighterShip, SynonymousNovaBomberShip } from './fighter.js';
+import { Bullet, BomberMissile, ExciterBeam, GatlingTurretBullet, Laser, MassDriverBullet, Missile, SwarmFighterLaser, SynonymousDroneLaser, SynonymousNovaBomb } from './projectile.js';
 import { HUD } from './hud.js';
 import { Colors } from './colors.js';
 import { Audio } from './audio.js';
@@ -445,7 +445,11 @@ export class PracticeMode {
           ? new SynonymousNovaBomberShip(b.bayPosition(), Team.Enemy, spawnGroup, b)
           : synonymous
             ? new SynonymousFighterShip(b.bayPosition(), Team.Enemy, spawnGroup, b, zenith || state.researchedItems.has('advancedFighters'))
-          : new FighterShip(b.position.clone(), Team.Enemy, spawnGroup, b);
+            : b.type === EntityType.BomberYard
+              ? new BomberShip(b.bayPosition(), Team.Enemy, spawnGroup, b)
+              : b.type === EntityType.SwarmYard
+                ? new SwarmShip(b.bayPosition(), Team.Enemy, spawnGroup, b)
+                : new FighterShip(b.position.clone(), Team.Enemy, spawnGroup, b);
         if (zenith && !(fighter instanceof SynonymousNovaBomberShip)) {
           fighter.weaponDamage = Math.max(fighter.weaponDamage, 2);
           fighter.enableShield();
@@ -557,13 +561,16 @@ export class PracticeMode {
         const nearby = state.getEntitiesInRange(f.position, f.weaponRange);
         for (const e of nearby) {
           if (isCombatTargetValid(f, e, f.weaponRange)) {
-            const projectileSpeed = f instanceof SynonymousNovaBomberShip ? WEAPON_STATS.bigmissile.speed : WEAPON_STATS.fire.speed;
+            const isBomber = f instanceof BomberShip;
+            const isSwarm = f instanceof SwarmShip;
+            const projectileSpeed = isBomber ? WEAPON_STATS.bigmissile.speed : isSwarm ? WEAPON_STATS.laser.speed : WEAPON_STATS.fire.speed;
             const aim = aimAtEntity(f, e, projectileSpeed, {
-              maxPredictionTime: f instanceof SynonymousNovaBomberShip ? 0.7 : 1.0,
-              fallback: 'shortPrediction',
+              maxPredictionTime: isBomber ? 0.7 : 1.0,
+              fallback: isSwarm ? 'current' : 'shortPrediction',
             });
             const fireAngle = aimAngle(aim);
             if (fireAngle === null) continue;
+            let firedAimPoint = aim.aimPoint.clone();
             if (f instanceof SynonymousNovaBomberShip) {
               const charged = f.consumeChargedNova();
               if (charged) {
@@ -571,6 +578,9 @@ export class PracticeMode {
               } else {
                 f.beginNovaCharge(aim.aimPoint);
               }
+            } else if (f instanceof BomberShip) {
+              f.consumeShot(WEAPON_STATS.bigmissile.fireRate);
+              state.addEntity(new BomberMissile(f.team, f.position.clone(), fireAngle, f));
             } else if (f instanceof SynonymousFighterShip) {
               f.markCombatSplit();
               f.consumeShot(f.fireRate);
@@ -580,6 +590,12 @@ export class PracticeMode {
                 state.addEntity(laser);
                 this.damageSynonymousFighterLaser(state, start, e.position, f);
               }
+            } else if (f instanceof SwarmShip) {
+              const end = e.position.clone();
+              firedAimPoint = end.clone();
+              f.consumeShot(f.fireRate);
+              state.addEntity(new SwarmFighterLaser(f.team, f.position.clone(), end, f));
+              damageLaserLine(state, null, f, f.position.clone(), end, f.weaponDamage, 1);
             } else {
               f.consumeShot(WEAPON_STATS.fire.fireRate);
               const bullet = new Bullet(f.team, f.position.clone(), fireAngle, f, e);
@@ -592,7 +608,7 @@ export class PracticeMode {
               shooter: f.position.clone(),
               target: e.position.clone(),
               targetVelocity: e.velocity.clone(),
-              aimPoint: aim.aimPoint.clone(),
+              aimPoint: firedAimPoint,
               spawn: f.position.clone(),
               range: f.weaponRange,
               interceptValid: aim.valid && !aim.usedFallback,

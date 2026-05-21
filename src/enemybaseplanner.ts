@@ -38,7 +38,7 @@ import { GameState } from './gamestate.js';
 import { BuildingBase, CommandPost, Shipyard, PowerGenerator, ResearchLab, Factory } from './building.js';
 import { TurretBase } from './turret.js';
 import { GRID_CELL_SIZE, cellCenter, cellKey, footprintCenter } from './grid.js';
-import { CONDUIT_COST, WORLD_WIDTH, WORLD_HEIGHT } from './constants.js';
+import { CONDUIT_COST, RESEARCH_COST, RESEARCH_TIME, TICK_RATE, WORLD_WIDTH, WORLD_HEIGHT } from './constants.js';
 import { buildDefForEntityType, createBuildingFromDef, getBuildDef } from './builddefs.js';
 import type { BuildDef } from './builddefs.js';
 import { BuilderDrone, isBuilderDrone } from './builderdrone.js';
@@ -208,6 +208,8 @@ export class EnemyBasePlanner {
   private secsSinceLastAttack: number = 0;
   /** Anti-stall: seconds since we last checked / forced shipyard scaling. */
   private shipyardScaleTimer: number = 0;
+  private aiResearchedItems: Set<string> = new Set();
+  private aiResearchProgress: { item: string; remaining: number } | null = null;
 
   // -- Chat narration ---------------------------------------------------------
 
@@ -446,7 +448,8 @@ export class EnemyBasePlanner {
     // 1. Builder lifecycle.
     this.processBuilderRebuilds(state, cp, dt);
     this.assignRepairTargets(state);
-    let spent = this.dispatchAutoBuilds(state, cp, enemyResources);
+    let spent = this.updateAIResearch(state, dt, enemyResources);
+    spent += this.dispatchAutoBuilds(state, cp, enemyResources - spent);
     this.collectFinishedAutoBuilds(state, dt);
     this.collectFinishedBuilds(state);
 
@@ -896,11 +899,13 @@ export class EnemyBasePlanner {
     const desired = [
       { key: 'fighteryard', count: [0, 2, 4, 6, 8, 14][idx] + urgencyBonus + timeBonus },
       { key: 'researchlab', count: [0, 1, 2, 3, 4, 5][idx] },
-      { key: 'bomberyard',  count: [0, 0, 2, 3, 4, 5][idx] + (idx >= 2 ? urgencyBonus : 0) },
+      { key: 'bomberyard',  count: [0, 0, 5, 5, 5, 5][idx] },
+      { key: 'swarmyard',   count: this.targetSwarmYardCount(state) },
       { key: 'factory',     count: [0, 1, 1, 2, 3, 3][idx] },
     ];
 
     for (const want of desired) {
+      if (!this.canAIUseAdvancedYard(want.key)) continue;
       const def = getBuildDef(want.key);
       if (!def) continue;
       const current = this.countEnemyBuildings(state, (b) => buildDefForEntityType(b.type)?.key === want.key);
@@ -942,10 +947,12 @@ export class EnemyBasePlanner {
 
       let def = getBuildDef(slot.buildingKey);
       if (!def) { slot.queued = true; continue; }
+      if (!this.canAIUseAdvancedYard(def.key)) continue;
       if (def.key === 'powergenerator' && !this.shouldPlacePowerGeneratorHere(state, ring, slot.cx, slot.cy)) {
         const replacement = this.replacementForRedundantGenerator(ring);
         const replacementDef = getBuildDef(replacement);
         if (!replacementDef) { slot.queued = true; continue; }
+        if (!this.canAIUseAdvancedYard(replacementDef.key)) continue;
         slot.buildingKey = replacement;
         def = replacementDef;
       }
@@ -1264,6 +1271,28 @@ export class EnemyBasePlanner {
     return count;
   }
 
+  private countEnemyBuildingsByKey(state: GameState, key: string): number {
+    return this.countEnemyBuildings(state, (b) => buildDefForEntityType(b.type)?.key === key);
+  }
+
+  private queuedBuildingCount(key: string): number {
+    return this.queue.filter((order) => order.kind === 'building' && order.def.key === key).length
+      + this.activeAutoBuilds.filter((active) => active.order.kind === 'building' && active.order.def.key === key).length;
+  }
+
+  private canAIUseAdvancedYard(key: string): boolean {
+    if (key !== 'bomberyard' && key !== 'swarmyard') return true;
+    return this.aiResearchedItems.has(key);
+  }
+
+  private targetSwarmYardCount(state: GameState): number {
+    const idx = difficultyIndex(this.config.difficulty);
+    if (idx < 3) return 0;
+    const fighterYards = this.countEnemyBuildingsByKey(state, 'fighteryard') + this.queuedBuildingCount('fighteryard');
+    if (fighterYards < 8 && !this.aiResearchedItems.has('swarmyard')) return 0;
+    return [0, 0, 0, 2, 4, 5][idx];
+  }
+
   private isNearPlannedPower(state: GameState, originCx: number, originCy: number, size: number): boolean {
     for (let y = originCy - 1; y <= originCy + size; y++) {
       for (let x = originCx - 1; x <= originCx + size; x++) {
@@ -1532,6 +1561,45 @@ export class EnemyBasePlanner {
     return order.kind === 'conduit' ? CONDUIT_COST : order.def.cost;
   }
 
+  private updateAIResearch(state: GameState, dt: number, availableResources: number): number {
+    const idx = difficultyIndex(this.config.difficulty);
+    if (idx < 2) return 0;
+    if (!this.hasPoweredResearchLab(state)) return 0;
+
+    if (this.aiResearchProgress) {
+      this.aiResearchProgress.remaining -= dt * [0, 0, 1.0, 1.2, 1.45, 2.0][idx];
+      if (this.aiResearchProgress.remaining <= 0) {
+        this.aiResearchedItems.add(this.aiResearchProgress.item);
+        this.aiResearchProgress = null;
+      }
+      return 0;
+    }
+
+    const next = this.nextAIResearchItem(state);
+    if (!next) return 0;
+    const cost = RESEARCH_COST[next as keyof typeof RESEARCH_COST] ?? 0;
+    if (availableResources < cost) return 0;
+    const ticks = RESEARCH_TIME[next as keyof typeof RESEARCH_TIME];
+    if (ticks === undefined) return 0;
+    this.aiResearchProgress = { item: next, remaining: ticks / TICK_RATE };
+    return cost;
+  }
+
+  private hasPoweredResearchLab(state: GameState): boolean {
+    return this.countEnemyBuildings(
+      state,
+      (b) => b instanceof ResearchLab && b.powered && b.buildProgress >= 1,
+    ) > 0;
+  }
+
+  private nextAIResearchItem(state: GameState): string | null {
+    const idx = difficultyIndex(this.config.difficulty);
+    if (!this.aiResearchedItems.has('bomberyard')) return 'bomberyard';
+    const fighterYards = this.countEnemyBuildingsByKey(state, 'fighteryard') + this.queuedBuildingCount('fighteryard');
+    if (idx >= 3 && fighterYards >= 8 && !this.aiResearchedItems.has('swarmyard')) return 'swarmyard';
+    return null;
+  }
+
   private orderStrategicPriority(order: BuildOrder): number {
     if (order.kind === 'conduit') return 105;
     switch (order.def.key) {
@@ -1539,6 +1607,7 @@ export class EnemyBasePlanner {
       case 'researchlab': return 95;
       case 'fighteryard':
       case 'bomberyard':
+      case 'swarmyard':
         // When the AI is stalling or urgency is elevated, boost offensive
         // production buildings above almost everything (even conduits at level 2).
         if (this.urgencyLevel >= 2) return 110;
@@ -1864,14 +1933,15 @@ export class EnemyBasePlanner {
     const target  = this.getTargetShipyardCount(state);
     if (current >= target) return;
 
-    const def = getBuildDef('fighteryard');
+    const forcedKey = this.forcedShipyardBuildKey(state);
+    const def = getBuildDef(forcedKey);
     if (!def) return;
     if (availableResources < def.cost) return;
 
     // Check we're not already queuing one.
     const alreadyQueued =
-      this.queue.filter((o) => o.kind === 'building' && o.def.key === 'fighteryard').length +
-      this.activeAutoBuilds.filter((a) => a.order.kind === 'building' && a.order.def.key === 'fighteryard').length;
+      this.queue.filter((o) => o.kind === 'building' && o.def.key === forcedKey).length +
+      this.activeAutoBuilds.filter((a) => a.order.kind === 'building' && a.order.def.key === forcedKey).length;
     if (alreadyQueued >= 2) return;
 
     // Find a valid location in the accessible rings.
@@ -1888,7 +1958,7 @@ export class EnemyBasePlanner {
         if (!anchor) continue;
         const cell = this.findBestBuildingCell(state, anchor.cx, anchor.cy, def, ring);
         if (!cell) continue;
-        const k = `fighteryard:${cellKey(cell.cx, cell.cy)}`;
+        const k = `${forcedKey}:${cellKey(cell.cx, cell.cy)}`;
         if (this.backfillKeys.has(k)) continue;
         this.backfillKeys.add(k);
         this.claimedBuildingKeys.add(cellKey(cell.cx, cell.cy));
@@ -1899,6 +1969,21 @@ export class EnemyBasePlanner {
         return;
       }
     }
+  }
+
+  private forcedShipyardBuildKey(state: GameState): string {
+    const idx = difficultyIndex(this.config.difficulty);
+    if (idx >= 3 && this.canAIUseAdvancedYard('swarmyard')) {
+      const target = this.targetSwarmYardCount(state);
+      const current = this.countEnemyBuildingsByKey(state, 'swarmyard') + this.queuedBuildingCount('swarmyard');
+      if (current < target) return 'swarmyard';
+    }
+    if (this.canAIUseAdvancedYard('bomberyard')) {
+      const target = [0, 0, 5, 5, 5, 5][idx];
+      const current = this.countEnemyBuildingsByKey(state, 'bomberyard') + this.queuedBuildingCount('bomberyard');
+      if (current < target) return 'bomberyard';
+    }
+    return 'fighteryard';
   }
 
   // ---------------------------------------------------------------------------

@@ -88,8 +88,8 @@ const BALANCED: Doctrine = {
     },
     {
       radius: 12, role: 'production',
-      buildings: ['researchlab', 'massdriverturret', 'powergenerator', 'missileturret', 'factory'],
-      counts: { researchlab: 1, massdriverturret: 2, powergenerator: 2, missileturret: 2, factory: 1 },
+      buildings: ['researchlab', 'swarmyard', 'massdriverturret', 'powergenerator', 'missileturret', 'factory'],
+      counts: { researchlab: 1, swarmyard: 1, massdriverturret: 2, powergenerator: 2, missileturret: 2, factory: 1 },
     },
     {
       radius: 16, role: 'picket',
@@ -156,13 +156,13 @@ const SWARM: Doctrine = {
     },
     {
       radius: 12, role: 'production',
-      buildings: ['fighteryard', 'bomberyard', 'powergenerator', 'missileturret', 'researchlab'],
-      counts: { fighteryard: 2, bomberyard: 1, powergenerator: 2, missileturret: 1, researchlab: 1 },
+      buildings: ['fighteryard', 'bomberyard', 'swarmyard', 'powergenerator', 'missileturret', 'researchlab'],
+      counts: { fighteryard: 2, bomberyard: 1, swarmyard: 2, powergenerator: 2, missileturret: 1, researchlab: 1 },
     },
     {
       radius: 16, role: 'picket',
-      buildings: ['fighteryard', 'powergenerator', 'gatlingturret', 'exciterturret'],
-      counts: { fighteryard: 3, powergenerator: 2, gatlingturret: 2, exciterturret: 2 },
+      buildings: ['fighteryard', 'swarmyard', 'powergenerator', 'gatlingturret', 'exciterturret'],
+      counts: { fighteryard: 3, swarmyard: 2, powergenerator: 2, gatlingturret: 2, exciterturret: 2 },
     },
   ],
   spokesPerDifficulty: [2, 3, 3, 4, 5, 8],
@@ -229,8 +229,8 @@ const RAIDER: Doctrine = {
     },
     {
       radius: 18, role: 'forward',
-      buildings: ['fighteryard', 'powergenerator', 'gatlingturret', 'missileturret', 'bomberyard'],
-      counts: { fighteryard: 3, powergenerator: 2, gatlingturret: 2, missileturret: 2, bomberyard: 1 },
+      buildings: ['fighteryard', 'swarmyard', 'powergenerator', 'gatlingturret', 'missileturret', 'bomberyard'],
+      counts: { fighteryard: 3, swarmyard: 1, powergenerator: 2, gatlingturret: 2, missileturret: 2, bomberyard: 1 },
     },
   ],
   spokesPerDifficulty: [2, 2, 3, 4, 5, 8],
