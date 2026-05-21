@@ -639,6 +639,7 @@ export class Game {
         const maxSpeed = this.fighterMaxSpeed(f);
         const speedFraction = maxSpeed > 0 ? Math.min(1, speed / maxSpeed) : 0;
         if (speedFraction <= 0.05) continue;
+        if (f instanceof SwarmShip && f.id % 3 !== Math.floor(this.state.gameTime * 30) % 3) continue;
         this.state.particles.emitExhaust(
           f.position,
           f.angle,
@@ -840,7 +841,10 @@ export class Game {
     for (const b of this.state.buildings) {
       if (!b.alive || b.team !== Team.Player) continue;
       if (!(b instanceof Shipyard)) continue;
-      if (this.state.researchedItems.has('advancedFighters') && b.type !== EntityType.SwarmYard) {
+      if (b.type === EntityType.SwarmYard) {
+        b.shipCapacity = 20;
+        b.buildInterval = 0.65;
+      } else if (this.state.researchedItems.has('advancedFighters')) {
         b.shipCapacity = 7;
         b.buildInterval = 4;
       }

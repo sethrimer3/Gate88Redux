@@ -21,6 +21,7 @@ import {
   BomberMissile,
   SynonymousDroneLaser,
   SynonymousNovaBomb,
+  SwarmFighterLaser,
 } from './projectile.js';
 import { SpaceFluid } from './spacefluid.js';
 import { WEAPON_STATS } from './constants.js';
@@ -54,13 +55,15 @@ export function updateFighterWeaponFire(state: GameState, spaceFluid: SpaceFluid
       }
     }
     if (!target) continue;
-    const projectileSpeed = f instanceof BomberShip ? WEAPON_STATS.bigmissile.speed : WEAPON_STATS.fire.speed;
+    const isSwarmFighter = f instanceof SwarmShip;
+    const projectileSpeed = f instanceof BomberShip ? WEAPON_STATS.bigmissile.speed : isSwarmFighter ? WEAPON_STATS.laser.speed : WEAPON_STATS.fire.speed;
     const aim = aimAtEntity(f, target, projectileSpeed, {
       maxPredictionTime: f instanceof BomberShip ? 0.7 : 1.0,
-      fallback: 'shortPrediction',
+      fallback: isSwarmFighter ? 'current' : 'shortPrediction',
     });
     const angle = aimAngle(aim);
     if (angle === null) continue;
+    let firedAimPoint = aim.aimPoint.clone();
 
     if (f instanceof SynonymousNovaBomberShip) {
       const charged = f.consumeChargedNova();
@@ -90,11 +93,12 @@ export function updateFighterWeaponFire(state: GameState, spaceFluid: SpaceFluid
       }
       Audio.playSound('laser');
     } else if (f instanceof SwarmShip) {
-      const end = aim.aimPoint.clone();
+      const end = target.position.clone();
+      firedAimPoint = end.clone();
       f.consumeShot(f.fireRate);
-      state.addEntity(new SynonymousDroneLaser(f.team, f.position.clone(), end, f));
+      state.addEntity(new SwarmFighterLaser(f.team, f.position.clone(), end, f));
       damageLaserLineLimited(state, spaceFluid, f.position.clone(), end, f.weaponDamage, 1, 1, f);
-      Audio.playSound('laser');
+      Audio.playSound('laser', 1 / 3);
     } else {
       f.consumeShot(WEAPON_STATS.fire.fireRate);
       const bullet = new Bullet(f.team, f.position.clone(), angle, f, target);
@@ -107,7 +111,7 @@ export function updateFighterWeaponFire(state: GameState, spaceFluid: SpaceFluid
       shooter: f.position.clone(),
       target: target.position.clone(),
       targetVelocity: target.velocity.clone(),
-      aimPoint: aim.aimPoint.clone(),
+      aimPoint: firedAimPoint,
       spawn: f.position.clone(),
       range: f.weaponRange,
       interceptValid: aim.valid && !aim.usedFallback,

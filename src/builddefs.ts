@@ -153,7 +153,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
     label: 'Swarm Yard',
     description: 'Produces small Swarm ships that strike nearby targets with instant lasers.',
     cost: BUILDING_COST.swarmyard,
-    footprintCells: 6,
+    footprintCells: 7,
     buildTime: BUILD_TIME.swarmyard,
     tier: 'yard',
     radialLabel: 'Swarm\nYard',

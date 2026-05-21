@@ -1711,7 +1711,7 @@ export class GameState {
       : def.key === 'swarmyard' ? EntityType.SwarmYard
       : null;
     if (type === null) return { valid: true, reason: 'OK' };
-    const cap = type === EntityType.FighterYard ? 10 : type === EntityType.SwarmYard ? 5 : 5;
+    const cap = type === EntityType.FighterYard ? 10 : type === EntityType.BomberYard && team === Team.Player ? 3 : type === EntityType.SwarmYard ? 5 : 5;
     const count = this.buildings.filter((b) => b.alive && b.team === team && b.type === type).length;
     if (count >= cap) {
       return {
