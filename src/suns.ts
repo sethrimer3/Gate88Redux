@@ -80,6 +80,16 @@ export class DistantSuns {
   private screenW = 0;
   private screenH = 0;
 
+  /**
+   * Offscreen light buffer for volumetric rays — rendered at half resolution,
+   * then composited back with a blur filter to eliminate hard polygon edges and
+   * overlap seam artifacts.  Cached and resized only when the screen changes.
+   */
+  private lightCanvas: HTMLCanvasElement;
+  private lightCtx: CanvasRenderingContext2D | null = null;
+  private lightW = 0;
+  private lightH = 0;
+
   /** Accumulated time for shimmer / ray / corona animation. */
   private time = 0;
 
@@ -97,6 +107,9 @@ export class DistantSuns {
     this.glowCanvas = document.createElement('canvas');
     this.glowCanvas.width  = 1;
     this.glowCanvas.height = 1;
+    this.lightCanvas = document.createElement('canvas');
+    this.lightCanvas.width  = 1;
+    this.lightCanvas.height = 1;
   }
 
   // -------------------------------------------------------------------------
@@ -162,6 +175,17 @@ export class DistantSuns {
       this.bakeSunGlow();
     }
 
+    // Resize half-resolution light buffer when screen changes.
+    const lw = Math.max(1, Math.round(screenW / 2));
+    const lh = Math.max(1, Math.round(screenH / 2));
+    if (lw !== this.lightW || lh !== this.lightH) {
+      this.lightW = lw;
+      this.lightH = lh;
+      this.lightCanvas.width  = lw;
+      this.lightCanvas.height = lh;
+      this.lightCtx = this.lightCanvas.getContext('2d');
+    }
+
     // Tiny parallax offset (sun barely moves with the camera — deep background).
     const dx = (camera.position.x - WORLD_WIDTH  * 0.5) * PARALLAX_X;
     const dy = (camera.position.y - WORLD_HEIGHT * 0.5) * PARALLAX_Y;
@@ -180,9 +204,20 @@ export class DistantSuns {
     this.drawScreenWarmth(ctx, cx, cy, screenW, screenH);
 
     // 3 — Volumetric light rays (medium / high).
-    if (this.raysEnabled) {
+    // Drawn into a half-resolution offscreen buffer then composited back with
+    // a blur filter — this eliminates hard polygon edges and overlap seams.
+    if (this.raysEnabled && this.lightCtx) {
       const count = this.coronaEnabled ? RAY_COUNT_HIGH : RAY_COUNT_MEDIUM;
-      this.drawRays(ctx, cx, cy, screenW, screenH, count);
+      const lc = this.lightCtx;
+      lc.clearRect(0, 0, this.lightW, this.lightH);
+      // Scale sun position to half-res buffer coordinates.
+      this.drawRays(lc, cx * 0.5, cy * 0.5, this.lightW, this.lightH, count);
+      // Composite with a blur to soften beam edges into atmospheric light shafts.
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      ctx.filter = 'blur(8px)';
+      ctx.drawImage(this.lightCanvas, 0, 0, screenW, screenH);
+      ctx.restore();
     }
 
     // 4 — Solar corona arcs (high only).
@@ -303,8 +338,10 @@ export class DistantSuns {
       const px = -Math.sin(angle);
       const py =  Math.cos(angle);
 
-      // Per-ray flicker (subtle).
-      const flicker = 0.042 + 0.022 * Math.sin(this.time * 0.72 + i * 0.88);
+      // Per-ray flicker (subtle).  Alpha reduced slightly — the blur on composite
+      // spreads each beam wider, so lower per-pass alpha keeps overall brightness
+      // balanced while reducing visible overlap seams.
+      const flicker = 0.036 + 0.016 * Math.sin(this.time * 0.72 + i * 0.88);
 
       // Build a gradient that fades from bright at base to transparent at tip.
       const makeGrad = (alpha: number): CanvasGradient => {
@@ -328,11 +365,14 @@ export class DistantSuns {
         ctx.fill();
       };
 
-      // Three passes — wide+faint, medium+mid, narrow+bright.
-      // Together they produce smooth feathered edges.
-      drawPass(4.5, 0.35);  // outer halo — wide, very transparent
-      drawPass(2.2, 0.55);  // mid layer
-      drawPass(1.0, 1.00);  // core spine — narrow, full brightness
+      // Five passes with quadratic-style falloff from core to edges.
+      // Combined with the 8 px blur on composite, these produce soft atmospheric
+      // light shafts rather than hard transparent polygons.
+      drawPass(6.0, 0.15);  // outermost fringe — very wide, nearly transparent
+      drawPass(4.0, 0.28);  // outer halo
+      drawPass(2.5, 0.46);  // mid halo
+      drawPass(1.6, 0.68);  // inner halo
+      drawPass(1.0, 1.00);  // core spine — narrowest, brightest
     }
 
     ctx.restore();
