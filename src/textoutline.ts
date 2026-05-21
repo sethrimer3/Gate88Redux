@@ -13,27 +13,28 @@ export function installTextOutline(): void {
   ): void {
     this.save();
     const fill = this.fillStyle;
-    const stroke = this.strokeStyle;
-    const width = this.lineWidth;
     const composite = this.globalCompositeOperation;
+    const shadowColor = this.shadowColor;
+    const shadowBlur = this.shadowBlur;
+    const shadowOffsetX = this.shadowOffsetX;
+    const shadowOffsetY = this.shadowOffsetY;
     this.globalCompositeOperation = 'source-over';
-    this.strokeStyle = 'rgba(255,255,255,0.72)';
-    this.lineWidth = 1;
-    this.lineJoin = 'round';
-    if (maxWidth === undefined) {
-      this.strokeText(text, x, y);
-    } else {
-      this.strokeText(text, x, y, maxWidth);
-    }
+    this.shadowColor = 'rgba(0,0,0,0.95)';
+    this.shadowBlur = 7;
+    this.shadowOffsetX = 0;
+    this.shadowOffsetY = 0;
     this.fillStyle = fill;
-    this.strokeStyle = stroke;
-    this.lineWidth = width;
-    this.globalCompositeOperation = composite;
-    this.restore();
     if (maxWidth === undefined) {
       originalFillText.call(this, text, x, y);
     } else {
       originalFillText.call(this, text, x, y, maxWidth);
     }
+    this.fillStyle = fill;
+    this.globalCompositeOperation = composite;
+    this.shadowColor = shadowColor;
+    this.shadowBlur = shadowBlur;
+    this.shadowOffsetX = shadowOffsetX;
+    this.shadowOffsetY = shadowOffsetY;
+    this.restore();
   };
 }

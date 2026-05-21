@@ -2021,10 +2021,10 @@ export class Game {
       this.bgGradientW = w;
       this.bgGradientH = h;
       const grad = ctx.createRadialGradient(w * 0.35, h * 0.25, 0, w * 0.5, h * 0.5, Math.hypot(w, h) * 0.72);
-      grad.addColorStop(0.00, 'rgba(2, 4, 12, 0)');      // transparent centre — shows base fill
-      grad.addColorStop(0.35, 'rgba(3, 2, 14, 0.52)');   // deep indigo tint
-      grad.addColorStop(0.68, 'rgba(8, 2, 20, 0.68)');   // dark violet
-      grad.addColorStop(1.00, 'rgba(4, 1, 10, 0.78)');   // near-black periphery
+      grad.addColorStop(0.00, 'rgba(0, 1, 4, 0.24)');    // darker centre while preserving subtle depth
+      grad.addColorStop(0.35, 'rgba(1, 1, 8, 0.66)');    // deep indigo tint
+      grad.addColorStop(0.68, 'rgba(3, 1, 10, 0.78)');   // dark violet
+      grad.addColorStop(1.00, 'rgba(1, 0, 5, 0.88)');    // near-black periphery
       this.bgGradient = grad;
     }
     ctx.fillStyle = this.bgGradient;
