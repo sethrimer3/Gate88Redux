@@ -969,9 +969,12 @@ export class PracticeMode {
     waveLaunchThreshold: number;
     currentShipyards: number;
     targetShipyards: number;
+    aiBuildingCounts: Record<string, number>;
+    aiQueuedBuildingCounts: Record<string, number>;
   } | null {
     if (!this.planner) return null;
     const idx = difficultyIndex(this.config.difficulty);
+    const snapshot = this.planner.snapshot();
     const staged = state.fighters.filter((f) =>
       f.alive && !f.docked && f.team === Team.Enemy && !isBuilderDrone(f) &&
       (f.order === 'waypoint' || f.order === 'follow' || f.order === 'protect'),
@@ -985,6 +988,8 @@ export class PracticeMode {
       waveLaunchThreshold:   this.enemyWaveLaunchThreshold(state, idx),
       currentShipyards:      this.planner.getShipyardCount(state),
       targetShipyards:       this.planner.getTargetShipyardCount(state),
+      aiBuildingCounts:      snapshot.buildingCounts,
+      aiQueuedBuildingCounts: snapshot.queuedBuildingCounts,
     };
   }
 

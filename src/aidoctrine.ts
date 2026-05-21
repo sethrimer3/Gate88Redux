@@ -78,13 +78,13 @@ const BALANCED: Doctrine = {
   ringRecipes: [
     {
       radius: 4, role: 'innerDefense',
-      buildings: ['powergenerator', 'missileturret', 'wall'],
-      counts: { powergenerator: 2, missileturret: 2, wall: 1 },
+      buildings: ['powergenerator', 'gatlingturret', 'missileturret', 'wall'],
+      counts: { powergenerator: 2, gatlingturret: 2, missileturret: 1, wall: 1 },
     },
     {
       radius: 8, role: 'production',
-      buildings: ['powergenerator', 'fighteryard', 'missileturret', 'exciterturret', 'factory'],
-      counts: { powergenerator: 2, fighteryard: 1, missileturret: 2, exciterturret: 1, factory: 1 },
+      buildings: ['powergenerator', 'fighteryard', 'gatlingturret', 'missileturret', 'exciterturret', 'factory'],
+      counts: { powergenerator: 2, fighteryard: 1, gatlingturret: 1, missileturret: 2, exciterturret: 1, factory: 1 },
     },
     {
       radius: 12, role: 'production',
@@ -93,8 +93,8 @@ const BALANCED: Doctrine = {
     },
     {
       radius: 16, role: 'picket',
-      buildings: ['bomberyard', 'massdriverturret', 'exciterturret', 'powergenerator', 'fighteryard'],
-      counts: { bomberyard: 1, massdriverturret: 2, exciterturret: 2, powergenerator: 2, fighteryard: 1 },
+      buildings: ['bomberyard', 'gatlingturret', 'massdriverturret', 'exciterturret', 'powergenerator', 'fighteryard'],
+      counts: { bomberyard: 1, gatlingturret: 2, massdriverturret: 2, exciterturret: 2, powergenerator: 2, fighteryard: 1 },
     },
   ],
   spokesPerDifficulty: [2, 3, 4, 5, 6, 8],
@@ -112,8 +112,8 @@ const TURTLE: Doctrine = {
   ringRecipes: [
     {
       radius: 3, role: 'innerDefense',
-      buildings: ['missileturret', 'powergenerator', 'regenturret', 'wall'],
-      counts: { missileturret: 3, powergenerator: 2, regenturret: 1, wall: 2 },
+      buildings: ['gatlingturret', 'missileturret', 'powergenerator', 'regenturret', 'wall'],
+      counts: { gatlingturret: 2, missileturret: 2, powergenerator: 2, regenturret: 1, wall: 2 },
     },
     {
       radius: 7, role: 'innerDefense',
@@ -127,8 +127,8 @@ const TURTLE: Doctrine = {
     },
     {
       radius: 15, role: 'picket',
-      buildings: ['missileturret', 'powergenerator', 'exciterturret', 'regenturret'],
-      counts: { missileturret: 3, powergenerator: 2, exciterturret: 2, regenturret: 2 },
+      buildings: ['gatlingturret', 'missileturret', 'powergenerator', 'exciterturret', 'regenturret'],
+      counts: { gatlingturret: 2, missileturret: 3, powergenerator: 2, exciterturret: 2, regenturret: 2 },
     },
   ],
   spokesPerDifficulty: [3, 4, 5, 6, 6, 7],
@@ -146,8 +146,8 @@ const SWARM: Doctrine = {
   ringRecipes: [
     {
       radius: 4, role: 'production',
-      buildings: ['fighteryard', 'powergenerator', 'missileturret'],
-      counts: { fighteryard: 2, powergenerator: 2, missileturret: 1 },
+      buildings: ['fighteryard', 'powergenerator', 'gatlingturret', 'missileturret'],
+      counts: { fighteryard: 2, powergenerator: 2, gatlingturret: 1, missileturret: 1 },
     },
     {
       radius: 8, role: 'production',
@@ -161,8 +161,8 @@ const SWARM: Doctrine = {
     },
     {
       radius: 16, role: 'picket',
-      buildings: ['fighteryard', 'powergenerator', 'exciterturret'],
-      counts: { fighteryard: 3, powergenerator: 2, exciterturret: 2 },
+      buildings: ['fighteryard', 'powergenerator', 'gatlingturret', 'exciterturret'],
+      counts: { fighteryard: 3, powergenerator: 2, gatlingturret: 2, exciterturret: 2 },
     },
   ],
   spokesPerDifficulty: [2, 3, 3, 4, 5, 8],
@@ -180,13 +180,13 @@ const ARTILLERY: Doctrine = {
   ringRecipes: [
     {
       radius: 3, role: 'innerDefense',
-      buildings: ['massdriverturret', 'powergenerator', 'wall'],
-      counts: { massdriverturret: 3, powergenerator: 2, wall: 1 },
+      buildings: ['gatlingturret', 'massdriverturret', 'powergenerator', 'wall'],
+      counts: { gatlingturret: 1, massdriverturret: 2, powergenerator: 2, wall: 1 },
     },
     {
       radius: 7, role: 'innerDefense',
-      buildings: ['massdriverturret', 'powergenerator', 'missileturret', 'factory'],
-      counts: { massdriverturret: 3, powergenerator: 2, missileturret: 2, factory: 1 },
+      buildings: ['massdriverturret', 'powergenerator', 'gatlingturret', 'missileturret', 'factory'],
+      counts: { massdriverturret: 3, powergenerator: 2, gatlingturret: 1, missileturret: 1, factory: 1 },
     },
     {
       radius: 11, role: 'production',
@@ -214,8 +214,8 @@ const RAIDER: Doctrine = {
   ringRecipes: [
     {
       radius: 4, role: 'production',
-      buildings: ['fighteryard', 'powergenerator', 'exciterturret'],
-      counts: { fighteryard: 1, powergenerator: 2, exciterturret: 1 },
+      buildings: ['fighteryard', 'powergenerator', 'gatlingturret', 'exciterturret'],
+      counts: { fighteryard: 1, powergenerator: 2, gatlingturret: 1, exciterturret: 1 },
     },
     {
       radius: 8, role: 'production',
@@ -229,8 +229,8 @@ const RAIDER: Doctrine = {
     },
     {
       radius: 18, role: 'forward',
-      buildings: ['fighteryard', 'powergenerator', 'missileturret', 'bomberyard'],
-      counts: { fighteryard: 3, powergenerator: 2, missileturret: 2, bomberyard: 1 },
+      buildings: ['fighteryard', 'powergenerator', 'gatlingturret', 'missileturret', 'bomberyard'],
+      counts: { fighteryard: 3, powergenerator: 2, gatlingturret: 2, missileturret: 2, bomberyard: 1 },
     },
   ],
   spokesPerDifficulty: [2, 2, 3, 4, 5, 8],

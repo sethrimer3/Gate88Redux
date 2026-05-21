@@ -2227,6 +2227,7 @@ export class Game {
           `AI Strategy Debug:`,
           `  Urgency: ${info.urgency}  Player: ${info.playerStrategy}`,
           `  Shipyards: ${info.currentShipyards} / ${info.targetShipyards} (target)`,
+          `  Turrets placed/queued: G ${info.aiBuildingCounts.gatlingturret ?? 0}/${info.aiQueuedBuildingCounts.gatlingturret ?? 0}  M ${info.aiBuildingCounts.missileturret ?? 0}/${info.aiQueuedBuildingCounts.missileturret ?? 0}  E ${info.aiBuildingCounts.exciterturret ?? 0}/${info.aiQueuedBuildingCounts.exciterturret ?? 0}  D ${info.aiBuildingCounts.massdriverturret ?? 0}/${info.aiQueuedBuildingCounts.massdriverturret ?? 0}`,
           `  Staged: ${info.stagedCount} / ${info.waveLaunchThreshold} (wave threshold)`,
           `  Last wave: ${Math.floor(info.secsSinceLastWave)}s ago`,
           `  Failed waves: ${info.consecutiveFailedWaves}`,

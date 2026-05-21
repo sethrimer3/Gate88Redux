@@ -91,6 +91,10 @@ export interface PlannerSnapshot {
   playerStrategy: PlayerStrategy;
   /** Seconds since the last major attack wave was launched. */
   secsSinceLastAttack: number;
+  /** Placed ring-slot structures by build key. */
+  buildingCounts: Record<string, number>;
+  /** Queued or actively constructing structures by build key. */
+  queuedBuildingCounts: Record<string, number>;
 }
 
 /** Lightweight classification of what the player appears to be doing. */
@@ -1108,7 +1112,8 @@ export class EnemyBasePlanner {
       // Turrets.
       for (const ts of bastion.turretSlots) {
         if (ts.queued || ts.placed) continue;
-        const def = getBuildDef('missileturret');
+        const referenceRing = this.rings[this.currentRing] ?? this.rings[this.rings.length - 1];
+        const def = getBuildDef(referenceRing ? this.chooseTurretForSlot(referenceRing) : 'missileturret');
         if (!def) continue;
         const k = cellKey(ts.cx, ts.cy);
         if (this.claimedBuildingKeys.has(k)) continue;
@@ -1188,12 +1193,17 @@ export class EnemyBasePlanner {
 
   private replacementForRedundantGenerator(ring: RingPlan): string {
     if (ring.role === 'production') {
+      if (this.playerThreat.strategy === 'rushing' || this.playerThreat.strategy === 'unknown') {
+        return this.mixedTurretChoice(ring, ['gatlingturret', 'missileturret', 'fighteryard']);
+      }
       // Prefer bomber yards at higher difficulty; also switch if AI is stalling
       // to push offensive capability harder.
       return (difficultyIndex(this.config.difficulty) >= 3 || this.urgencyLevel >= 2)
         ? 'bomberyard' : 'fighteryard';
     }
-    if (ring.role === 'innerDefense') return 'wall';
+    if (ring.role === 'innerDefense') {
+      return this.mixedTurretChoice(ring, ['gatlingturret', 'missileturret', 'wall']);
+    }
     // For picket and forward rings, pick turret type reactively.
     if (ring.role === 'picket' || ring.role === 'forward') return this.chooseTurretForSlot(ring);
     return 'researchlab';
@@ -1902,6 +1912,39 @@ export class EnemyBasePlanner {
    */
   private chooseTurretForSlot(ring: RingPlan): string {
     const idx = difficultyIndex(this.config.difficulty);
+    const { strategy, shipyardCount, researchCount } = this.playerThreat;
+    if (strategy === 'swarming' || shipyardCount >= 4) {
+      return this.mixedTurretChoice(ring, ['massdriverturret', 'gatlingturret', 'missileturret']);
+    }
+    if (strategy === 'teching' || researchCount >= 3) {
+      return this.mixedTurretChoice(ring, ['exciterturret', 'gatlingturret', 'missileturret']);
+    }
+    if (strategy === 'rushing') {
+      return this.mixedTurretChoice(ring, ['gatlingturret', 'missileturret', 'gatlingturret']);
+    }
+    if (strategy === 'turtling') {
+      return this.mixedTurretChoice(ring, ['missileturret', 'exciterturret', 'gatlingturret']);
+    }
+    if (ring.role === 'innerDefense') {
+      return idx >= 3
+        ? this.mixedTurretChoice(ring, ['missileturret', 'gatlingturret', 'massdriverturret'])
+        : this.mixedTurretChoice(ring, ['gatlingturret', 'missileturret']);
+    }
+    if (ring.role === 'picket' || ring.role === 'forward') {
+      return this.mixedTurretChoice(ring, ['gatlingturret', 'missileturret', 'exciterturret']);
+    }
+    return this.mixedTurretChoice(ring, ['gatlingturret', 'missileturret']);
+  }
+
+  private mixedTurretChoice(ring: RingPlan, pool: string[]): string {
+    if (pool.length === 0) return 'missileturret';
+    const salt = ring.ringIndex * 31 + this.buildsPlaced * 7 + this.queue.length + this.activeAutoBuilds.length;
+    const pick = Math.floor(hash01plan(this.seed + 9091, salt, difficultyIndex(this.config.difficulty) + 17) * pool.length);
+    return pool[Math.max(0, Math.min(pool.length - 1, pick))];
+  }
+
+  private chooseLegacyTurretForSlot(ring: RingPlan): string {
+    const idx = difficultyIndex(this.config.difficulty);
     // Lower difficulties use the doctrine default (missile turrets).
     if (idx < 2) return ring.role === 'innerDefense' ? 'missileturret' : 'exciterturret';
 
@@ -1921,6 +1964,31 @@ export class EnemyBasePlanner {
   // Diagnostics
   // ---------------------------------------------------------------------------
 
+  private snapshotPlacedBuildingCounts(): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const ring of this.rings) {
+      for (const slot of ring.buildingSlots) {
+        if (!slot.placed) continue;
+        counts[slot.buildingKey] = (counts[slot.buildingKey] ?? 0) + 1;
+      }
+    }
+    return counts;
+  }
+
+  private snapshotQueuedBuildingCounts(): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const order of this.queue) {
+      if (order.kind !== 'building') continue;
+      counts[order.def.key] = (counts[order.def.key] ?? 0) + 1;
+    }
+    for (const active of this.activeAutoBuilds) {
+      const order = active.order;
+      if (order.kind !== 'building') continue;
+      counts[order.def.key] = (counts[order.def.key] ?? 0) + 1;
+    }
+    return counts;
+  }
+
   snapshot(): PlannerSnapshot {
     const totalCells  = this.rings.reduce((s, r) => s + r.conduitCells.length, 0);
     const queuedCells = this.rings.reduce((s, r) => s + r.conduitQueuePtr, 0);
@@ -1937,6 +2005,8 @@ export class EnemyBasePlanner {
       currentShipyardCount: 0, // filled in by PracticeMode using getShipyardCount()
       playerStrategy:       this.playerThreat.strategy,
       secsSinceLastAttack:  this.secsSinceLastAttack,
+      buildingCounts:       this.snapshotPlacedBuildingCounts(),
+      queuedBuildingCounts: this.snapshotQueuedBuildingCounts(),
     };
   }
 }
