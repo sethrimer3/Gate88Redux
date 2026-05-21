@@ -34,6 +34,7 @@ export interface PracticeConfig {
   enemyAggression: DifficultyName; // reuses the same scale
   enemyExpansionSpeed: DifficultyName;
   enemyStartingBaseSize: 'tiny' | 'small' | 'medium';
+  survivalAiRank: number;
   fogOfWar: boolean;
   mapSize: MapSize;
   startingDistance: number; // player ↔ enemy CP, world units
@@ -56,6 +57,7 @@ export const DEFAULT_PRACTICE_CONFIG: PracticeConfig = {
   enemyAggression: 'Normal',
   enemyExpansionSpeed: 'Normal',
   enemyStartingBaseSize: 'small',
+  survivalAiRank: 1000,
   fogOfWar: false,
   mapSize: 'medium',
   startingDistance: 2200,

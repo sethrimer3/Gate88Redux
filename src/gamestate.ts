@@ -927,50 +927,29 @@ export class GameState {
     if (isConfluenceFaction(this.factionByTeam, building.team)) return;
     const size = footprintForBuildingType(building.type);
     const origin = buildingFootprintOrigin(building);
-    const inside = new Set<string>();
-    let placed = 0;
+    let planned = 0;
 
-    for (let y = origin.cy; y < origin.cy + size; y++) {
-      for (let x = origin.cx; x < origin.cx + size; x++) {
-        inside.add(cellKey(x, y));
-      }
-    }
-
-    const targetOutside = size * size;
-    const occupied = this.occupiedBuildingCells();
-    for (const key of inside) occupied.add(key);
-    let outside = 0;
-    let frontier = this.seedBranchFrontier(origin.cx, origin.cy, size, building.type, building.team);
-    let guard = 0;
-    while (outside < targetOutside && frontier.length > 0 && guard < targetOutside * 80) {
-      guard++;
-      const pick = Math.floor(this.seeded01(origin.cx, origin.cy, building.type, guard) * frontier.length);
-      const cell = frontier.splice(pick, 1)[0];
-      const key = cellKey(cell.cx, cell.cy);
-      if (inside.has(key) || occupied.has(key)) continue;
-      if (
-        cell.cx < 0 ||
-        cell.cy < 0 ||
-        (cell.cx + 1) * GRID_CELL_SIZE > WORLD_WIDTH ||
-        (cell.cy + 1) * GRID_CELL_SIZE > WORLD_HEIGHT
-      ) {
-        continue;
-      }
-      occupied.add(key);
-      outside += this.planAutomaticConduit(cell.cx, cell.cy, building.team);
-      const dirs: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-      const branchBias = this.seeded01(cell.cx, cell.cy, building.type, guard + 0x71);
-      for (const [dx, dy] of dirs) {
-        if (this.seeded01(cell.cx + dx, cell.cy + dy, building.type, guard + 0x1337) > 0.58 + branchBias * 0.16) {
-          frontier.push({ cx: cell.cx + dx, cy: cell.cy + dy });
+    for (let y = origin.cy - 1; y <= origin.cy + size; y++) {
+      for (let x = origin.cx - 1; x <= origin.cx + size; x++) {
+        const isPerimeter =
+          x === origin.cx - 1 ||
+          x === origin.cx + size ||
+          y === origin.cy - 1 ||
+          y === origin.cy + size;
+        if (!isPerimeter) continue;
+        if (
+          x < 0 ||
+          y < 0 ||
+          (x + 1) * GRID_CELL_SIZE > WORLD_WIDTH ||
+          (y + 1) * GRID_CELL_SIZE > WORLD_HEIGHT
+        ) {
+          continue;
         }
-      }
-      if (frontier.length < 3) {
-        frontier = frontier.concat(this.seedBranchFrontier(origin.cx, origin.cy, size, building.type, building.team));
+        planned += this.planAutomaticConduit(x, y, building.team);
       }
     }
 
-    if (placed > 0 || outside > 0) this.power.markDirty();
+    if (planned > 0) this.power.markDirty();
   }
 
   private planAutomaticConduit(cx: number, cy: number, team: Team): number {
@@ -993,50 +972,6 @@ export class GameState {
     }
     this.spawnExplosionGlow(proj.position, proj.aoeRadius);
     this.ringEffects.spawn('shockwave', proj.position, proj.aoeRadius * 0.05, proj.aoeRadius, 0.45, 0.9);
-  }
-
-  private seedBranchFrontier(
-    originCx: number,
-    originCy: number,
-    size: number,
-    type: EntityType,
-    team: Team,
-  ): Array<{ cx: number; cy: number }> {
-    const cells: Array<{ cx: number; cy: number }> = [];
-    for (let i = 0; i < size; i++) {
-      cells.push({ cx: originCx + i, cy: originCy - 1 });
-      cells.push({ cx: originCx + i, cy: originCy + size });
-      cells.push({ cx: originCx - 1, cy: originCy + i });
-      cells.push({ cx: originCx + size, cy: originCy + i });
-    }
-    return cells.sort((a, b) => {
-      const ah = this.seeded01(a.cx, a.cy, type, team * 7919);
-      const bh = this.seeded01(b.cx, b.cy, type, team * 7919);
-      return ah - bh;
-    });
-  }
-
-  private occupiedBuildingCells(): Set<string> {
-    const occupied = new Set<string>();
-    for (const b of this.buildings) {
-      if (!b.alive) continue;
-      const size = footprintForBuildingType(b.type);
-      const origin = buildingFootprintOrigin(b);
-      for (let y = origin.cy; y < origin.cy + size; y++) {
-        for (let x = origin.cx; x < origin.cx + size; x++) {
-          occupied.add(cellKey(x, y));
-        }
-      }
-    }
-    return occupied;
-  }
-
-  private seeded01(cx: number, cy: number, type: EntityType, salt: number): number {
-    let h = Math.imul(cx | 0, 374761393) ^ Math.imul(cy | 0, 668265263);
-    h ^= Math.imul((type + 17) | 0, 2246822519) ^ salt;
-    h = (h ^ (h >>> 13)) >>> 0;
-    h = Math.imul(h, 1274126177) >>> 0;
-    return ((h ^ (h >>> 16)) >>> 0) / 0x100000000;
   }
 
   startDeletingBuildingAt(pos: Vec2, team: Team): BuildingBase | null {

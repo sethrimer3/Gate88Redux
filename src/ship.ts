@@ -48,6 +48,8 @@ interface TrailPoint {
 const BOOST_SPEED_MULT = 1.8;
 /** Battery drained per second while boost-thrusting. */
 const BOOST_BATTERY_DRAIN = 30;
+const BOOST_MIN_BATTERY_FRACTION = 0.10;
+const FULL_ENERGY_HEALTH_REGEN_MULT = 2;
 
 /**
  * How quickly the visual ship rotation chases the mouse-aim target. Set high
@@ -280,7 +282,7 @@ export class PlayerShip extends Entity {
 
       // Shift boost: doubles thrust and speed cap, drains battery.
       const shiftHeld = Input.isDown('Shift');
-      const canBoost = shiftHeld && this.battery > 0;
+      const canBoost = shiftHeld && this.battery >= this.maxBattery * BOOST_MIN_BATTERY_FRACTION;
       const thrustMult = canBoost ? BOOST_SPEED_MULT : 1.0;
 
       this.velocity = this.velocity.add(
@@ -495,7 +497,9 @@ export class PlayerShip extends Entity {
       return;
     }
     if (this.health > 0 && this.health < this.maxHealth) {
-      this.health = Math.min(this.maxHealth, this.health + PASSIVE_HEALTH_REGEN_RATE * dt);
+      const fullEnergy = this.battery >= this.maxBattery;
+      const regenMult = fullEnergy ? FULL_ENERGY_HEALTH_REGEN_MULT : 1;
+      this.health = Math.min(this.maxHealth, this.health + PASSIVE_HEALTH_REGEN_RATE * regenMult * dt);
     }
   }
 

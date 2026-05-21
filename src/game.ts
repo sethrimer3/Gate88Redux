@@ -1131,6 +1131,7 @@ export class Game {
       pcfg.startingDistance = vcfg.startingDistance;
       pcfg.playerStartingResources = vcfg.startingResources;
       pcfg.enemyStartingResources = vcfg.startingResources;
+      pcfg.survivalAiRank = vcfg.aiRank;
       this.practiceMode = new PracticeMode();
       this.practiceMode.configure(pcfg);
       this.practiceMode.vsAIMode = true;

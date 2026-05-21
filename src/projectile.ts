@@ -796,7 +796,7 @@ export class SynonymousDroneLaser extends Laser {
 }
 
 export class SwarmFighterLaser extends Laser {
-  private static readonly LIFETIME = 0.055;
+  private static readonly LIFETIME = 0.5;
 
   constructor(team: Team, startPos: Vec2, targetPos: Vec2, source: Entity | null = null) {
     super(team, startPos, targetPos, source);
@@ -808,20 +808,27 @@ export class SwarmFighterLaser extends Laser {
     if (!this.alive) return;
     const from = camera.worldToScreen(this.position);
     const to = camera.worldToScreen(this.targetPos);
-    const fade = Math.max(0, this.lifetime / SwarmFighterLaser.LIFETIME);
+    const fade = Math.pow(Math.max(0, this.lifetime / SwarmFighterLaser.LIFETIME), 2.25);
     const beamColor = this.team === Team.Player ? Colors.particles_switch : Colors.enemyfire;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
-    ctx.strokeStyle = colorToCSS(beamColor, 0.18 * fade);
-    ctx.lineWidth = Math.max(1.4, 2.5 * camera.zoom);
+    ctx.strokeStyle = colorToCSS(beamColor, 0.34 * fade);
+    ctx.lineWidth = Math.max(2.4, 5.2 * camera.zoom);
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(to.x, to.y);
     ctx.stroke();
 
-    ctx.strokeStyle = colorToCSS(beamColor, 0.5 * fade);
-    ctx.lineWidth = Math.max(1, 1.25 * camera.zoom);
+    ctx.strokeStyle = colorToCSS(beamColor, 0.86 * fade);
+    ctx.lineWidth = Math.max(1.2, 2.1 * camera.zoom);
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+
+    ctx.strokeStyle = colorToCSS(Colors.thrust_core_hot, 0.45 * fade);
+    ctx.lineWidth = Math.max(0.75, 0.9 * camera.zoom);
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(to.x, to.y);

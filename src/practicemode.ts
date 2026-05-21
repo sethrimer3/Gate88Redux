@@ -21,6 +21,7 @@ import {
   difficultyIndex,
   isZenithDifficulty,
 } from './practiceconfig.js';
+import { rankedDifficultyName, clampRank } from './vsaiconfig.js';
 import { BuilderDrone, isBuilderDrone } from './builderdrone.js';
 import { isSynonymousFaction } from './confluence.js';
 import { aimAngle, aimAtEntity, isCombatTargetValid, recordCombatAimSample } from './targeting.js';
@@ -32,6 +33,7 @@ const SPAWN_GROUPS = [ShipGroup.Red, ShipGroup.Green, ShipGroup.Blue] as const;
 /** Pixel variance added to the flank target so repeated attacks vary slightly. */
 const FLANK_POSITION_VARIANCE = 60;
 const SURVIVAL_BASE_INTERVAL_SECONDS = 60;
+const SURVIVAL_BASE_RANK_ESCALATION = 100;
 
 /** Interval (seconds) between player-threat evaluations. */
 const THREAT_EVAL_INTERVAL = 10;
@@ -288,16 +290,16 @@ export class PracticeMode {
     }
   }
 
-  private createEnemyBase(state: GameState, basePos: Vec2): EnemyBaseRuntime {
+  private createEnemyBase(state: GameState, basePos: Vec2, config: PracticeConfig = this.config): EnemyBaseRuntime {
     const cp = new CommandPost(basePos, Team.Enemy);
     if (isSynonymousFaction(state.factionByTeam, Team.Enemy)) cp.synonymousVisualKind = 'base';
     state.addEntity(cp);
     state.ensureConfluenceSeedCircle(Team.Enemy, basePos);
     state.ensureSynonymousSeedSwarm(Team.Enemy, basePos);
 
-    const planner = new EnemyBasePlanner(Team.Enemy, this.config, Math.floor(Math.random() * 0xffffff));
+    const planner = new EnemyBasePlanner(Team.Enemy, config, Math.floor(Math.random() * 0xffffff));
     planner.init(state, cp);
-    return { cp, planner, resources: this.config.enemyStartingResources };
+    return { cp, planner, resources: config.enemyStartingResources };
   }
 
   private updateSurvivalDestroyedBaseCount(): void {
@@ -334,8 +336,15 @@ export class PracticeMode {
       }
     }
     if (!bestPos) return;
-    this.extraBases.push(this.createEnemyBase(state, bestPos));
-    hud.showMessage('Survival escalation: another enemy base is constructing!', Colors.alert1, 6);
+    const nextBaseNumber = this.extraBases.length + 1;
+    const rank = clampRank(this.config.survivalAiRank + nextBaseNumber * SURVIVAL_BASE_RANK_ESCALATION);
+    const config = {
+      ...this.config,
+      difficulty: rankedDifficultyName(rank),
+      survivalAiRank: rank,
+    };
+    this.extraBases.push(this.createEnemyBase(state, bestPos, config));
+    hud.showMessage(`Survival escalation: rank ${rank} enemy base is constructing!`, Colors.alert1, 6);
     Audio.playSound('enemyhere');
   }
 

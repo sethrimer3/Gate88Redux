@@ -4,7 +4,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 
 ## Races
 
-- Terran is the original conduit faction. It uses the Q conduit brush, conduit-graph power, and automatic conduit blueprints around placed buildings.
+- Terran is the original conduit faction. It uses the Q conduit brush, conduit-graph power, and automatic conduit blueprints that form a full one-cell perimeter ring, including corners, around placed buildings.
 - Concentroid is the circle-territory faction. It does not use conduits; buildings extend territory circles and must be placed on the Concentroid frontier band.
 - The Synonymous is the nanobot-swarm faction. It does not use conduits or grid power; the Command Post and Factories produce nanobot drones, Q exposes a free Shape tool, and the first playable structures are Factory, Research Lab, and a weak fast Laser Turret represented through the Missile Turret slot.
 - Practice, Vs. AI, and LAN setup expose race selection. Random resolves to Terran, Concentroid, or The Synonymous when the match starts.
@@ -12,6 +12,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 ## Controls
 
 - WASD moves the player ship. Mouse aims. Left mouse fires the primary weapon.
+- Shift boosts the player ship only while it has at least 10% energy. Passive hull regeneration is doubled while the energy bar is full.
 - Right mouse fires the equipped special. Cannon drops a cross-laser mine, Gatling triggers overdrive, Laser charges a burst, and Guided Missile fires a missile swarm.
 - Hold Q for the build menu, choose a building from the left palette, then left click or drag over valid footprints to place it. Right mouse deletes player buildings.
 - Hold Z for the ship menu, view ship stats/upgrades, and select the active primary weapon by clicking or using the mouse wheel.
@@ -26,6 +27,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 - Practice/Vs. AI defeat depends on setup, but the default is losing the player Command Post.
 - The player ship can respawn after destruction if the match is not otherwise lost.
 - Ranked Vs. AI difficulties progress through Easy, Normal, Hard, Expert, Nightmare, and Zenith. Ranked APM scales over the full rank ladder from 10 APM at rank 0 to 500 APM at the top of Zenith.
+- In Survival, each newly spawned enemy base escalates by 100 AI-rank points from the starting Survival rank before deriving that base planner's difficulty.
 - Ranked Vs. AI can opt into the existing full-map-knowledge and 1.25x-resource AI modifiers. Each adds +0.25 to the score multiplier; both together score at x1.5 total.
 
 ## Resources
@@ -57,7 +59,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 
 ## Fighters And Shipyards
 
-- Fighter Yards produce fighters. Bomber Yards produce bombers after Bomber Yard research and are capped at 3 player yards. Swarm Yards are Terran-only 7x7 shipyards unlocked through Fighters research; each fields up to 20 tiny 5 HP Swarm ships with short-range instant lasers, and the player can place up to 5 Swarm Yards.
+- Fighter Yards produce fighters. Bomber Yards produce bombers after Bomber Yard research and are capped at 3 player yards. Swarm Yards are Terran-only 7x7 shipyards unlocked through Fighters research; each fields up to 20 tiny 5 HP Swarm ships with short-range instant lasers that linger visibly for 0.5 seconds, and the player can place up to 5 Swarm Yards.
 - Shipyards only produce while finished, powered, and below capacity.
 - Advanced Fighters research raises player shipyard capacity and speeds player ship production.
 - C-menu orders are active: Protect Base defends the player Command Post, Set Waypoint uses the cursor location, Follow Player follows the player ship, and Dock returns ships to their home yard. While holding C or a number key, player shipyards show a large group number.
