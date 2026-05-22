@@ -49,6 +49,15 @@ interface Particle {
   isExhaust: boolean;
 }
 
+interface FloatingText {
+  text: string;
+  pos: Vec2;
+  vel: Vec2;
+  color: Color;
+  life: number;
+  maxLife: number;
+}
+
 // ---------------------------------------------------------------------------
 // Object pool — active-list design
 // ---------------------------------------------------------------------------
@@ -86,6 +95,7 @@ function lightenColor(color: Color, amount: number): Color {
 
 export class ParticleSystem {
   private pool: Particle[];
+  private floatingTexts: FloatingText[] = [];
 
   /**
    * Indices of active particles.  Maintained by acquire() and update().
@@ -428,6 +438,18 @@ export class ParticleSystem {
     }
   }
 
+  emitFloatingText(pos: Vec2, text: string, color: Color): void {
+    this.floatingTexts.push({
+      text,
+      pos: pos.clone(),
+      vel: new Vec2(randomRange(-8, 8), randomRange(-42, -28)),
+      color,
+      life: 1.25,
+      maxLife: 1.25,
+    });
+    if (this.floatingTexts.length > 48) this.floatingTexts.splice(0, this.floatingTexts.length - 48);
+  }
+
   emitBuildEffect(pos: Vec2): void {
     const count = 3;
     for (let i = 0; i < count; i++) {
@@ -568,6 +590,14 @@ export class ParticleSystem {
     }
     this.activeCount = len;
 
+    for (let j = this.floatingTexts.length - 1; j >= 0; j--) {
+      const ft = this.floatingTexts[j];
+      ft.pos = ft.pos.add(ft.vel.scale(dt));
+      ft.vel = ft.vel.scale(1 / (1 + 0.35 * dt));
+      ft.life -= dt;
+      if (ft.life <= 0) this.floatingTexts.splice(j, 1);
+    }
+
     // Push stats to the shared budget
     renderBudget.activeParticles = this.activeCount;
     renderBudget.emittedThisFrame = this.emittedThisFrame;
@@ -640,6 +670,23 @@ export class ParticleSystem {
       drawn++;
     }
     ctx.globalCompositeOperation = 'source-over';
+
+    if (this.floatingTexts.length > 0) {
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = `bold ${Math.max(12, 16 * camera.zoom)}px "Poiret One", sans-serif`;
+      for (const ft of this.floatingTexts) {
+        const alpha = Math.max(0, Math.min(1, ft.life / ft.maxLife));
+        const screen = camera.worldToScreen(ft.pos);
+        ctx.lineWidth = Math.max(2, 3 * camera.zoom);
+        ctx.strokeStyle = `rgba(0,0,0,${alpha * 0.65})`;
+        ctx.fillStyle = colorToCSS(ft.color, alpha);
+        ctx.strokeText(ft.text, screen.x, screen.y);
+        ctx.fillText(ft.text, screen.x, screen.y);
+      }
+      ctx.restore();
+    }
 
     this.drawnCount = drawn;
     this.culledCount = culled;

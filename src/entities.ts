@@ -92,6 +92,7 @@ export abstract class Entity {
   maxHealth: number;
   radius: number;
   alive: boolean;
+  lastDamageSource: Entity | null = null;
 
   constructor(
     type: EntityType,
@@ -118,6 +119,7 @@ export abstract class Entity {
 
   takeDamage(amount: number, _source?: Entity): void {
     if (!this.alive) return;
+    if (amount > 0 && _source) this.lastDamageSource = _source;
     this.health -= amount;
     if (this.health <= 0) {
       this.health = 0;

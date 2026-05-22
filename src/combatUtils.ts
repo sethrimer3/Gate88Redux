@@ -127,7 +127,7 @@ export function damageLaserLine(
  */
 export function damageLaserLineLimited(
   state: GameState,
-  spaceFluid: SpaceFluid,
+  spaceFluid: SpaceFluid | null,
   start: Vec2,
   end: Vec2,
   damage: number,
@@ -160,7 +160,7 @@ export function damageLaserLineLimited(
     state.recentlyDamaged.add(target.id);
     if (!target.alive) {
       state.particles.emitExplosion(target.position, target.radius);
-      spaceFluid.addExplosion(target.position.x, target.position.y, 0.75, 42, 190, 120);
+      spaceFluid?.addExplosion(target.position.x, target.position.y, 0.75, 42, 190, 120);
     } else {
       const hit = hits[i];
       const px = start.x + dx * hit.t;

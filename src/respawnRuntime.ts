@@ -6,7 +6,7 @@ import type { GameState } from './gamestate.js';
 import { HUD } from './hud.js';
 import { CommandPost } from './building.js';
 import { AIShip } from './vsaibot.js';
-import { isHostile, isPlayableTeam } from './teamutils.js';
+import { isHostile, isPlayableTeam, teamColor } from './teamutils.js';
 import { WORLD_HEIGHT, WORLD_WIDTH } from './constants.js';
 
 export interface PlayerRespawnRuntime {
@@ -92,6 +92,7 @@ export function updatePlayerRespawn(
     runtime.respawnTimer = respawnDelay;
 
     const penalty = 40 + countShipResearchUpgrades(state) * 10;
+    awardSurvivalHeroShipReward(state, state.player.team, state.player.lastDamageSource?.team ?? Team.Neutral, state.player.position, Math.floor(penalty * 0.5));
     state.resources = Math.max(0, state.resources - penalty);
 
     hud.showMessage(
@@ -134,6 +135,7 @@ export function updateAIShipRespawn(
   if (!runtime.deathHandled) {
     runtime.deathHandled = true;
     runtime.respawnTimer = aiRespawnDelay;
+    awardSurvivalHeroShipReward(state, ship.team, ship.lastDamageSource?.team ?? Team.Neutral, ship.position, Math.floor((40 + countShipResearchUpgrades(state) * 10) * 0.5));
     hud.showMessage(`Rival ship destroyed - respawning in ${aiRespawnDelay}s`, Colors.alert2, 3);
   }
 
@@ -191,4 +193,23 @@ function countShipResearchUpgrades(state: GameState): number {
     if (key === 'shipHull' || key === 'shipBattery' || key === 'shipEngine' || key === 'shipShield') count++;
   }
   return count;
+}
+
+function awardSurvivalHeroShipReward(
+  state: GameState,
+  destroyedTeam: Team,
+  killerTeam: Team,
+  pos: Vec2,
+  amount: number,
+): void {
+  if (!state.survivalKillRewardsEnabled) return;
+  if (killerTeam === Team.Neutral || killerTeam === destroyedTeam || amount <= 0) return;
+  if (killerTeam === Team.Player) {
+    state.resources += amount;
+  } else if (destroyedTeam === Team.Player) {
+    state.survivalEnemyRewardBank += amount;
+  } else {
+    return;
+  }
+  state.particles.emitFloatingText(pos.add(new Vec2(0, -34)), `+${amount}`, teamColor(killerTeam));
 }

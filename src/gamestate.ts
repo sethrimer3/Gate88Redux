@@ -19,6 +19,7 @@ import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN, CONDUIT_COST, RESEARCH_TIME
 import { WORLD_WIDTH, WORLD_HEIGHT, ENTITY_RADIUS } from './constants.js';
 import { buildCostForBuildingType, type BuildDef } from './builddefs.js';
 import { Colors, colorToCSS } from './colors.js';
+import { teamColor } from './teamutils.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
 import { type FactionType, type ConfluenceTerritoryCircle, CONFLUENCE_BASE_RADIUS, CONFLUENCE_PLACEMENT_DISTANCE, CONFLUENCE_PLACEMENT_TOLERANCE, CONFLUENCE_PARENT_EXPAND_DURATION, CONFLUENCE_NEW_CIRCLE_GROW_DURATION, CONFLUENCE_INCLUDE_MARGIN, isConfluenceFaction, isSynonymousFaction } from './confluence.js';
 import { SynonymousSwarmSystem, SYNONYMOUS_BASE_PRODUCTION, SYNONYMOUS_BUILD_COST, SYNONYMOUS_CURRENCY_SYMBOL, SYNONYMOUS_FACTORY_PRODUCTION } from './synonymous.js';
@@ -135,6 +136,8 @@ export class GameState {
   }> = new Map();
   private pathBudgetRemaining = 0;
   private pathBudgetFrameToken = -1;
+  survivalKillRewardsEnabled = false;
+  survivalEnemyRewardBank = 0;
 
   /**
    * Countdown until the next pending conduit is promoted to the active grid.
@@ -1165,6 +1168,7 @@ export class GameState {
         position: b.position.clone(),
         maxHealth: b.maxHealth,
       });
+      this.awardSurvivalDestroyedBuildingReward(b);
       this.ringEffects.spawn('shockwave', b.position, b.radius * 0.7, b.radius * 5.5, 0.75, b.team === Team.Player ? 0.85 : 1.05);
     }
     this.buildings = this.buildings.filter((b) => b.alive);
@@ -1173,6 +1177,21 @@ export class GameState {
     }
     this.projectiles = this.projectiles.filter((p) => p.alive);
     this.fighters = this.fighters.filter((f) => f.alive);
+  }
+
+  private awardSurvivalDestroyedBuildingReward(b: BuildingBase): void {
+    if (!this.survivalKillRewardsEnabled || b.deleting) return;
+    const sourceTeam = b.lastDamageSource?.team ?? Team.Neutral;
+    if (sourceTeam === Team.Neutral || sourceTeam === b.team) return;
+    const amount = b.type === EntityType.CommandPost ? 99 : Math.max(1, Math.floor(buildCostForBuildingType(b.type) * 0.5));
+    if (sourceTeam === Team.Player) {
+      if (!isSynonymousFaction(this.factionByTeam, Team.Player)) this.resources += amount;
+    } else if (b.team === Team.Player) {
+      this.survivalEnemyRewardBank += amount;
+    } else {
+      return;
+    }
+    this.particles.emitFloatingText(b.position.add(new Vec2(0, -b.radius - 12)), `+${amount}`, teamColor(sourceTeam));
   }
 
   private recordDestroyedConduit(cx: number, cy: number, team: Team): void {

@@ -12,7 +12,7 @@ import { Colors } from './colors.js';
 import { Audio } from './audio.js';
 import { BASELINE_RESOURCE_GAIN, RESOURCE_GAIN_RATE, WORLD_WIDTH, WORLD_HEIGHT, WEAPON_STATS } from './constants.js';
 import { footprintCenter, worldToCell } from './grid.js';
-import { damageLaserLine } from './combatUtils.js';
+import { damageLaserLine, damageLaserLineLimited } from './combatUtils.js';
 import { EnemyBasePlanner } from './enemybaseplanner.js';
 import type { PlayerStrategy } from './enemybaseplanner.js';
 import {
@@ -144,6 +144,8 @@ export class PracticeMode {
     this.extraBases = [];
     this.countedDestroyedBaseIds.clear();
     this.survivalSpawnTimer = SURVIVAL_BASE_INTERVAL_SECONDS;
+    state.survivalKillRewardsEnabled = this.survivalMode;
+    state.survivalEnemyRewardBank = 0;
 
     state.resources = this.config.playerStartingResources;
 
@@ -222,6 +224,10 @@ export class PracticeMode {
     this.enemyResources += this.enemyIncomeMul *
       (BASELINE_RESOURCE_GAIN * difficultyIncomeMul + poweredFactories * RESOURCE_GAIN_RATE) *
       dt;
+    if (state.survivalEnemyRewardBank > 0) {
+      this.enemyResources += state.survivalEnemyRewardBank;
+      state.survivalEnemyRewardBank = 0;
+    }
 
     // Drive the planner — only when there's still a CP.
     const cp = this.primaryBase?.cp.alive ? this.primaryBase.cp : null;
@@ -595,9 +601,11 @@ export class PracticeMode {
               f.consumeShot(f.fireRate);
               for (let i = 0; i < f.droneCount; i++) {
                 const start = f.firingOrigin(i);
-                const laser = new SynonymousDroneLaser(f.team, start, e.position.clone(), f);
+                const laserAim = aimAtEntity(f, e, WEAPON_STATS.laser.speed, { fallback: 'current' });
+                const end = laserAim.aimPoint.clone();
+                const laser = new SynonymousDroneLaser(f.team, start, end, f);
                 state.addEntity(laser);
-                this.damageSynonymousFighterLaser(state, start, e.position, f);
+                damageLaserLineLimited(state, null, start, end, f.weaponDamage, 3, 2, f);
               }
             } else if (f instanceof SwarmShip) {
               const end = e.position.clone();

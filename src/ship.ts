@@ -48,7 +48,8 @@ interface TrailPoint {
 const BOOST_SPEED_MULT = 1.8;
 /** Battery drained per second while boost-thrusting. */
 const BOOST_BATTERY_DRAIN = 30;
-const BOOST_MIN_BATTERY_FRACTION = 0.10;
+const BOOST_LOCKOUT_FRACTION = 0.01;
+const BOOST_REENABLE_BATTERY = 25;
 const FULL_ENERGY_HEALTH_REGEN_MULT = 2;
 
 /**
@@ -155,6 +156,7 @@ export class PlayerShip extends Entity {
   isThrusting: boolean = false;
   /** True when boosting (Shift held while thrusting with battery remaining). */
   isBoosting: boolean = false;
+  private boostLockedUntilRecharge = false;
 
   constructor(position: Vec2, team: Team = Team.Player) {
     super(
@@ -234,6 +236,7 @@ export class PlayerShip extends Entity {
     this.trail = [{ pos: position.clone(), age: 0 }];
     this.isThrusting = false;
     this.isBoosting = false;
+    this.boostLockedUntilRecharge = false;
     // Re-apply spawn invincibility on each (re)spawn
     this.spawnInvincibilityTimer = PLAYER_SPAWN_INVINCIBILITY_SECS;
     // Clear any lingering special-ability states
@@ -282,7 +285,7 @@ export class PlayerShip extends Entity {
 
       // Shift boost: doubles thrust and speed cap, drains battery.
       const shiftHeld = Input.isDown('Shift');
-      const canBoost = shiftHeld && this.battery >= this.maxBattery * BOOST_MIN_BATTERY_FRACTION;
+      const canBoost = shiftHeld && this.canUseBoost();
       const thrustMult = canBoost ? BOOST_SPEED_MULT : 1.0;
 
       this.velocity = this.velocity.add(
@@ -294,6 +297,7 @@ export class PlayerShip extends Entity {
 
       if (canBoost) {
         this.battery = Math.max(0, this.battery - BOOST_BATTERY_DRAIN * dt);
+        this.updateBoostLockout();
       }
     } else {
       this.isThrusting = false;
@@ -311,6 +315,19 @@ export class PlayerShip extends Entity {
     if (delta > maxStep) delta = maxStep;
     else if (delta < -maxStep) delta = -maxStep;
     this.angle = wrapAngle(this.angle + delta);
+  }
+
+  private canUseBoost(): boolean {
+    this.updateBoostLockout();
+    return !this.boostLockedUntilRecharge && this.battery > 0;
+  }
+
+  private updateBoostLockout(): void {
+    if (this.battery <= this.maxBattery * BOOST_LOCKOUT_FRACTION) {
+      this.boostLockedUntilRecharge = true;
+    } else if (this.battery >= BOOST_REENABLE_BATTERY) {
+      this.boostLockedUntilRecharge = false;
+    }
   }
 
   /**
