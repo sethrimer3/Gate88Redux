@@ -1403,6 +1403,9 @@ export class GameState {
       this.fighterNavCache.delete(f.id);
       return;
     }
+    if (f.order === 'protect') {
+      f.targetPos = this.resolveProtectBaseRallyPoint(f);
+    }
     const target = f.order === 'dock' && f.homeYard
       ? f.homeYard.position
       : f.targetPos;
@@ -1534,6 +1537,57 @@ export class GameState {
     const angle = (id * 2.399963229728653) % (Math.PI * 2);
     const radius = 8 + (id % 5) * 3;
     return new Vec2(navTarget.x + Math.cos(angle) * radius, navTarget.y + Math.sin(angle) * radius);
+  }
+
+  private resolveProtectBaseRallyPoint(f: FighterShip): Vec2 | null {
+    const base = this.playerBasePerimeter(f.team);
+    if (!base) return this.getCommandPostForTeam(f.team)?.position.clone() ?? null;
+
+    const pointCount = Math.max(10, Math.min(24, Math.ceil(base.radius / 70)));
+    const seed = Math.abs(Math.imul(f.id + 17, 2654435761));
+    const direction = (seed & 1) === 0 ? 1 : -1;
+    const stepSeconds = 1.65 + ((seed >>> 8) % 9) * 0.08;
+    const step = Math.floor(this.gameTime / stepSeconds);
+    const baseIndex = (seed >>> 12) % pointCount;
+    const slot = ((baseIndex + direction * step) % pointCount + pointCount) % pointCount;
+    const angularLooseness = (((seed >>> 18) % 100) / 100 - 0.5) * 0.28;
+    const radiusLooseness = (((seed >>> 24) % 100) / 100 - 0.5) * 34;
+    const angle = (slot / pointCount) * Math.PI * 2 + angularLooseness;
+    const radius = Math.max(120, base.radius + radiusLooseness);
+
+    return new Vec2(
+      base.center.x + Math.cos(angle) * radius,
+      base.center.y + Math.sin(angle) * radius,
+    );
+  }
+
+  private playerBasePerimeter(team: Team): { center: Vec2; radius: number } | null {
+    let left = Infinity;
+    let right = -Infinity;
+    let top = Infinity;
+    let bottom = -Infinity;
+    let count = 0;
+
+    for (const building of this.buildings) {
+      if (!building.alive || building.team !== team) continue;
+      const halfSide = footprintForBuildingType(building.type) * GRID_CELL_SIZE * 0.5;
+      left = Math.min(left, building.position.x - halfSide);
+      right = Math.max(right, building.position.x + halfSide);
+      top = Math.min(top, building.position.y - halfSide);
+      bottom = Math.max(bottom, building.position.y + halfSide);
+      count++;
+    }
+
+    if (count === 0) return null;
+
+    const center = new Vec2((left + right) * 0.5, (top + bottom) * 0.5);
+    const halfWidth = (right - left) * 0.5;
+    const halfHeight = (bottom - top) * 0.5;
+    const padding = 110 + Math.min(130, count * 5);
+    return {
+      center,
+      radius: Math.hypot(halfWidth, halfHeight) + padding,
+    };
   }
 
   /** Count docked and total fighters for a group. */
