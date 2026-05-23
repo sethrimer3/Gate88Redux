@@ -762,17 +762,19 @@ export class Laser extends ProjectileBase {
 // ---------------------------------------------------------------------------
 
 export class SynonymousDroneLaser extends Laser {
+  private static readonly LIFETIME = 0.32;
+
   constructor(team: Team, startPos: Vec2, targetPos: Vec2, source: Entity | null = null) {
     super(team, startPos, targetPos, source);
     this.damage = 0;
-    this.lifetime = 0.075;
+    this.lifetime = SynonymousDroneLaser.LIFETIME;
   }
 
   override draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     if (!this.alive) return;
     const from = camera.worldToScreen(this.position);
     const to = camera.worldToScreen(this.targetPos);
-    const fade = Math.max(0, this.lifetime / 0.075);
+    const fade = Math.pow(Math.max(0, this.lifetime / SynonymousDroneLaser.LIFETIME), 1.7);
     const fireColor = this.team === Team.Player
       ? colorToCSS(Colors.particles_switch, 0.62 * fade)
       : colorToCSS(Colors.enemyfire, 0.54 * fade);

@@ -4,7 +4,7 @@ import { Colors, colorToCSS, type Color } from './colors.js';
 import { WORLD_HEIGHT, WORLD_WIDTH } from './constants.js';
 import { Team } from './entities.js';
 import { GRID_CELL_SIZE } from './grid.js';
-import { clamp, Vec2 } from './math.js';
+import { clamp, pointToSegmentDistance, Vec2 } from './math.js';
 import { teamColor } from './teamutils.js';
 
 export const SYNONYMOUS_DRONE_DIAMETER = GRID_CELL_SIZE * 0.75;
@@ -47,6 +47,9 @@ const SPAWN_CHAIN_DURATION = 0.42;
 const SPAWN_FLASH_DURATION = 0.5;
 const MAX_CHAIN_SEGMENTS = 12;
 const BUILDING_ABSORB_RADIUS = SYNONYMOUS_DRONE_DIAMETER * 2.5;
+const SHAPE_POINT_SPACING = SYNONYMOUS_DRONE_RADIUS * 1.2;
+const SHAPE_MIN_POINT_DISTANCE = SYNONYMOUS_DRONE_RADIUS * 0.65;
+const SHAPE_ERASE_RADIUS = SYNONYMOUS_DRONE_DIAMETER * 2.4;
 
 interface Drone {
   id: number;
@@ -91,12 +94,18 @@ interface SpawnFlashEffect {
   duration: number;
 }
 
+interface ShapeStroke {
+  points: Vec2[];
+  createdAt: number;
+}
+
 export class SynonymousSwarmSystem {
   private dronesByTeam = new Map<Team, Drone[]>();
   private formationsByBuilding = new Map<number, Formation>();
   private baseByTeam = new Map<Team, Vec2>();
   private spawnChains: SpawnChainEffect[] = [];
   private spawnFlashes: SpawnFlashEffect[] = [];
+  private shapeStrokesByTeam = new Map<Team, ShapeStroke[]>();
   private collapsedBuildingIds = new Set<number>();
   private nextDroneId = 1;
 
@@ -113,6 +122,7 @@ export class SynonymousSwarmSystem {
     }
     this.spawnChains = this.spawnChains.filter((e) => e.team !== team);
     this.spawnFlashes = this.spawnFlashes.filter((e) => e.team !== team);
+    this.shapeStrokesByTeam.delete(team);
   }
 
   droneCount(team: Team): number {
@@ -187,6 +197,94 @@ export class SynonymousSwarmSystem {
       d.manualShapeUntil = time + MANUAL_CONTROL_GRACE_SECONDS;
       d.manualShaped = true;
     }
+  }
+
+  beginShapeStroke(team: Team, pos: Vec2, time: number): void {
+    const strokes = this.shapeStrokesByTeam.get(team) ?? [];
+    strokes.push({ points: [this.clampToWorld(pos)], createdAt: time });
+    this.shapeStrokesByTeam.set(team, strokes);
+    this.updateShapeCoverage(team, time);
+  }
+
+  addShapePoint(team: Team, pos: Vec2, time: number): void {
+    const strokes = this.shapeStrokesByTeam.get(team) ?? [];
+    if (strokes.length === 0) {
+      this.beginShapeStroke(team, pos, time);
+      return;
+    }
+    const stroke = strokes[strokes.length - 1];
+    const point = this.clampToWorld(pos);
+    const last = stroke.points[stroke.points.length - 1];
+    if (last && last.distanceTo(point) < SHAPE_MIN_POINT_DISTANCE) {
+      this.updateShapeCoverage(team, time);
+      return;
+    }
+    stroke.points.push(point);
+    this.updateShapeCoverage(team, time);
+  }
+
+  eraseShapeAt(team: Team, pos: Vec2, time: number): boolean {
+    const strokes = this.shapeStrokesByTeam.get(team);
+    if (!strokes || strokes.length === 0) return false;
+    let changed = false;
+    const nextStrokes: ShapeStroke[] = [];
+
+    for (const stroke of strokes) {
+      let segment: Vec2[] = [];
+      const flushSegment = () => {
+        if (segment.length > 0) nextStrokes.push({ points: segment, createdAt: stroke.createdAt });
+        segment = [];
+      };
+
+      for (let i = 0; i < stroke.points.length; i++) {
+        const point = stroke.points[i];
+        const prev = stroke.points[i - 1];
+        const next = stroke.points[i + 1];
+        const touchesPoint = point.distanceTo(pos) <= SHAPE_ERASE_RADIUS;
+        const touchesPrevSegment = prev ? pointToSegmentDistance(pos, prev, point) <= SHAPE_ERASE_RADIUS : false;
+        const touchesNextSegment = next ? pointToSegmentDistance(pos, point, next) <= SHAPE_ERASE_RADIUS : false;
+        if (touchesPoint || touchesPrevSegment || touchesNextSegment) {
+          changed = true;
+          flushSegment();
+        } else {
+          segment.push(point);
+        }
+      }
+      flushSegment();
+    }
+
+    this.shapeStrokesByTeam.set(team, nextStrokes);
+    if (changed) this.updateShapeCoverage(team, time);
+    return changed;
+  }
+
+  drawShapeTrails(ctx: CanvasRenderingContext2D, camera: Camera, team: Team, time: number): void {
+    const strokes = this.shapeStrokesByTeam.get(team);
+    if (!strokes || strokes.length === 0) return;
+    const color = teamColor(team);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (const stroke of strokes) {
+      if (stroke.points.length === 0) continue;
+      const pulse = 0.5 + 0.5 * Math.sin(time * 4.8 + stroke.createdAt * 2.1);
+      ctx.strokeStyle = colorToCSS(color, 0.24 + pulse * 0.16);
+      ctx.lineWidth = Math.max(2, SYNONYMOUS_DRONE_RADIUS * 0.38 * camera.zoom);
+      ctx.beginPath();
+      const first = camera.worldToScreen(stroke.points[0]);
+      ctx.moveTo(first.x, first.y);
+      for (let i = 1; i < stroke.points.length; i++) {
+        const p = camera.worldToScreen(stroke.points[i]);
+        ctx.lineTo(p.x, p.y);
+      }
+      ctx.stroke();
+
+      ctx.strokeStyle = colorToCSS(Colors.general_building, 0.18);
+      ctx.lineWidth = Math.max(1, SYNONYMOUS_DRONE_RADIUS * 0.14 * camera.zoom);
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   recallAt(team: Team, pos: Vec2): boolean {
@@ -433,6 +531,74 @@ export class SynonymousSwarmSystem {
 
   private liveDrones(team: Team): Drone[] {
     return (this.dronesByTeam.get(team) ?? []).filter((d) => d.hp > 0);
+  }
+
+  private updateShapeCoverage(team: Team, time: number): void {
+    const drones = this.dronesByTeam.get(team);
+    if (!drones) return;
+    const free = drones.filter((d) => d.hp > 0 && !d.allocatedTo);
+    const targets = this.sampleShapeTargets(team);
+    const count = Math.min(free.length, targets.length);
+    if (count === 0) {
+      for (const d of free) {
+        if (d.manualShaped) {
+          d.manualShapeUntil = 0;
+          d.manualShaped = false;
+        }
+      }
+      return;
+    }
+
+    const available = new Set(free.map((d) => d.id));
+    for (let i = 0; i < count; i++) {
+      const target = targets[Math.floor((i / Math.max(1, count - 1)) * (targets.length - 1))];
+      let best: Drone | null = null;
+      let bestDist = Infinity;
+      for (const d of free) {
+        if (!available.has(d.id)) continue;
+        const dist = d.pos.distanceTo(target);
+        if (dist < bestDist) {
+          best = d;
+          bestDist = dist;
+        }
+      }
+      if (!best) continue;
+      available.delete(best.id);
+      best.target = target.clone();
+      best.returning = false;
+      best.soldReturn = false;
+      best.manualShapeUntil = time + MANUAL_CONTROL_GRACE_SECONDS;
+      best.manualShaped = true;
+    }
+
+    for (const d of free) {
+      if (available.has(d.id) && d.manualShaped) {
+        d.manualShapeUntil = 0;
+        d.manualShaped = false;
+      }
+    }
+  }
+
+  private sampleShapeTargets(team: Team): Vec2[] {
+    const strokes = this.shapeStrokesByTeam.get(team) ?? [];
+    const targets: Vec2[] = [];
+    for (const stroke of strokes) {
+      if (stroke.points.length === 1) {
+        targets.push(stroke.points[0].clone());
+        continue;
+      }
+      for (let i = 0; i < stroke.points.length - 1; i++) {
+        const a = stroke.points[i];
+        const b = stroke.points[i + 1];
+        const dist = a.distanceTo(b);
+        const steps = Math.max(1, Math.floor(dist / SHAPE_POINT_SPACING));
+        for (let step = 0; step < steps; step++) {
+          targets.push(a.lerp(b, step / steps));
+        }
+      }
+      targets.push(stroke.points[stroke.points.length - 1].clone());
+    }
+    return targets;
   }
 
   private visibleRequiredForKind(kind: SynonymousShapeKind): number {

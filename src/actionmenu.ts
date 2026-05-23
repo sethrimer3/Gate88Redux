@@ -1371,6 +1371,7 @@ class QuickBuildMenu {
   private buildingDragCells = new Set<string>();
   private dragMode: 'paint' | 'erase' | null = null;
   private lastDragCell: { cx: number; cy: number } | null = null;
+  private shapeDrawing = false;
   private selectedIndex = 0;
   private readonly iconRects: Array<{ index: number; x: number; y: number; w: number; h: number }> = [];
 
@@ -1393,12 +1394,14 @@ class QuickBuildMenu {
       this.buildingDragCells.clear();
       this.dragMode = null;
       this.lastDragCell = null;
+      this.shapeDrawing = false;
     } else if (!keyDown && this.open) {
       this.open = false;
       this.touchedThisDrag.clear();
       this.buildingDragCells.clear();
       this.dragMode = null;
       this.lastDragCell = null;
+      this.shapeDrawing = false;
       return { action: 'none' };
     }
     if (!this.open) return { action: 'none' };
@@ -1431,14 +1434,16 @@ class QuickBuildMenu {
       }
     }
 
-    if (Input.mouse2Pressed) {
+    const selected = palette[this.selectedIndex];
+
+    if (Input.mouse2Pressed && selected?.type !== 'shape') {
       this.touchedThisDrag.clear();
       this.buildingDragCells.clear();
       this.dragMode = 'erase';
       this.lastDragCell = null;
     }
 
-    if (Input.mouse2Down || this.dragMode === 'erase') {
+    if (selected?.type !== 'shape' && (Input.mouse2Down || this.dragMode === 'erase')) {
       if (Input.mouse2Down) {
         this.dragMode = 'erase';
         const worldPos = camera.screenToWorld(Input.mousePos);
@@ -1465,8 +1470,8 @@ class QuickBuildMenu {
       return { action: 'none' };
     }
 
-    const selected = palette[this.selectedIndex];
     if (selected?.type === 'building') {
+      this.shapeDrawing = false;
       this.dragMode = null;
       this.touchedThisDrag.clear();
       if (!Input.mouseDown) {
@@ -1491,8 +1496,21 @@ class QuickBuildMenu {
 
     if (selected?.type === 'shape') {
       const worldPos = camera.screenToWorld(Input.mousePos);
-      if (Input.mouseDown) state.synonymous.shapeLine(Team.Player, worldPos, state.gameTime);
-      if (Input.mouse2Down) state.synonymous.recallAt(Team.Player, worldPos);
+      this.dragMode = Input.mouse2Down ? 'erase' : null;
+      if (Input.mousePressed) {
+        state.synonymous.beginShapeStroke(Team.Player, worldPos, state.gameTime);
+        this.shapeDrawing = true;
+      }
+      if (Input.mouseDown) {
+        if (!this.shapeDrawing) state.synonymous.beginShapeStroke(Team.Player, worldPos, state.gameTime);
+        this.shapeDrawing = true;
+        state.synonymous.addShapePoint(Team.Player, worldPos, state.gameTime);
+      } else {
+        this.shapeDrawing = false;
+      }
+      if (Input.mouse2Down) {
+        state.synonymous.eraseShapeAt(Team.Player, worldPos, state.gameTime);
+      }
       return { action: 'none' };
     }
 
@@ -1619,10 +1637,14 @@ class QuickBuildMenu {
     } else if (selected?.type === 'conduit') {
       this.drawConduitBrushCursor(ctx, camera, cell, 'paint');
     }
+    if (isSynonymousFaction(state.factionByTeam, Team.Player)) {
+      state.synonymous.drawShapeTrails(ctx, camera, Team.Player, state.gameTime);
+      if (selected?.type === 'shape' && Input.mouse2Down) this.drawShapeEraseCursor(ctx, camera, worldPos);
+    }
     this.drawPalette(ctx, state, palette, screenW, screenH);
 
     const primaryHint = selected?.type === 'shape'
-      ? '[Q] Synonymous Shape - hold LMB to draw swarm trails - RMB recalls nearby drones'
+      ? '[Q] Synonymous Shape - hold LMB to draw swarm trails - hold RMB to erase'
       : selected?.type === 'building'
         ? '[Q] Quick Build - wheel/click selects - LMB places - RMB deletes building - release Q to exit'
         : `[Q] Quick Build - Conduit 2x2 brush $${CONDUIT_COST}/cell - LMB paint - RMB erase - wheel/click selects`;
@@ -1772,6 +1794,22 @@ class QuickBuildMenu {
     }
   }
 
+  private drawShapeEraseCursor(ctx: CanvasRenderingContext2D, camera: Camera, worldPos: Vec2): void {
+    const screen = camera.worldToScreen(worldPos);
+    const radius = GRID_CELL_SIZE * 1.8 * camera.zoom;
+    ctx.save();
+    ctx.strokeStyle = colorToCSS(Colors.alert1, 0.9);
+    ctx.fillStyle = colorToCSS(Colors.alert1, 0.08);
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.arc(screen.x, screen.y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
   private drawPalette(
     ctx: CanvasRenderingContext2D,
     state: GameState,
@@ -1836,7 +1874,7 @@ class QuickBuildMenu {
       } else if (selected?.type === 'conduit') {
         description = 'Connects buildings to your power network. LMB to paint cells, RMB to erase.';
       } else if (selected?.type === 'shape') {
-        description = 'Synonymous swarm formation. LMB to draw trails, RMB to recall nearby drones.';
+        description = 'Synonymous swarm formation. LMB draws trails for free nanobots to cover; RMB erases trails.';
       }
       if (description) {
         const panelRightX = x - 8 + w + 16; // right edge of the palette panel

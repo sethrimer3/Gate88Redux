@@ -477,7 +477,8 @@ export class FighterShip extends Entity {
 export class SynonymousFighterShip extends FighterShip {
   droneCount: 3 | 6;
   private droneHp: number[];
-  private splitPulse = 0;
+  private splitProgress = 0;
+  private splitHoldRemaining = 0;
 
   constructor(
     position: Vec2,
@@ -503,15 +504,20 @@ export class SynonymousFighterShip extends FighterShip {
 
   override update(dt: number): void {
     super.update(dt);
-    this.splitPulse = Math.max(0, this.splitPulse - dt * 5);
+    if (this.splitHoldRemaining > 0 && this.splitProgress >= 0.92) {
+      this.splitHoldRemaining = Math.max(0, this.splitHoldRemaining - dt);
+    }
+    const targetSplit = this.splitHoldRemaining > 0 ? 1 : 0;
+    const smoothing = targetSplit > this.splitProgress ? 3.2 : 1.85;
+    this.splitProgress += (targetSplit - this.splitProgress) * (1 - Math.exp(-smoothing * dt));
   }
 
   markCombatSplit(): void {
-    this.splitPulse = 1;
+    this.splitHoldRemaining = Math.max(this.splitHoldRemaining, 1.0);
   }
 
   override firingOrigin(index: number = 0): Vec2 {
-    const local = this.localDroneOffset(this.livingDroneIndex(index), this.splitPulse > 0.02);
+    const local = this.localDroneOffset(this.livingDroneIndex(index), this.splitProgress);
     const c = Math.cos(this.angle);
     const s = Math.sin(this.angle);
     return new Vec2(
@@ -520,8 +526,8 @@ export class SynonymousFighterShip extends FighterShip {
     );
   }
 
-  private localDroneOffset(index: number, split: boolean): Vec2 {
-    const base: Array<[number, number]> = [
+  private localDroneOffset(index: number, splitAmount: number): Vec2 {
+    const compact: Array<[number, number]> = [
       [13, 0],
       [-9, -10],
       [-9, 10],
@@ -529,12 +535,22 @@ export class SynonymousFighterShip extends FighterShip {
       [-9, 0],
       [2, 5],
     ];
-    const p = base[index % this.droneCount];
-    if (!split) return new Vec2(p[0], p[1]);
+    const separated: Array<[number, number]> = [
+      [31, 0],
+      [-20, -27],
+      [-20, 27],
+      [14, -23],
+      [-34, 0],
+      [14, 23],
+    ];
+    const base = compact[index % this.droneCount];
+    const open = separated[index % this.droneCount];
+    const eased = splitAmount * splitAmount * (3 - 2 * splitAmount);
     const wave = performance.now() * 0.006 + this.id * 0.37 + index * 1.9;
+    const drift = eased * 5.5;
     return new Vec2(
-      p[0] + Math.cos(wave) * 5.5,
-      p[1] + Math.sin(wave * 1.3) * 5.5,
+      base[0] + (open[0] - base[0]) * eased + Math.cos(wave) * drift,
+      base[1] + (open[1] - base[1]) * eased + Math.sin(wave * 1.3) * drift,
     );
   }
 
@@ -595,7 +611,7 @@ export class SynonymousFighterShip extends FighterShip {
     const screen = camera.worldToScreen(this.position);
     const color = this.team === Team.Player ? Colors.mainguy : Colors.enemy_status;
     const nodeR = Math.max(1.8, 2.6 * camera.zoom);
-    const split = this.splitPulse > 0.02;
+    const split = this.splitProgress > 0.04;
     this.drawMotionTrail(ctx, camera, color);
 
     const points: Vec2[] = [];
@@ -605,12 +621,12 @@ export class SynonymousFighterShip extends FighterShip {
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < this.droneCount; i++) {
       if (this.droneHp[i] <= 0) continue;
-      const p = this.localDroneOffset(i, split).scale(camera.zoom);
+      const p = this.localDroneOffset(i, this.splitProgress).scale(camera.zoom);
       points.push(p);
     }
 
-    if (!split) {
-      ctx.strokeStyle = colorToCSS(color, 0.34);
+    if (points.length >= 2) {
+      ctx.strokeStyle = colorToCSS(color, 0.34 * (1 - this.splitProgress * 0.72));
       ctx.lineWidth = Math.max(1, 1.1 * camera.zoom);
       ctx.beginPath();
       for (let i = 0; i < points.length; i++) {
@@ -620,7 +636,9 @@ export class SynonymousFighterShip extends FighterShip {
         ctx.lineTo(b.x, b.y);
       }
       ctx.stroke();
+    }
 
+    if (!split) {
       // Hexagonal center core
       const hexR = nodeR * 1.8;
       ctx.strokeStyle = colorToCSS(color, 0.52);
