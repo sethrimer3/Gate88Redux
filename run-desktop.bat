@@ -14,6 +14,12 @@ if not exist "node_modules\" (
   if errorlevel 1 goto error
 )
 
+if not exist "node_modules\.bin\electron.cmd" (
+  echo Electron is missing. Installing dependencies...
+  call npm install
+  if errorlevel 1 goto error
+)
+
 echo Starting Gate88Redux desktop build...
 call npm run desktop
 if errorlevel 1 goto error
