@@ -98,6 +98,10 @@ type GamePhase = 'menu' | 'playing' | 'paused';
 
 const PLAYER_FIRE_COOLDOWN = WEAPON_STATS.fire.fireRate * DT;
 const MAX_FIXED_UPDATES_PER_FRAME = 5;
+const GAME_ZOOM_KEY = 'gate88.gameZoom';
+const UI_ZOOM_KEY = 'gate88.uiZoom';
+const MIN_ZOOM = 0.75;
+const MAX_ZOOM = 1.75;
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -146,6 +150,8 @@ export class Game {
   private starNest: StarNestBackground;
   private visualQuality: VisualQuality = DEFAULT_VISUAL_QUALITY;
   private visualPreset: VisualQualityPreset = VISUAL_QUALITY_PRESETS[DEFAULT_VISUAL_QUALITY];
+  private gameZoom: number = 1.0;
+  private uiZoom: number = 1.0;
   private overlayCache: OverlayCache = createOverlayCache();
   /** Counts down after the player takes damage; drives the red-edge damage flash. */
   private damageFlashTimer: number = 0;
@@ -277,6 +283,7 @@ export class Game {
     this.starNest = new StarNestBackground();
     this.spaceFluid.resize(window.innerWidth, window.innerHeight);
     this.applyVisualQuality(loadVisualQuality());
+    this.applyZoomSettings(loadZoomSetting(GAME_ZOOM_KEY), loadZoomSetting(UI_ZOOM_KEY));
 
     this.resizeCanvas();
     window.addEventListener('resize', () => this.resizeCanvas());
@@ -288,6 +295,7 @@ export class Game {
     this.canvas.height = window.innerHeight * dpr;
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this.camera.setScreenSize(window.innerWidth, window.innerHeight);
+    this.camera.zoom = this.gameZoom;
     this.spaceFluid.resize(window.innerWidth, window.innerHeight);
     this.glowLayer.resize(window.innerWidth, window.innerHeight);
     this.crystalNebula.resize(window.innerWidth, window.innerHeight);
@@ -310,6 +318,16 @@ export class Game {
     this.starfield.setShootingStarsEnabled(this.visualPreset.shootingStarsEnabled);
     this.mainMenu.visualQuality = quality;
     saveVisualQuality(quality);
+  }
+
+  private applyZoomSettings(gameZoom: number, uiZoom: number): void {
+    this.gameZoom = clampZoom(gameZoom);
+    this.uiZoom = clampZoom(uiZoom);
+    this.camera.zoom = this.gameZoom;
+    this.mainMenu.gameZoom = this.gameZoom;
+    this.mainMenu.uiZoom = this.uiZoom;
+    saveZoomSetting(GAME_ZOOM_KEY, this.gameZoom);
+    saveZoomSetting(UI_ZOOM_KEY, this.uiZoom);
   }
 
   private get screenW(): number {
@@ -399,6 +417,7 @@ export class Game {
     if (this.mainMenu.visualQuality !== this.visualQuality) {
       this.applyVisualQuality(this.mainMenu.visualQuality);
     }
+    this.syncZoomSettingsFromMenu();
     this.handleMenuAction(action);
   }
 
@@ -407,7 +426,14 @@ export class Game {
     if (this.mainMenu.visualQuality !== this.visualQuality) {
       this.applyVisualQuality(this.mainMenu.visualQuality);
     }
+    this.syncZoomSettingsFromMenu();
     this.handleMenuAction(action);
+  }
+
+  private syncZoomSettingsFromMenu(): void {
+    if (this.mainMenu.gameZoom !== this.gameZoom || this.mainMenu.uiZoom !== this.uiZoom) {
+      this.applyZoomSettings(this.mainMenu.gameZoom, this.mainMenu.uiZoom);
+    }
   }
 
   private handleMenuAction(action: MenuAction): void {
@@ -1043,6 +1069,7 @@ export class Game {
     // Reset subsystems
     this.camera = new Camera();
     this.camera.setScreenSize(this.screenW, this.screenH);
+    this.camera.zoom = this.gameZoom;
     this.camera.position = playerStart.clone();
     this.actionMenu = new ActionMenu();
     this.hud = new HUD();
@@ -1237,6 +1264,7 @@ export class Game {
     this.territoryPulseTime = 0;
     this.camera = new Camera();
     this.camera.setScreenSize(this.screenW, this.screenH);
+    this.camera.zoom = this.gameZoom;
     this.camera.position = playerStart.clone();
     this.actionMenu = new ActionMenu();
     this.hud = new HUD();
@@ -1419,6 +1447,7 @@ export class Game {
     this.territoryPulseTime = 0;
     this.camera = new Camera();
     this.camera.setScreenSize(this.screenW, this.screenH);
+    this.camera.zoom = this.gameZoom;
     this.camera.position = playerStart.clone();
     this.actionMenu = new ActionMenu();
     this.hud = new HUD();
@@ -2037,7 +2066,7 @@ export class Game {
     this.starNest.drawTo(ctx, w, h);
 
     if (this.phase === 'menu') {
-      this.mainMenu.draw(ctx, w, h);
+      this.drawScaledUi(() => this.mainMenu.draw(ctx, w / this.uiZoom, h / this.uiZoom));
       return;
     }
 
@@ -2106,23 +2135,25 @@ export class Game {
     drawScreenOverlays(ctx, w, h, this.camera, this.visualPreset, this.damageFlashTimer, this.overlayCache);
     drawLossOverlay(ctx, w, this.playerRespawn.loss);
 
-    // Action menu
+    const uiW = w / this.uiZoom;
+    const uiH = h / this.uiZoom;
     this.actionMenu.draw(ctx, this.state, this.camera, w, h);
-
-    // HUD
-    this.hud.draw(ctx, w, h);
-    Input.drawTouchJoysticks(ctx);
-    this.hud.drawAIChat(ctx, w, h);
+    this.drawScaledUi(() => {
+      this.hud.draw(ctx, uiW, uiH);
+      Input.drawTouchJoysticks(ctx);
+      this.hud.drawAIChat(ctx, uiW, uiH);
+      this.fighterGroupStatus.draw(ctx, this.state, uiW, uiH, this.state.gameTime);
+    });
     drawBuildingHoverHitpoints(ctx, this.camera, this.state);
-    // Fighter control group status boxes (left side of screen)
-    this.fighterGroupStatus.draw(ctx, this.state, w, h, this.state.gameTime);
+    ctx.save();
+    ctx.scale(this.uiZoom, this.uiZoom);
     const synonymousPlayer = isSynonymousFaction(this.state.factionByTeam, Team.Player);
     this.hud.drawResources(
       ctx,
       synonymousPlayer ? this.state.synonymous.getUnallocatedCount(Team.Player) : this.state.resources,
       this.state.getPlayerIncomePerSecond(),
-      w,
-      h,
+      uiW,
+      uiH,
       synonymousPlayer
         ? { currencySymbol: SYNONYMOUS_CURRENCY_SYMBOL, symbolOnRight: true, symbolFont: 'menu' }
         : undefined,
@@ -2137,11 +2168,11 @@ export class Game {
         this.state.player.shield,
         this.state.player.maxShield,
         this.state.player.passiveHealthRegenActive,
-        w,
-        h,
+        uiW,
+        uiH,
         this.actionMenu.open,
       );
-      this.hud.drawResearchStatus(ctx, this.state.researchProgress, this.state.researchedItems.size, h);
+      this.hud.drawResearchStatus(ctx, this.state.researchProgress, this.state.researchedItems.size, uiH);
       if (!synonymousPlayer) {
         // Count unpowered player buildings, excluding only power sources.
         let unpowered = 0;
@@ -2155,15 +2186,16 @@ export class Game {
           ) continue;
           if (!b.powered) unpowered++;
         }
-        this.hud.drawPowerStatus(ctx, unpowered, h);
+        this.hud.drawPowerStatus(ctx, unpowered, uiH);
       }
     }
 
     // Practice / Vs. AI mode HUD
     if ((this.state.gameMode === 'practice' || this.state.gameMode === 'vs_ai')
         && !this.practiceMode.gameOver) {
-      this.drawPracticeHUD(ctx, w, h);
+      this.drawPracticeHUD(ctx, uiW, uiH);
     }
+    ctx.restore();
 
     if (this.debugOverlay) {
       drawCombatTargetingDebug(ctx, this.camera, this.state);
@@ -2188,8 +2220,16 @@ export class Game {
 
     // Pause overlay
     if (this.phase === 'paused') {
-      this.mainMenu.draw(ctx, w, h);
+      this.drawScaledUi(() => this.mainMenu.draw(ctx, w / this.uiZoom, h / this.uiZoom));
     }
+  }
+
+  private drawScaledUi(draw: () => void): void {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.scale(this.uiZoom, this.uiZoom);
+    draw();
+    ctx.restore();
   }
 
   private drawPracticeHUD(ctx: CanvasRenderingContext2D, _w: number, h: number): void {
@@ -2258,4 +2298,25 @@ export class Game {
       : SHIP_STATS.fighter.speed;
   }
 
+}
+
+function clampZoom(value: number): number {
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number.isFinite(value) ? value : 1));
+}
+
+function loadZoomSetting(key: string): number {
+  try {
+    const raw = window.localStorage?.getItem(key);
+    return clampZoom(raw ? Number.parseFloat(raw) : 1);
+  } catch {
+    return 1;
+  }
+}
+
+function saveZoomSetting(key: string, value: number): void {
+  try {
+    window.localStorage?.setItem(key, clampZoom(value).toFixed(2));
+  } catch {
+    // Ignore storage failures; the current session still uses the setting.
+  }
 }

@@ -262,27 +262,87 @@ export class SynonymousSwarmSystem {
     const strokes = this.shapeStrokesByTeam.get(team);
     if (!strokes || strokes.length === 0) return;
     const color = teamColor(team);
+    const baseWidth = Math.max(2.4, SYNONYMOUS_DRONE_RADIUS * 0.42 * camera.zoom);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     for (const stroke of strokes) {
       if (stroke.points.length === 0) continue;
-      const pulse = 0.5 + 0.5 * Math.sin(time * 4.8 + stroke.createdAt * 2.1);
-      ctx.strokeStyle = colorToCSS(color, 0.24 + pulse * 0.16);
-      ctx.lineWidth = Math.max(2, SYNONYMOUS_DRONE_RADIUS * 0.38 * camera.zoom);
+
+      const screenPoints = stroke.points.map((point) => camera.worldToScreen(point));
+      const pulse = 0.5 + 0.5 * Math.sin(time * 5.2 + stroke.createdAt * 2.1);
+      const flicker = 0.72 + 0.28 * Math.sin(time * 11.0 + stroke.createdAt * 7.3);
+      const drawRibbonPath = (): void => {
+        const first = screenPoints[0];
+        ctx.beginPath();
+        ctx.moveTo(first.x, first.y);
+        if (screenPoints.length === 1) {
+          ctx.arc(first.x, first.y, baseWidth * 0.72, 0, Math.PI * 2);
+          return;
+        }
+        for (let i = 1; i < screenPoints.length - 1; i++) {
+          const p = screenPoints[i];
+          const next = screenPoints[i + 1];
+          ctx.quadraticCurveTo(p.x, p.y, (p.x + next.x) * 0.5, (p.y + next.y) * 0.5);
+        }
+        const last = screenPoints[screenPoints.length - 1];
+        ctx.lineTo(last.x, last.y);
+      };
+
+      ctx.shadowColor = colorToCSS(color, 0.62);
+      ctx.shadowBlur = Math.max(8, baseWidth * 3.6);
+      ctx.strokeStyle = colorToCSS(color, 0.08 + pulse * 0.07);
+      ctx.lineWidth = baseWidth * (4.1 + pulse * 1.4);
+      drawRibbonPath();
+      ctx.stroke();
+
+      ctx.shadowBlur = Math.max(4, baseWidth * 1.8);
+      ctx.strokeStyle = colorToCSS(color, 0.22 + pulse * 0.20);
+      ctx.lineWidth = baseWidth * (1.55 + pulse * 0.24);
+      ctx.setLineDash([baseWidth * 3.4, baseWidth * 1.8]);
+      ctx.lineDashOffset = -(time * 34 + stroke.createdAt * 19) * camera.zoom;
+      drawRibbonPath();
+      ctx.stroke();
+
+      ctx.shadowBlur = Math.max(2, baseWidth * 0.9);
+      ctx.strokeStyle = colorToCSS(Colors.general_building, 0.22 + flicker * 0.24);
+      ctx.lineWidth = Math.max(1.2, baseWidth * 0.36);
+      ctx.setLineDash([]);
+      drawRibbonPath();
+      ctx.stroke();
+
+      ctx.shadowBlur = Math.max(3, baseWidth * 1.1);
+      const beadStride = Math.max(2, Math.round(5 - Math.min(2, camera.zoom)));
+      const beadOffset = Math.floor((time * 18 + stroke.createdAt * 11) % beadStride);
+      for (let i = beadOffset; i < screenPoints.length; i += beadStride) {
+        const p = screenPoints[i];
+        const phase = time * 7.5 + i * 0.9 + stroke.createdAt * 4.0;
+        const radius = baseWidth * (0.34 + 0.20 * (0.5 + 0.5 * Math.sin(phase)));
+        ctx.fillStyle = colorToCSS(Colors.particles_switch, 0.26 + 0.32 * (0.5 + 0.5 * Math.cos(phase)));
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (screenPoints.length < 2) {
+        continue;
+      }
+
+      ctx.shadowBlur = Math.max(7, baseWidth * 2.1);
+      ctx.strokeStyle = colorToCSS(Colors.particles_healing, 0.20 + pulse * 0.22);
+      ctx.lineWidth = Math.max(1, baseWidth * 0.22);
+      ctx.setLineDash([baseWidth * 0.7, baseWidth * 5.4]);
+      ctx.lineDashOffset = -(time * 86 + stroke.createdAt * 31) * camera.zoom;
       ctx.beginPath();
-      const first = camera.worldToScreen(stroke.points[0]);
+      const first = screenPoints[0];
       ctx.moveTo(first.x, first.y);
       for (let i = 1; i < stroke.points.length; i++) {
-        const p = camera.worldToScreen(stroke.points[i]);
+        const p = screenPoints[i];
         ctx.lineTo(p.x, p.y);
       }
       ctx.stroke();
-
-      ctx.strokeStyle = colorToCSS(Colors.general_building, 0.18);
-      ctx.lineWidth = Math.max(1, SYNONYMOUS_DRONE_RADIUS * 0.14 * camera.zoom);
-      ctx.stroke();
+      ctx.setLineDash([]);
     }
     ctx.restore();
   }

@@ -176,6 +176,8 @@ export class MainMenu {
    * Defaults to medium until game.ts overrides it from localStorage.
    */
   visualQuality: VisualQuality = DEFAULT_VISUAL_QUALITY;
+  gameZoom: number = 1.0;
+  uiZoom: number = 1.0;
 
   // -------------------------------------------------------------------------
   // LAN multiplayer state
@@ -307,12 +309,12 @@ export class MainMenu {
     // than once per rendered frame.
     if (Input.mousePressed) {
       this.mousePressedLatched = true;
-      this.mouseXLatched = Input.mousePos.x;
-      this.mouseYLatched = Input.mousePos.y;
+      this.mouseXLatched = this.mouseX();
+      this.mouseYLatched = this.mouseY();
     } else if (!this.mousePressedLatched) {
       // Keep the latched position fresh for hover tests when no click is queued.
-      this.mouseXLatched = Input.mousePos.x;
-      this.mouseYLatched = Input.mousePos.y;
+      this.mouseXLatched = this.mouseX();
+      this.mouseYLatched = this.mouseY();
     }
 
     if (screenW !== this.lastScreenW || screenH !== this.lastScreenH) {
@@ -1074,6 +1076,12 @@ export class MainMenu {
     y = this.drawVolumeSliderRow(ctx, x, y, rowH, 'SFX Volume', Audio.getSfxVolume(), (v) => {
       Audio.setSfxVolume(v);
     });
+    y = this.drawZoomSliderRow(ctx, x, y, rowH, 'Game Zoom', this.gameZoom, (v) => {
+      this.gameZoom = v;
+    });
+    y = this.drawZoomSliderRow(ctx, x, y, rowH, 'GUI / Menu Zoom', this.uiZoom, (v) => {
+      this.uiZoom = v;
+    });
 
     ctx.font = gameFont(16);
     ctx.textAlign = 'center';
@@ -1178,7 +1186,7 @@ export class MainMenu {
       this.mousePressedLatched = false;
     }
     if (this.rankedSliderDragging && Input.mouseDown) {
-      const tt = Math.max(0, Math.min(1, (Input.mousePos.x - sx) / sw));
+      const tt = Math.max(0, Math.min(1, (this.mouseX() - sx) / sw));
       const nextRank = Math.round((tt * 3000) / 10) * 10;
       if (nextRank !== cfg.aiRank) {
         cfg.aiRank = nextRank;
@@ -1270,7 +1278,7 @@ export class MainMenu {
       ctx.fillStyle = `rgba(${r},${g},40,${0.10 + 0.10 * intensity})`;
       ctx.fillRect(bodyRect.x, bodyRect.y, bodyRect.w, bodyRect.h);
     }
-    this.drawControlWell(ctx, bodyRect, pointInRect(Input.mousePos.x, Input.mousePos.y, bodyRect), intensity);
+    this.drawControlWell(ctx, bodyRect, pointInRect(this.mouseX(), this.mouseY(), bodyRect), intensity);
 
     this.drawArrow(ctx, leftRect, '<');
     this.drawArrow(ctx, rightRect, '>');
@@ -1313,7 +1321,7 @@ export class MainMenu {
     const t = (value - min) / Math.max(1e-6, max - min);
     const knobX = sx + Math.max(0, Math.min(1, t)) * sw;
 
-    const hovered = pointInRect(Input.mousePos.x, Input.mousePos.y, track);
+    const hovered = pointInRect(this.mouseX(), this.mouseY(), track);
     this.drawControlWell(ctx, { x: sx - 2, y: trackY - 8, w: sw + 4, h: 16 }, hovered, t);
 
     // Filled portion
@@ -1340,8 +1348,8 @@ export class MainMenu {
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.85);
     ctx.fillText(fmt(value), sx + sw + 12, y);
 
-    if (this.handleClick(track) || (Input.mouseDown && pointInRect(Input.mousePos.x, Input.mousePos.y, track))) {
-      const tt = Math.max(0, Math.min(1, (Input.mousePos.x - sx) / sw));
+    if (this.handleClick(track) || (Input.mouseDown && pointInRect(this.mouseX(), this.mouseY(), track))) {
+      const tt = Math.max(0, Math.min(1, (this.mouseX() - sx) / sw));
       let v = min + tt * (max - min);
       v = Math.round(v / step) * step;
       v = Math.max(min, Math.min(max, v));
@@ -1378,6 +1386,30 @@ export class MainMenu {
     );
   }
 
+  private drawZoomSliderRow(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    h: number,
+    label: string,
+    value: number,
+    onChange: (v: number) => void,
+  ): number {
+    return this.drawSliderRow(
+      ctx,
+      x,
+      y,
+      h,
+      label,
+      Math.round(value * 100),
+      75,
+      175,
+      5,
+      (v) => onChange(v / 100),
+      (v) => `${Math.round(v)}%`,
+    );
+  }
+
   private drawCheckboxRow(
     ctx: CanvasRenderingContext2D, x: number, y: number, h: number,
     label: string, value: boolean, onChange: (v: boolean) => void,
@@ -1385,7 +1417,7 @@ export class MainMenu {
     this.drawRowLabel(ctx, x, y, label);
 
     const box: HitRect = { x: x + 200, y: y - 9, w: 18, h: 18 };
-    this.drawControlWell(ctx, box, pointInRect(Input.mousePos.x, Input.mousePos.y, box), value ? 1 : 0);
+    this.drawControlWell(ctx, box, pointInRect(this.mouseX(), this.mouseY(), box), value ? 1 : 0);
     if (value) {
       ctx.fillStyle = MENU_ACCENT_CYAN + '0.90)';
       ctx.fillRect(box.x + 4, box.y + 4, box.w - 8, box.h - 8);
@@ -1408,7 +1440,7 @@ export class MainMenu {
   private drawArrow(
     ctx: CanvasRenderingContext2D, rect: HitRect, glyph: string,
   ): void {
-    const hovered = pointInRect(Input.mousePos.x, Input.mousePos.y, rect);
+    const hovered = pointInRect(this.mouseX(), this.mouseY(), rect);
     this.drawControlWell(ctx, rect, hovered, hovered ? 0.8 : 0);
 
     ctx.font = '18px "Poiret One", sans-serif';
@@ -1445,7 +1477,7 @@ export class MainMenu {
 
     for (const b of buttons) {
       const rect: HitRect = { x: bx, y: y - 18, w: btnW, h: 36 };
-      const hovered = pointInRect(Input.mousePos.x, Input.mousePos.y, rect);
+      const hovered = pointInRect(this.mouseX(), this.mouseY(), rect);
 
       const fill = ctx.createLinearGradient(rect.x, rect.y, rect.x + rect.w, rect.y);
       fill.addColorStop(0, b.emphasis ? MENU_ACCENT_CYAN + `${hovered ? 0.22 : 0.13})` : 'rgba(8,24,36,0.46)');
@@ -1675,7 +1707,7 @@ export class MainMenu {
     this._discoveredLobbies.forEach((lobby, i) => {
       const y = startY + i * 46;
       const rect = { x: cx - 320, y: y - 16, w: 640, h: 38 };
-      const hover = pointInRect(Input.mousePos.x, Input.mousePos.y, rect);
+      const hover = pointInRect(this.mouseX(), this.mouseY(), rect);
       ctx.fillStyle = colorToCSS(Colors.friendly_background, hover ? 0.35 : 0.2);
       ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
       const age = Math.max(0, Math.floor((Date.now() - lobby.lastSeenAt) / 1000));
@@ -2534,6 +2566,14 @@ export class MainMenu {
     this.mousePressedLatched = false;
     Input.consumeMouseButton(0);
     return true;
+  }
+
+  private mouseX(): number {
+    return Input.mousePos.x / Math.max(0.01, this.uiZoom);
+  }
+
+  private mouseY(): number {
+    return Input.mousePos.y / Math.max(0.01, this.uiZoom);
   }
 }
 
