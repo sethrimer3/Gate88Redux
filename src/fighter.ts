@@ -25,6 +25,7 @@ const PASSIVE_HEALTH_REGEN_DELAY = 5;
 const PASSIVE_HEALTH_REGEN_RATE = 1;
 const TRAIL_LIFETIME = 0.42;
 const TRAIL_MIN_DISTANCE = 3;
+const FIGHTER_VISUAL_SCALE = 0.75;
 
 interface TrailPoint {
   pos: Vec2;
@@ -353,7 +354,7 @@ export class FighterShip extends Entity {
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     if (!this.alive || this.docked) return;
     const screen = camera.worldToScreen(this.position);
-    const r = this.radius * camera.zoom;
+    const r = this.radius * camera.zoom * FIGHTER_VISUAL_SCALE;
     const coreColor = teamColor(this.team);
     this.drawMotionTrail(ctx, camera, coreColor);
 
@@ -610,7 +611,7 @@ export class SynonymousFighterShip extends FighterShip {
     if (!this.alive || this.docked) return;
     const screen = camera.worldToScreen(this.position);
     const color = this.team === Team.Player ? Colors.mainguy : Colors.enemy_status;
-    const nodeR = Math.max(1.8, 2.6 * camera.zoom);
+    const nodeR = Math.max(1.35, 2.6 * camera.zoom * FIGHTER_VISUAL_SCALE);
     const split = this.splitProgress > 0.04;
     this.drawMotionTrail(ctx, camera, color);
 
@@ -621,13 +622,13 @@ export class SynonymousFighterShip extends FighterShip {
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < this.droneCount; i++) {
       if (this.droneHp[i] <= 0) continue;
-      const p = this.localDroneOffset(i, this.splitProgress).scale(camera.zoom);
+      const p = this.localDroneOffset(i, this.splitProgress).scale(camera.zoom * FIGHTER_VISUAL_SCALE);
       points.push(p);
     }
 
     if (points.length >= 2) {
       ctx.strokeStyle = colorToCSS(color, 0.34 * (1 - this.splitProgress * 0.72));
-      ctx.lineWidth = Math.max(1, 1.1 * camera.zoom);
+      ctx.lineWidth = Math.max(0.75, 1.1 * camera.zoom * FIGHTER_VISUAL_SCALE);
       ctx.beginPath();
       for (let i = 0; i < points.length; i++) {
         const a = points[i];
@@ -642,7 +643,7 @@ export class SynonymousFighterShip extends FighterShip {
       // Hexagonal center core
       const hexR = nodeR * 1.8;
       ctx.strokeStyle = colorToCSS(color, 0.52);
-      ctx.lineWidth = Math.max(0.8, 0.9 * camera.zoom);
+      ctx.lineWidth = Math.max(0.6, 0.9 * camera.zoom * FIGHTER_VISUAL_SCALE);
       ctx.beginPath();
       for (let j = 0; j < 6; j++) {
         const a = j * Math.PI / 3;
@@ -663,7 +664,7 @@ export class SynonymousFighterShip extends FighterShip {
       if (split) {
         const tri = nodeR * 2.0;
         ctx.strokeStyle = colorToCSS(Colors.particles_switch, 0.32);
-        ctx.lineWidth = Math.max(0.7, 0.8 * camera.zoom);
+        ctx.lineWidth = Math.max(0.55, 0.8 * camera.zoom * FIGHTER_VISUAL_SCALE);
         ctx.beginPath();
         for (let j = 0; j < 3; j++) {
           const a = -Math.PI / 2 + j * Math.PI * 2 / 3 + this.drawPhase();

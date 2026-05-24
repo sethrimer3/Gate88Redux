@@ -3,7 +3,7 @@ import { Colors, colorToCSS, type Color } from './colors.js';
 import type { PlayerShip } from './ship.js';
 import { clamp } from './math.js';
 
-type FormationKind = 'idle' | 'building' | 'moving' | 'shooting' | 'buildCircle';
+type FormationKind = 'idle' | 'building' | 'moving' | 'shooting' | 'boosting' | 'buildCircle';
 
 interface SwarmParticle {
   x: number;
@@ -21,6 +21,7 @@ const BASE_FULL_COUNT = 40;
 const UPGRADED_FULL_COUNT = 50;
 const MIN_VISIBLE_COUNT = 20;
 const SMOOTHING = 13;
+const HERO_VISUAL_SCALE = 0.6;
 
 export class SynonymousShipRenderer {
   private particles: SwarmParticle[] = [];
@@ -69,7 +70,7 @@ export class SynonymousShipRenderer {
     this.initialized = true;
 
     const base = cloneColor(Colors.mainguy);
-    const radius = Math.max(1.6, 2.35 * scale);
+    const radius = Math.max(1.1, 2.35 * HERO_VISUAL_SCALE * scale);
     ctx.save();
     ctx.translate(screen.x, screen.y);
     ctx.rotate(ship.angle);
@@ -79,9 +80,9 @@ export class SynonymousShipRenderer {
       const dark = cloneColor(base, 0.38);
       ctx.fillStyle = colorToCSS(dark, alpha);
       ctx.beginPath();
-      ctx.moveTo(18 * scale, -5 * scale);
-      ctx.lineTo(62 * scale, -16 * scale);
-      ctx.lineTo(62 * scale, 16 * scale);
+      ctx.moveTo(18 * HERO_VISUAL_SCALE * scale, -5 * HERO_VISUAL_SCALE * scale);
+      ctx.lineTo(62 * HERO_VISUAL_SCALE * scale, -16 * HERO_VISUAL_SCALE * scale);
+      ctx.lineTo(62 * HERO_VISUAL_SCALE * scale, 16 * HERO_VISUAL_SCALE * scale);
       ctx.closePath();
       ctx.fill();
     }
@@ -106,13 +107,14 @@ export class SynonymousShipRenderer {
       ctx.strokeStyle = colorToCSS(Colors.particles_spark, 0.45 * fraction);
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(0, 0, 32 * scale, 0, Math.PI * 2);
+      ctx.arc(0, 0, 32 * HERO_VISUAL_SCALE * scale, 0, Math.PI * 2);
       ctx.stroke();
     }
     ctx.restore();
   }
 
   private formationFor(ship: PlayerShip, buildingActive: boolean): FormationKind {
+    if (ship.isBoosting) return 'boosting';
     if (ship.synonymousMuzzleFlash > 0 || ship.primaryFireTimer > 0.01) return 'shooting';
     if (buildingActive && ship.isThrusting && !ship.isBoosting) return 'buildCircle';
     if (ship.velocity.length() > 12 || ship.isThrusting) return 'moving';
@@ -128,7 +130,7 @@ export class SynonymousShipRenderer {
       const localT = t * 5 - edge;
       const a0 = time * 0.28 + edge * Math.PI * 2 / 5 - Math.PI / 2;
       const a1 = time * 0.28 + (edge + 1) * Math.PI * 2 / 5 - Math.PI / 2;
-      const r = 18;
+      const r = 18 * HERO_VISUAL_SCALE;
       out.tx = Math.cos(a0) * r * (1 - localT) + Math.cos(a1) * r * localT;
       out.ty = Math.sin(a0) * r * (1 - localT) + Math.sin(a1) * r * localT;
       return;
@@ -136,26 +138,40 @@ export class SynonymousShipRenderer {
     if (kind === 'building') {
       const angle = t * Math.PI * 2 + out.seed * 0.45;
       const ring = i % 3 === 0 ? 0.45 : 1;
-      const pulse = Math.sin(time * 2.2 + out.phase) * 4.5;
-      const r = 8 + ring * 13 + pulse;
+      const pulse = Math.sin(time * 2.2 + out.phase) * 4.5 * HERO_VISUAL_SCALE;
+      const r = (8 + ring * 13) * HERO_VISUAL_SCALE + pulse;
       out.tx = Math.cos(angle) * r;
       out.ty = Math.sin(angle) * r;
       return;
     }
     if (kind === 'buildCircle') {
       const angle = t * Math.PI * 2 + time * 0.22;
-      const pulse = Math.sin(time * 2.4 + out.phase) * 1.6;
-      const r = 20 + pulse;
+      const pulse = Math.sin(time * 2.4 + out.phase) * 1.6 * HERO_VISUAL_SCALE;
+      const r = 20 * HERO_VISUAL_SCALE + pulse;
       out.tx = Math.cos(angle) * r;
       out.ty = Math.sin(angle) * r;
       return;
     }
     const noseOpen = kind === 'shooting' ? 4.5 * clamp(ship.synonymousMuzzleFlash / 0.22, 0, 1) : 0;
+    const wobble = Math.sin(time * 5.2 + out.phase) * 0.7 * HERO_VISUAL_SCALE;
+    if (kind === 'boosting') {
+      const perimeter = t * 4;
+      const a = { x: 34, y: 0 };
+      const b = { x: -22, y: -9 };
+      const c = { x: -10, y: 0 };
+      const d = { x: -22, y: 9 };
+      const segment = Math.floor(Math.min(3, perimeter));
+      const u = perimeter - segment;
+      const from = segment === 0 ? a : segment === 1 ? b : segment === 2 ? c : d;
+      const to = segment === 0 ? b : segment === 1 ? c : segment === 2 ? d : a;
+      out.tx = (from.x * (1 - u) + to.x * u) * HERO_VISUAL_SCALE;
+      out.ty = (from.y * (1 - u) + to.y * u) * HERO_VISUAL_SCALE + wobble;
+      return;
+    }
     const perimeter = t * 3;
-    const a = { x: 24 - noseOpen, y: 0 };
-    const b = { x: -20, y: -17 };
-    const c = { x: -20, y: 17 };
-    const wobble = Math.sin(time * 5.2 + out.phase) * 0.7;
+    const a = { x: (24 - noseOpen) * HERO_VISUAL_SCALE, y: 0 };
+    const b = { x: -20 * HERO_VISUAL_SCALE, y: -17 * HERO_VISUAL_SCALE };
+    const c = { x: -20 * HERO_VISUAL_SCALE, y: 17 * HERO_VISUAL_SCALE };
     if (perimeter < 1) {
       out.tx = a.x * (1 - perimeter) + b.x * perimeter;
       out.ty = a.y * (1 - perimeter) + b.y * perimeter + wobble;
