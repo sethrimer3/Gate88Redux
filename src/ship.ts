@@ -801,8 +801,8 @@ export class PlayerShip extends Entity {
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const edgeLen = Math.max(1, Math.hypot(dx, dy));
-      const nx = dy / edgeLen;
-      const ny = -dx / edgeLen;
+      const nx = -dy / edgeLen;
+      const ny = dx / edgeLen;
       const facing = nx * localSunX + ny * localSunY;
       if (facing <= 0.12) continue;
       const alpha = Math.min(0.88, 0.26 + facing * 0.62);

@@ -8,7 +8,7 @@
 
 import { BuildingBase } from './building.js';
 import { Team, EntityType, Entity } from './entities.js';
-import { GameState } from './gamestate.js';
+import type { GameState } from './gamestate.js';
 import { Vec2 } from './math.js';
 import { SpaceFluid } from './spacefluid.js';
 

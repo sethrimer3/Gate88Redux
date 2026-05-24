@@ -8,7 +8,7 @@ import { Shipyard } from './building.js';
 import { SynonymousMineLayer, TurretBase } from './turret.js';
 import { MassDriverBullet, ProjectileBase, RegenBullet, SynonymousNovaBomb } from './projectile.js';
 import { isSynonymousDriftMine } from './synonymousMine.js';
-import { FighterShip } from './fighter.js';
+import { FighterShip, SwarmShip } from './fighter.js';
 import { ParticleSystem } from './particles.js';
 import { RingEffectSystem } from './ringeffects.js';
 import { Camera } from './camera.js';
@@ -16,6 +16,7 @@ import { Audio } from './audio.js';
 import { WorldGrid, GRID_CELL_SIZE, cellKey, footprintOrigin, footprintCenter } from './grid.js';
 import { PowerGraph } from './power.js';
 import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN, CONDUIT_COST, RESEARCH_TIME, TICK_RATE } from './constants.js';
+import { findClosestEnemy } from './combatUtils.js';
 import { WORLD_WIDTH, WORLD_HEIGHT, ENTITY_RADIUS } from './constants.js';
 import { buildCostForBuildingType, type BuildDef } from './builddefs.js';
 import { Colors, colorToCSS } from './colors.js';
@@ -1403,6 +1404,7 @@ export class GameState {
       this.fighterNavCache.delete(f.id);
       return;
     }
+    this.updateSwarmShipCombatTarget(f);
     if (f.order === 'protect') {
       f.targetPos = this.resolveProtectBaseRallyPoint(f);
     }
@@ -1478,6 +1480,15 @@ export class GameState {
     });
     this.storeFighterNavCache(f, adjustedTarget, navTarget, distanceToTarget, stuckSince, stuck);
     f.setNavigationTarget(navTarget);
+  }
+
+  private updateSwarmShipCombatTarget(f: FighterShip): void {
+    if (!(f instanceof SwarmShip)) return;
+    if (f.order === 'dock' || f.order === 'follow') return;
+    const target = findClosestEnemy(this, f.position, f.team, Math.max(f.weaponRange * 2.7, GRID_CELL_SIZE * 6));
+    if (!target) return;
+    f.order = 'attack';
+    f.targetPos = target.position.clone();
   }
 
   private beginNavigationFrame(): void {

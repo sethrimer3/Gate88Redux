@@ -59,7 +59,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 
 ## Fighters And Shipyards
 
-- Fighter Yards produce fighters. Bomber Yards produce bombers after Bomber Yard research and are capped at 3 player yards. Swarm Yards are Terran-only 7x7 shipyards unlocked through Fighters research; each fields up to 20 tiny 5 HP Swarm ships with short-range instant lasers that linger visibly for 0.5 seconds, and the player can place up to 5 Swarm Yards.
+- Fighter Yards produce fighters. Bomber Yards produce bombers after Bomber Yard research and are capped at 3 player yards. Swarm Yards are Terran-only 7x7 shipyards unlocked through Fighters research; each fields up to 20 tiny 5 HP Swarm ships with short-range instant lasers that linger visibly for 0.5 seconds. Swarm ships auto-break from waypoint/protect/idle movement toward nearby hostile ships, fighters, and buildings so they can close to laser range, and the player can place up to 5 Swarm Yards.
 - Shipyards only produce while finished, powered, and below capacity.
 - Advanced Fighters research raises player shipyard capacity and speeds player ship production.
 - C-menu orders are active: Protect Base defends the player Command Post, Set Waypoint uses the cursor location, Follow Player follows the player ship, and Dock returns ships to their home yard. While holding C or a number key, player shipyards show a large group number.
