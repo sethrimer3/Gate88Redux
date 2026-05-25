@@ -89,7 +89,38 @@ export interface GamePerfStats {
 }
 
 function emptySpatialStats(): SpatialIndexStats {
-  return { queryCount: 0, candidateCount: 0, insertedCount: 0, cellCount: 0 };
+  return { queryCount: 0, rawCandidateCount: 0, returnedCount: 0, insertedCount: 0, cellCount: 0 };
+}
+
+function projectileSegmentEnd(projectile: ProjectileBase): Vec2 {
+  const maybeSegment = projectile as ProjectileBase & { targetPos?: Vec2 };
+  return maybeSegment.targetPos ?? projectile.position;
+}
+
+function projectileSweepStart(projectile: ProjectileBase): Vec2 {
+  if (projectileSegmentEnd(projectile) !== projectile.position) return projectile.position;
+  return new Vec2(projectile.position.x - projectile.velocity.x * DT, projectile.position.y - projectile.velocity.y * DT);
+}
+
+function segmentSegmentDistance(a0: Vec2, a1: Vec2, b0: Vec2, b1: Vec2): number {
+  const adx = a1.x - a0.x;
+  const ady = a1.y - a0.y;
+  const bdx = b1.x - b0.x;
+  const bdy = b1.y - b0.y;
+  const cross = adx * bdy - ady * bdx;
+  if (Math.abs(cross) > 0.0001) {
+    const dx = b0.x - a0.x;
+    const dy = b0.y - a0.y;
+    const t = (dx * bdy - dy * bdx) / cross;
+    const u = (dx * ady - dy * adx) / cross;
+    if (t >= 0 && t <= 1 && u >= 0 && u <= 1) return 0;
+  }
+  return Math.min(
+    pointToSegmentDistance(a0, b0, b1),
+    pointToSegmentDistance(a1, b0, b1),
+    pointToSegmentDistance(b0, a0, a1),
+    pointToSegmentDistance(b1, a0, a1),
+  );
 }
 
 export class GameState {
@@ -290,13 +321,7 @@ export class GameState {
     if (indexed.length > 0 || this.perfStats.spatial.insertedCount > 0) return indexed.slice();
     const result: Entity[] = [];
     const rSq = range * range;
-    for (const e of this.allEntities()) {
-      const dx = e.position.x - pos.x;
-      const dy = e.position.y - pos.y;
-      if (dx * dx + dy * dy <= rSq) {
-        result.push(e);
-      }
-    }
+    this.queryAllEntitiesInRange(pos, rSq, result);
     return result;
   }
 
@@ -306,12 +331,47 @@ export class GameState {
     }
     out.length = 0;
     const rSq = range * range;
-    for (const e of this.allEntities()) {
-      const dx = e.position.x - pos.x;
-      const dy = e.position.y - pos.y;
-      if (dx * dx + dy * dy <= rSq) out.push(e);
-    }
+    this.queryAllEntitiesInRange(pos, rSq, out);
     return out;
+  }
+
+  queryEntitiesNearSegment(start: Vec2, end: Vec2, radius: number, out: Entity[]): Entity[] {
+    if (this.perfStats.spatial.insertedCount > 0) {
+      return this.spatialIndex.querySegment(start, end, radius, out);
+    }
+    out.length = 0;
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const mid = new Vec2(start.x + dx * 0.5, start.y + dy * 0.5);
+    this.queryAllEntitiesInRange(mid, Math.pow(Math.sqrt(dx * dx + dy * dy) * 0.5 + radius, 2), out);
+    return out;
+  }
+
+  private queryAllEntitiesInRange(pos: Vec2, rangeSq: number, out: Entity[]): void {
+    for (const ship of this.playerShips.values()) {
+      if (!ship.alive) continue;
+      const dx = ship.position.x - pos.x;
+      const dy = ship.position.y - pos.y;
+      if (dx * dx + dy * dy <= rangeSq) out.push(ship);
+    }
+    for (const b of this.buildings) {
+      if (!b.alive) continue;
+      const dx = b.position.x - pos.x;
+      const dy = b.position.y - pos.y;
+      if (dx * dx + dy * dy <= rangeSq) out.push(b);
+    }
+    for (const f of this.fighters) {
+      if (!f.alive) continue;
+      const dx = f.position.x - pos.x;
+      const dy = f.position.y - pos.y;
+      if (dx * dx + dy * dy <= rangeSq) out.push(f);
+    }
+    for (const p of this.projectiles) {
+      if (!p.alive) continue;
+      const dx = p.position.x - pos.x;
+      const dy = p.position.y - pos.y;
+      if (dx * dx + dy * dy <= rangeSq) out.push(p);
+    }
   }
 
   recordGameStateUpdateMs(ms: number): void {
@@ -490,8 +550,11 @@ export class GameState {
       if (!proj.alive) continue;
 
       const isRegen = proj instanceof RegenBullet;
+      const end = projectileSegmentEnd(proj);
       const queryRadius = proj.radius + ENTITY_RADIUS.building + Math.hypot(proj.velocity.x, proj.velocity.y) * DT + GRID_CELL_SIZE;
-      const nearby = this.queryEntitiesInRange(proj.position, queryRadius, this.spatialQueryScratch);
+      const nearby = end === proj.position
+        ? this.queryEntitiesInRange(proj.position, queryRadius, this.spatialQueryScratch)
+        : this.queryEntitiesNearSegment(proj.position, end, queryRadius, this.spatialQueryScratch);
 
       // Check against buildings
       for (const e of nearby) {
@@ -519,16 +582,20 @@ export class GameState {
   }
 
   private resolveMineProjectileDamage(): void {
-    for (const mine of this.projectiles) {
-      if (!mine.alive || !isSynonymousDriftMine(mine)) continue;
-      const nearby = this.queryEntitiesInRange(mine.position, mine.radius + 90, this.spatialQueryScratch);
+    for (const shot of this.projectiles) {
+      if (!shot.alive || isSynonymousDriftMine(shot)) continue;
+      const shotEnd = projectileSegmentEnd(shot);
+      const queryRadius = shot.radius + ENTITY_RADIUS.missile + 12;
+      const nearby = shotEnd === shot.position
+        ? this.queryEntitiesInRange(shot.position, queryRadius, this.spatialQueryScratch)
+        : this.queryEntitiesNearSegment(shot.position, shotEnd, queryRadius, this.spatialQueryScratch);
       for (const candidate of nearby) {
-        if (!(candidate instanceof ProjectileBase)) continue;
-        const shot = candidate;
-        if (!shot.alive || shot === mine || isSynonymousDriftMine(shot)) continue;
-        const dist = 'targetPos' in shot
-          ? pointToSegmentDistance(mine.position, shot.position, (shot as ProjectileBase & { targetPos: Vec2 }).targetPos)
-          : mine.position.distanceTo(shot.position);
+        if (!(candidate instanceof ProjectileBase) || !isSynonymousDriftMine(candidate)) continue;
+        const mine = candidate;
+        if (!mine.alive || shot === mine) continue;
+        const dist = shotEnd === shot.position
+          ? mine.position.distanceTo(shot.position)
+          : pointToSegmentDistance(mine.position, shot.position, shotEnd);
         if (dist <= mine.radius + shot.radius) {
           mine.takeDamage(Math.max(1, Math.abs(shot.damage)), shot);
           shot.destroy();
@@ -548,7 +615,7 @@ export class GameState {
     // Regen bullets heal same-team, damage other-team
     if (isRegen && proj.team === target.team) {
       if (target.health >= target.maxHealth) return false;
-      const dist = proj.position.distanceTo(target.position);
+      const dist = pointToSegmentDistance(target.position, projectileSweepStart(proj), proj.position);
       if (dist < proj.radius + target.radius) {
         target.takeDamage(proj.damage); // negative damage = healing
         this.particles.emitHealing(target.position);
@@ -563,7 +630,7 @@ export class GameState {
     if (target.type === EntityType.Wall && proj.damage < 0) return false;
 
     if (proj instanceof MassDriverBullet) {
-      const dist = proj.position.distanceTo(target.position);
+      const dist = pointToSegmentDistance(target.position, projectileSweepStart(proj), proj.position);
       if (dist < proj.radius + target.radius) {
         proj.triggerBurst();
         return true;
@@ -584,7 +651,7 @@ export class GameState {
       }
     }
 
-    const dist = proj.position.distanceTo(target.position);
+    const dist = pointToSegmentDistance(target.position, projectileSweepStart(proj), proj.position);
     const combinedRadius = proj.radius + target.radius;
     if (dist < combinedRadius) {
       if (this.projectileBlastRadius(proj) > 0) {
@@ -967,7 +1034,7 @@ export class GameState {
   }
 
   private applyBlastDamage(proj: ProjectileBase, directTarget: Entity, blastRadius: number): void {
-    for (const e of this.spatialIndex.queryCircle(proj.position, blastRadius + ENTITY_RADIUS.building, [])) {
+    for (const e of this.queryEntitiesInRange(proj.position, blastRadius + ENTITY_RADIUS.building, this.spatialQueryScratch)) {
       if (!e.alive || e === proj || e.team === Team.Neutral || e.team === proj.team) continue;
       const d = e.position.distanceTo(proj.position);
       if (d > blastRadius + e.radius) continue;
@@ -1089,7 +1156,7 @@ export class GameState {
   private applyNovaBombPulse(proj: SynonymousNovaBomb): void {
     // Nova Bombs apply two fixed-damage pulses; radius/damage are already
     // scaled by living bomber drones when the projectile is created.
-    for (const e of this.spatialIndex.queryCircle(proj.position, proj.aoeRadius + ENTITY_RADIUS.building, [])) {
+    for (const e of this.queryEntitiesInRange(proj.position, proj.aoeRadius + ENTITY_RADIUS.building, this.spatialQueryScratch)) {
       if (!e.alive || e === proj || e.team === Team.Neutral || e.team === proj.team) continue;
       if (e.position.distanceTo(proj.position) > proj.aoeRadius + e.radius) continue;
       e.takeDamage(proj.pulseDamage, proj);
@@ -1126,7 +1193,7 @@ export class GameState {
   }
 
   private applyMassDriverPulse(proj: MassDriverBullet, radius: number): void {
-    for (const e of this.spatialIndex.queryCircle(proj.position, radius + ENTITY_RADIUS.building, [])) {
+    for (const e of this.queryEntitiesInRange(proj.position, radius + ENTITY_RADIUS.building, this.spatialQueryScratch)) {
       if (!e.alive || e === proj || e.team === Team.Neutral || e.team === proj.team) continue;
       const d = e.position.distanceTo(proj.position);
       if (d > radius + e.radius) continue;
@@ -1381,19 +1448,21 @@ export class GameState {
    */
   private resolveProjectileInterceptions(): void {
     for (let i = 0; i < this.projectiles.length; i++) {
-      const swarm = this.projectiles[i];
-      if (!swarm.alive || !swarm.interceptable) continue;
+      const bullet = this.projectiles[i];
+      if (!bullet.alive || bullet.interceptable) continue;
 
-      const nearby = this.spatialIndex.queryCircle(swarm.position, swarm.radius + 90, []);
+      const bulletEnd = projectileSegmentEnd(bullet);
+      const nearby = bulletEnd === bullet.position
+        ? this.queryEntitiesInRange(bullet.position, bullet.radius + ENTITY_RADIUS.missile + 12, this.spatialQueryScratch)
+        : this.queryEntitiesNearSegment(bullet.position, bulletEnd, bullet.radius + ENTITY_RADIUS.missile + 12, this.spatialQueryScratch);
       for (const candidate of nearby) {
         if (!(candidate instanceof ProjectileBase)) continue;
-        const bullet = candidate;
-        if (bullet === swarm) continue;
-        if (!bullet.alive || bullet.team === swarm.team) continue;
-        // Interceptable missiles shouldn't intercept each other
-        if (bullet.interceptable) continue;
+        const swarm = candidate;
+        if (!swarm.alive || !swarm.interceptable || bullet === swarm) continue;
+        if (bullet.team === swarm.team) continue;
 
-        const dist = swarm.position.distanceTo(bullet.position);
+        const swarmEnd = projectileSegmentEnd(swarm);
+        const dist = segmentSegmentDistance(swarm.position, swarmEnd, bullet.position, bulletEnd);
         if (dist < swarm.radius + bullet.radius) {
           bullet.destroy(); // the intercepting bullet is consumed
           swarm.takeDamage(Math.max(1, Math.abs(bullet.damage)), bullet);

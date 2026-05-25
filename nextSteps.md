@@ -6,7 +6,12 @@
 
 This pass added a reusable spatial hash, F3 performance metrics, nearby-only
 fighter separation, broadphase projectile collision, spatial turret targeting,
-conservative render culling, and partial survival-base planner LOD.
+conservative render culling, and partial survival-base planner LOD. The polish
+pass tightened the risky broadphase edges by adding segment-safe spatial
+queries for beam/laser paths, drift-mine projectile hits, and projectile
+interception, plus swept exact checks for fast projectile-to-entity contact.
+It also moved more hot combat queries onto reusable scratch arrays and made the
+F3 spatial stats distinguish raw candidates from returned entities.
 
 ### Deferred / intentionally avoided
 
@@ -26,12 +31,14 @@ and construction-completion paths.
 **2. Fuller survival base simulation LOD**
 
 Current LOD only throttles planner updates for extra survival bases that are far
-from the player and not near active combat. Actual buildings, turrets, fighters,
-projectiles, power, construction completion, and defeat state remain live. A
-deeper LOD could also stagger distant shipyard production checks, expensive
-base audits, and nonessential effects, but should first add per-base engagement
-state so bases wake immediately when attacked or when their launched wave reaches
-the player.
+from the player and not near active combat. The nearby-combat wake check now
+uses `GameState.queryEntitiesInRange(...)` instead of scanning all fighters and
+projectiles for every base. Actual buildings, turrets, fighters, projectiles,
+power, construction completion, and defeat state remain live. A deeper LOD
+could also stagger distant shipyard production checks, expensive base audits,
+and nonessential effects, but should first add per-base engagement state so
+bases wake immediately when attacked or when their launched wave reaches the
+player.
 
 Files/functions: `src/practicemode.ts -> survivalPlannerCadence`,
 `updateEnemyShipyards`, `updateEnemyFighters`; `src/enemybaseplanner.ts ->
@@ -48,28 +55,47 @@ state refresh.
 
 **4. Remaining all-entity scans**
 
-The hottest combat/collision paths now use the spatial index, but some strategic
-and UI scans remain intentionally simple. Good follow-up targets are player
-threat evaluation, staged-wave counts, shipyard caps, Synonymous mine counts,
-and helper paths that still call `state.allEntities()` for rare effects.
+The hottest combat/collision paths now use the spatial index and reusable
+scratch arrays, but some strategic and UI scans remain intentionally simple.
+Good follow-up targets are player threat evaluation, shipyard caps, Synonymous
+mine targeting/counts, debug overlay entity counts, and helper paths that still
+call `state.allEntities()` for rare effects.
 
-Files/functions: `src/practicemode.ts -> updateFailedWaveDetection`,
-`getStrategyDebugInfo`, `enemyWaveLaunchThreshold`; `src/turret.ts ->
-SynonymousMineLayer.tickMineLayer`; `src/commandMode.ts`.
+Files/functions: `src/practicemode.ts -> evaluatePlayerThreat`,
+`enemyWaveLaunchThreshold`; `src/turret.ts -> SynonymousMineLayer.tickMineLayer`;
+`src/synonymousMine.ts -> findTarget`; `src/gameRender.ts -> drawDebugOverlay`;
+`src/commandMode.ts`.
+
+**5. Static/dynamic broadphase split**
+
+`src/spatialIndex.ts` now reuses bucket arrays and numeric cell keys, but
+`GameState` still rebuilds one combined index at the major tick boundaries.
+A future split should keep completed buildings in a mostly-static building
+index that rebuilds only when buildings are added, removed, destroyed, finish
+construction, or change collision/targetability state. Dynamic ships, fighters,
+and projectiles can keep the current per-tick rebuild path; a projectile-only
+index may help if projectile counts become the dominant collision cost.
+
+Files/functions: `src/gamestate.ts -> rebuildSpatialIndex`, `addEntity`,
+`cleanupDead`, building construction/deletion completion paths.
 
 ### Validation steps for survival with 5+ bases
 
 1. Start Survival or Ranked Survival and let the match reach at least five live
    enemy Command Posts.
 2. Press F3 and record: frame/fixed/render time, `sim state`, `practice`,
-   `planners`, `hotspots`, `spatial`, and `ship paths` lines.
+   `planners`, `hotspots`, `spatial q/raw/returned/cells/indexed`, and `ship
+   paths` lines.
 3. Fly near a distant base and confirm its planner wakes up: buildings should
    continue to complete, turrets should fire, and shipyards should still launch
    fighters.
 4. Stress-test dense fights around the player base and verify projectiles still
    hit buildings, fighters, ships, walls, mines, interceptable missiles, Mass
    Driver pulses, Nova bombs, and Regen healing targets correctly.
-5. Compare against an older build by watching fixed-update spikes and path stats
+5. Specifically fire or observe beams/lasers crossing drift mines, bullets
+   intercepting Swarm/Guided missiles, and fast shots crossing small fighters
+   or walls to confirm segment broadphase did not miss hits.
+6. Compare against an older build by watching fixed-update spikes and path stats
    after the fifth base spawns.
 
 ### Known behavior changes
@@ -83,6 +109,10 @@ SynonymousMineLayer.tickMineLayer`; `src/commandMode.ts`.
   of a second when many turrets exist.
 - Offscreen entity drawing now uses conservative camera margins. Extremely long
   beams or unusual effects should be watched for pop-in during manual testing.
+- Fast projectile contact is now resolved against the projectile's swept motion
+  from the previous fixed tick to the current position. This should reduce
+  tunneling without changing friendly-fire, Mass Driver burst, Nova pulse, or
+  Regen healing rules.
 
 ---
 

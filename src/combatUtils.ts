@@ -12,6 +12,10 @@ import type { GameState } from './gamestate.js';
 import { Vec2 } from './math.js';
 import { SpaceFluid } from './spacefluid.js';
 
+const targetQueryScratch: Entity[] = [];
+const laserQueryScratch: Entity[] = [];
+const limitedLaserQueryScratch: Entity[] = [];
+
 function buildingImpactFromPoint(building: BuildingBase, from: Vec2): { pos: Vec2; outwardAngle: number } {
   let outward = building.position.sub(from);
   if (outward.length() <= 0.001) outward = new Vec2(1, 0);
@@ -59,7 +63,7 @@ export function findClosestEnemy(
 ): Entity | null {
   let best: Entity | null = null;
   let bestDist = range;
-  for (const e of state.getEntitiesInRange(pos, range)) {
+  for (const e of state.queryEntitiesInRange(pos, range, targetQueryScratch)) {
     if (!e.alive || e.team === team || e.team === Team.Neutral) continue;
     if (!isHomingTarget(e)) continue;
     const d = e.position.distanceTo(pos);
@@ -96,9 +100,8 @@ export function damageLaserLine(
   const lenSq = dx * dx + dy * dy;
   if (lenSq <= 0) return;
 
-  const mid = new Vec2((start.x + end.x) * 0.5, (start.y + end.y) * 0.5);
-  const queryRadius = Math.sqrt(lenSq) * 0.5 + hitRadius + 120;
-  for (const target of state.getEntitiesInRange(mid, queryRadius)) {
+  const queryRadius = hitRadius + 120;
+  for (const target of state.queryEntitiesNearSegment(start, end, queryRadius, laserQueryScratch)) {
     if (!target.alive || target.team === source.team || target.team === Team.Neutral) continue;
     const tx = target.position.x - start.x;
     const ty = target.position.y - start.y;
@@ -143,9 +146,8 @@ export function damageLaserLineLimited(
   if (lenSq <= 0) return;
 
   const hits: Array<{ target: Entity; t: number }> = [];
-  const mid = new Vec2((start.x + end.x) * 0.5, (start.y + end.y) * 0.5);
-  const queryRadius = Math.sqrt(lenSq) * 0.5 + hitRadius + 120;
-  for (const target of state.getEntitiesInRange(mid, queryRadius)) {
+  const queryRadius = hitRadius + 120;
+  for (const target of state.queryEntitiesNearSegment(start, end, queryRadius, limitedLaserQueryScratch)) {
     if (!target.alive || target.team === source.team || target.team === Team.Neutral) continue;
     const tx = target.position.x - start.x;
     const ty = target.position.y - start.y;

@@ -142,7 +142,7 @@ export function drawDebugOverlay(ctx: CanvasRenderingContext2D, args: {
   lines.push(`entities f ${state.fighters.filter((f) => f.alive && !f.docked).length}/${state.fighters.length} b ${enemyBuildings.length + playerBuildings.length} blockers ${pathStats.blockerCount} p ${state.projectiles.length}`);
   lines.push(`sim state ${perf.gameStateUpdateMs.toFixed(2)}ms practice ${perf.practiceUpdateMs.toFixed(2)}ms planners ${perf.practicePlannerMs.toFixed(2)}ms max ${perf.practicePlannerMaxMs.toFixed(2)}ms bases ${perf.activeEnemyBases}`);
   lines.push(`hotspots turret ${perf.turretAcquireMs.toFixed(2)}ms projectile ${perf.projectileCollisionMs.toFixed(2)}ms fighter combat ${perf.fighterCombatMs.toFixed(2)}ms separation ${perf.fighterSeparationMs.toFixed(2)}ms`);
-  lines.push(`spatial q ${perf.spatial.queryCount} candidates ${perf.spatial.candidateCount} cells ${perf.spatial.cellCount} indexed ${perf.spatial.insertedCount}`);
+  lines.push(`spatial q ${perf.spatial.queryCount} raw ${perf.spatial.rawCandidateCount} returned ${perf.spatial.returnedCount} cells ${perf.spatial.cellCount} indexed ${perf.spatial.insertedCount}`);
   lines.push(`ship paths frame ${pathStats.mobilePathMsThisFrame.toFixed(2)}ms r ${pathStats.resolvesThisFrame} A* ${pathStats.fullAStarThisFrame} reuse ${pathStats.cachedReusesThisFrame} shared ${pathStats.sharedPathUsesThisFrame} skip ${pathStats.skippedThisFrame}`);
   lines.push(`ship paths ${pathStats.resolvesPerSecond}/s  avg ${pathStats.avgMsLast60.toFixed(2)}ms max ${pathStats.maxMsLast60.toFixed(2)}ms`);
   lines.push(`ship path target adjusted ${pathStats.adjustedTargetLastSecond ? 'yes' : 'no'}`);

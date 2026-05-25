@@ -6,7 +6,7 @@ import { GameState } from './gamestate.js';
 import { BuildingBase, CommandPost, Shipyard } from './building.js';
 import { TurretBase } from './turret.js';
 import { BomberShip, FighterShip, SwarmShip, SynonymousFighterShip, SynonymousNovaBomberShip } from './fighter.js';
-import { Bullet, BomberMissile, ExciterBeam, GatlingTurretBullet, Laser, MassDriverBullet, Missile, SwarmFighterLaser, SynonymousDroneLaser, SynonymousNovaBomb } from './projectile.js';
+import { Bullet, BomberMissile, ExciterBeam, GatlingTurretBullet, Laser, MassDriverBullet, Missile, ProjectileBase, SwarmFighterLaser, SynonymousDroneLaser, SynonymousNovaBomb } from './projectile.js';
 import { HUD } from './hud.js';
 import { Colors } from './colors.js';
 import { Audio } from './audio.js';
@@ -119,6 +119,8 @@ export class PracticeMode {
   private consecutiveFailedWaves: number = 0;
   /** Current strategic urgency level sent to the planner. 0/1/2. */
   private urgencyLevel: number = 0;
+  private readonly nearbyCombatScratch: Entity[] = [];
+  private readonly enemyFighterTargetScratch: Entity[] = [];
 
   score: PracticeScore = { basesDestroyed: 0, timeSurvived: 0 };
   gameOver: boolean = false;
@@ -344,18 +346,13 @@ export class PracticeMode {
   }
 
   private baseHasNearbyCombat(state: GameState, pos: Vec2, radius: number): boolean {
-    const radiusSq = radius * radius;
-    for (const f of state.fighters) {
-      if (!f.alive || f.docked) continue;
-      const dx = f.position.x - pos.x;
-      const dy = f.position.y - pos.y;
-      if (dx * dx + dy * dy <= radiusSq) return true;
-    }
-    for (const p of state.projectiles) {
-      if (!p.alive) continue;
-      const dx = p.position.x - pos.x;
-      const dy = p.position.y - pos.y;
-      if (dx * dx + dy * dy <= radiusSq) return true;
+    const nearby = state.queryEntitiesInRange(pos, radius, this.nearbyCombatScratch);
+    for (const entity of nearby) {
+      if (entity instanceof FighterShip) {
+        if (entity.alive && !entity.docked) return true;
+      } else if (entity instanceof ProjectileBase && entity.alive) {
+        return true;
+      }
     }
     return false;
   }
@@ -627,7 +624,7 @@ export class PracticeMode {
       }
 
       if (f.canFire()) {
-        const nearby = state.getEntitiesInRange(f.position, f.weaponRange);
+        const nearby = state.queryEntitiesInRange(f.position, f.weaponRange, this.enemyFighterTargetScratch);
         for (const e of nearby) {
           if (isCombatTargetValid(f, e, f.weaponRange)) {
             const isBomber = f instanceof BomberShip;
@@ -724,13 +721,18 @@ export class PracticeMode {
   private updateEnemyAttackWaves(state: GameState, dt: number): void {
     if (!this.shouldStageEnemyWaves()) return;
     this.enemyWaveTimer -= dt;
-    const staged = state.fighters.filter((f) =>
-      f.alive &&
-      !f.docked &&
-      f.team === Team.Enemy &&
-      !isBuilderDrone(f) &&
-      (f.order === 'waypoint' || f.order === 'follow' || f.order === 'protect')
-    );
+    const staged: FighterShip[] = [];
+    for (const f of state.fighters) {
+      if (
+        f.alive &&
+        !f.docked &&
+        f.team === Team.Enemy &&
+        !isBuilderDrone(f) &&
+        (f.order === 'waypoint' || f.order === 'follow' || f.order === 'protect')
+      ) {
+        staged.push(f);
+      }
+    }
     const idx = difficultyIndex(this.config.difficulty);
     const threshold = this.enemyWaveLaunchThreshold(state, idx);
 
@@ -938,9 +940,10 @@ export class PracticeMode {
   private _waveJustLaunched: boolean = false;
 
   private updateFailedWaveDetection(state: GameState): void {
-    const attackers = state.fighters.filter(
-      (f) => f.alive && !f.docked && f.team === Team.Enemy && !isBuilderDrone(f) && f.order === 'attack',
-    ).length;
+    let attackers = 0;
+    for (const f of state.fighters) {
+      if (f.alive && !f.docked && f.team === Team.Enemy && !isBuilderDrone(f) && f.order === 'attack') attackers++;
+    }
 
     // Rising edge: wave just launched.
     if (!this._waveJustLaunched && attackers > 0 && this._prevLivingAttackers === 0) {
@@ -950,10 +953,18 @@ export class PracticeMode {
     if (this._waveJustLaunched && attackers === 0 && this.secsSinceLastWave < WAVE_COMPLETION_WINDOW) {
       // If the entire wave died quickly with no staged units left to replace them,
       // treat this as a failed (repelled) wave.
-      const stagedLeft = state.fighters.filter(
-        (f) => f.alive && !f.docked && f.team === Team.Enemy && !isBuilderDrone(f) &&
-               (f.order === 'waypoint' || f.order === 'follow' || f.order === 'protect'),
-      ).length;
+      let stagedLeft = 0;
+      for (const f of state.fighters) {
+        if (
+          f.alive &&
+          !f.docked &&
+          f.team === Team.Enemy &&
+          !isBuilderDrone(f) &&
+          (f.order === 'waypoint' || f.order === 'follow' || f.order === 'protect')
+        ) {
+          stagedLeft++;
+        }
+      }
       if (stagedLeft === 0 && this.secsSinceLastWave < QUICK_FAILURE_THRESHOLD) {
         this.consecutiveFailedWaves++;
       } else {
@@ -1075,10 +1086,15 @@ export class PracticeMode {
     if (!this.planner) return null;
     const idx = difficultyIndex(this.config.difficulty);
     const snapshot = this.planner.snapshot();
-    const staged = state.fighters.filter((f) =>
-      f.alive && !f.docked && f.team === Team.Enemy && !isBuilderDrone(f) &&
-      (f.order === 'waypoint' || f.order === 'follow' || f.order === 'protect'),
-    ).length;
+    let staged = 0;
+    for (const f of state.fighters) {
+      if (
+        f.alive && !f.docked && f.team === Team.Enemy && !isBuilderDrone(f) &&
+        (f.order === 'waypoint' || f.order === 'follow' || f.order === 'protect')
+      ) {
+        staged++;
+      }
+    }
     return {
       urgency:               this.urgencyLevel,
       playerStrategy:        this.playerStrategy,

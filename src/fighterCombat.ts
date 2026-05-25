@@ -27,6 +27,9 @@ import { SpaceFluid } from './spacefluid.js';
 import { WEAPON_STATS } from './constants.js';
 import { damageLaserLineLimited } from './combatUtils.js';
 import { aimAngle, aimAtEntity, isCombatTargetValid, recordCombatAimSample } from './targeting.js';
+import type { Entity } from './entities.js';
+
+const fighterTargetScratch: Entity[] = [];
 
 /**
  * For each live, undocked Team.Player fighter: find the nearest enemy in
@@ -43,7 +46,7 @@ export function updateFighterWeaponFire(state: GameState, spaceFluid: SpaceFluid
     }
     if (!f.canFire()) continue;
 
-    const nearby = state.getEntitiesInRange(f.position, f.weaponRange);
+    const nearby = state.queryEntitiesInRange(f.position, f.weaponRange, fighterTargetScratch);
     let target = null;
     let bestDist = Infinity;
     for (const e of nearby) {
