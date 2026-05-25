@@ -28,6 +28,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 - The player ship can respawn after destruction if the match is not otherwise lost.
 - Ranked Vs. AI difficulties progress through Easy, Normal, Hard, Expert, Nightmare, and Zenith. Ranked APM scales over the full rank ladder from 10 APM at rank 0 to 500 APM at the top of Zenith.
 - In Survival, each newly spawned enemy base escalates by 100 AI-rank points from the starting Survival rank before deriving that base planner's difficulty.
+- Ranked Survival score is whole seconds survived multiplied by the difficulty multiplier (AI rank / 100), then floored to the nearest 100 points.
 - Ranked Vs. AI can opt into the existing full-map-knowledge and 1.25x-resource AI modifiers. Each adds +0.25 to the score multiplier; both together score at x1.5 total.
 
 ## Resources

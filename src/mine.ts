@@ -42,6 +42,11 @@ import { Audio } from './audio.js';
 /** Visual body radius of a mine in world units (scaled by camera zoom when drawn). */
 const MINE_BODY_RADIUS = 8;
 const TERRAN_MINE_LASER_RANGE = MINE_LASER_RANGE * 0.55;
+const CANNON_MINE_BASE_BURST_BULLETS = 16;
+const CANNON_MINE_UPGRADED_BURST_BULLETS = 64;
+const CANNON_MINE_BURST_STREAMS = 4;
+const CANNON_MINE_BURST_INTERVAL_SECS = 0.035;
+const CANNON_MINE_SPIRAL_STEP_RADIANS = Math.PI / 10;
 
 /**
  * Speed threshold (world units/sec) below which a mine is considered stopped
@@ -163,6 +168,11 @@ export class CrossLaserMine extends ProjectileBase {
 
   /** True once the mine has decelerated to a stop and is checking lasers. */
   private armed: boolean = false;
+  private triggered = false;
+  private burstTarget: Entity | null = null;
+  private burstBulletsRemaining = 0;
+  private burstBulletsFired = 0;
+  private burstTimer = 0;
 
   constructor(
     team: Team,
@@ -233,6 +243,11 @@ export class CrossLaserMine extends ProjectileBase {
       return;
     }
 
+    if (this.triggered) {
+      this.updateTriggeredBurst(dt);
+      return;
+    }
+
     // ── Phase 2: laser trigger checks (armed only) ───────────────────────
     if (this.armed) {
       this.checkLaserTriggers();
@@ -277,8 +292,44 @@ export class CrossLaserMine extends ProjectileBase {
     this.gameState.particles.emitSpark(this.position);
     this.gameState.particles.emitExplosion(this.position, MINE_BODY_RADIUS * 1.5);
 
-    for (let i = 0; i < 4; i++) {
-      const beamAngle = this.mineRotation + i * (Math.PI / 2);
+    this.triggered = true;
+    this.armed = false;
+    this.velocity.set(0, 0);
+    this.burstTarget = target;
+    this.burstBulletsRemaining = this.burstBulletCount();
+    this.burstBulletsFired = 0;
+    this.burstTimer = 0;
+    this.fireBurstStep();
+
+    Audio.playSound('fire');
+
+    // Zero the blast radius so the game loop does NOT emit a second explosion
+    // when it detects the mine has died (only the missile should explode).
+    this.blastRadius = 0;
+  }
+
+  private updateTriggeredBurst(dt: number): void {
+    this.burstTimer -= dt;
+    while (this.burstBulletsRemaining > 0 && this.burstTimer <= 0) {
+      this.fireBurstStep();
+      this.burstTimer += CANNON_MINE_BURST_INTERVAL_SECS;
+    }
+    if (this.burstBulletsRemaining <= 0) this.destroy();
+  }
+
+  private burstBulletCount(): number {
+    return this.team === Team.Player && this.gameState.researchedItems.has('weaponCannon')
+      ? CANNON_MINE_UPGRADED_BURST_BULLETS
+      : CANNON_MINE_BASE_BURST_BULLETS;
+  }
+
+  private fireBurstStep(): void {
+    const bulletsThisStep = Math.min(CANNON_MINE_BURST_STREAMS, this.burstBulletsRemaining);
+    const spiralAngle = this.mineRotation + this.burstBulletsFired / CANNON_MINE_BURST_STREAMS * CANNON_MINE_SPIRAL_STEP_RADIANS;
+    const target = this.burstTarget?.alive ? this.burstTarget : null;
+
+    for (let i = 0; i < bulletsThisStep; i++) {
+      const beamAngle = spiralAngle + i * (Math.PI / 2);
       this.gameState.addEntity(new HomingBullet(
         this.team,
         this.position.clone(),
@@ -287,13 +338,8 @@ export class CrossLaserMine extends ProjectileBase {
         target,
       ));
     }
-
-    Audio.playSound('fire');
-
-    // Zero the blast radius so the game loop does NOT emit a second explosion
-    // when it detects the mine has died (only the missile should explode).
-    this.blastRadius = 0;
-    this.destroy();
+    this.burstBulletsFired += bulletsThisStep;
+    this.burstBulletsRemaining -= bulletsThisStep;
   }
 
   // --------------------------------------------------------------------------

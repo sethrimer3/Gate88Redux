@@ -783,7 +783,8 @@ export class Game {
     if (!cfg.ranked || !this.practiceMode.gameOver) return;
     this.rankedVsAIResultRecorded = true;
     if (cfg.mode === 'survival') {
-      const score = this.currentRankedSurvivalScore();
+      const survivalScore = this.currentRankedSurvivalScoreBreakdown();
+      const score = survivalScore.score;
       let previous = 0;
       try {
         previous = Number.parseInt(window.localStorage?.getItem(SURVIVAL_RANKED_SCORE_KEY) ?? '0', 10) || 0;
@@ -792,7 +793,7 @@ export class Game {
         previous = 0;
       }
       this.hud.showMessage(
-        `Ranked Survival score: ${score} (${Math.floor(this.practiceMode.score.timeSurvived)}s at rank ${cfg.aiRank})`,
+        `Ranked Survival score: ${survivalScore.timeSeconds}s x${survivalScore.difficultyMultiplier.toFixed(2)} = ${score}`,
         Colors.alert2,
         8,
       );
@@ -825,8 +826,16 @@ export class Game {
   }
 
   private currentRankedSurvivalScore(): number {
+    return this.currentRankedSurvivalScoreBreakdown().score;
+  }
+
+  private currentRankedSurvivalScoreBreakdown(): { timeSeconds: number; difficultyMultiplier: number; score: number } {
     const cfg = this.mainMenu.vsAIConfig;
-    return Math.max(0, Math.floor((cfg.aiRank / 100) * this.practiceMode.score.timeSurvived));
+    const timeSeconds = Math.max(0, Math.floor(this.practiceMode.score.timeSurvived));
+    const difficultyMultiplier = Math.max(0, cfg.aiRank / 100);
+    const rawScore = timeSeconds * difficultyMultiplier;
+    const score = Math.floor(rawScore / 100) * 100;
+    return { timeSeconds, difficultyMultiplier, score };
   }
 
   /**
@@ -2255,8 +2264,9 @@ export class Game {
     const cfg = this.mainMenu.vsAIConfig;
     if (this.state.gameMode === 'vs_ai' && cfg.ranked) {
       if (cfg.mode === 'survival') {
+        const survivalScore = this.currentRankedSurvivalScoreBreakdown();
         ctx.fillText(
-          `Ranked Survival: ${cfg.difficulty} ${cfg.aiRank} | Score: ${this.currentRankedSurvivalScore()}`,
+          `Time survived ${survivalScore.timeSeconds}s x${survivalScore.difficultyMultiplier.toFixed(2)} = ${survivalScore.score}`,
           10, 26,
         );
         return;
