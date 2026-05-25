@@ -56,6 +56,26 @@ export function updateFighterWeaponFire(state: GameState, spaceFluid: SpaceFluid
     }
     if (!target) continue;
     const isSwarmFighter = f instanceof SwarmShip;
+    if (isSwarmFighter) {
+      const end = target.position.clone();
+      f.consumeShot(f.fireRate);
+      state.addEntity(new SwarmFighterLaser(f.team, f.position.clone(), end, f));
+      damageLaserLineLimited(state, spaceFluid, f.position.clone(), end, f.weaponDamage, 1, 1, f);
+      Audio.playSound('laser', 1 / 3);
+      recordCombatAimSample({
+        shooterId: f.id,
+        targetId: target.id,
+        shooter: f.position.clone(),
+        target: target.position.clone(),
+        targetVelocity: target.velocity.clone(),
+        aimPoint: end,
+        spawn: f.position.clone(),
+        range: f.weaponRange,
+        interceptValid: true,
+        createdAt: state.gameTime,
+      });
+      continue;
+    }
     const projectileSpeed = f instanceof BomberShip ? WEAPON_STATS.bigmissile.speed : isSwarmFighter ? WEAPON_STATS.laser.speed : WEAPON_STATS.fire.speed;
     const aim = aimAtEntity(f, target, projectileSpeed, {
       maxPredictionTime: f instanceof BomberShip ? 0.7 : 1.0,
@@ -92,13 +112,6 @@ export function updateFighterWeaponFire(state: GameState, spaceFluid: SpaceFluid
         damageLaserLineLimited(state, spaceFluid, start, end, f.weaponDamage, 3, 2, f);
       }
       Audio.playSound('laser');
-    } else if (f instanceof SwarmShip) {
-      const end = target.position.clone();
-      firedAimPoint = end.clone();
-      f.consumeShot(f.fireRate);
-      state.addEntity(new SwarmFighterLaser(f.team, f.position.clone(), end, f));
-      damageLaserLineLimited(state, spaceFluid, f.position.clone(), end, f.weaponDamage, 1, 1, f);
-      Audio.playSound('laser', 1 / 3);
     } else {
       f.consumeShot(WEAPON_STATS.fire.fireRate);
       const bullet = new Bullet(f.team, f.position.clone(), angle, f, target);
