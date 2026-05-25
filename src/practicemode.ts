@@ -69,6 +69,8 @@ interface EnemyBaseRuntime {
   cp: CommandPost;
   planner: EnemyBasePlanner;
   resources: number;
+  lodTimer: number;
+  lodAccum: number;
 }
 
 export class PracticeMode {
@@ -101,6 +103,9 @@ export class PracticeMode {
    * ShipGroup.Red → Green → Blue in sequence for group-based tactics.
    */
   private _spawnGroupCounter: number = 0;
+  lastPlannerUpdateMs = 0;
+  lastPlannerMaxMs = 0;
+  activeEnemyBaseCount = 0;
 
   // -- Player threat profile --------------------------------------------------
 
@@ -171,6 +176,9 @@ export class PracticeMode {
   update(state: GameState, hud: HUD, dt: number): void {
     if (this.gameOver) return;
 
+    this.lastPlannerUpdateMs = 0;
+    this.lastPlannerMaxMs = 0;
+    this.activeEnemyBaseCount = 0;
     this.score.timeSurvived = state.gameTime;
 
     // Defeat check
@@ -232,7 +240,12 @@ export class PracticeMode {
     // Drive the planner — only when there's still a CP.
     const cp = this.primaryBase?.cp.alive ? this.primaryBase.cp : null;
     if (cp && this.planner) {
+      this.activeEnemyBaseCount++;
+      const startedAt = performance.now();
       const spent = this.planner.update(state, cp, dt, this.enemyResources);
+      const elapsed = performance.now() - startedAt;
+      this.lastPlannerUpdateMs += elapsed;
+      this.lastPlannerMaxMs = Math.max(this.lastPlannerMaxMs, elapsed);
       this.enemyResources = Math.max(0, this.enemyResources - spent);
       // Drain planner chat narration and forward to HUD.
       for (const msg of this.planner.drainChats()) {
@@ -242,10 +255,22 @@ export class PracticeMode {
 
     for (const base of this.extraBases) {
       if (!base.cp.alive) continue;
+      this.activeEnemyBaseCount++;
       base.resources += this.enemyIncomeMul *
         (BASELINE_RESOURCE_GAIN * difficultyIncomeMul + poweredFactories * RESOURCE_GAIN_RATE) *
         dt;
-      const spent = base.planner.update(state, base.cp, dt, base.resources);
+      base.lodAccum += dt;
+      base.lodTimer -= dt;
+      const cadence = this.survivalPlannerCadence(state, base);
+      if (base.lodTimer > 0) continue;
+      const plannerDt = Math.max(dt, base.lodAccum);
+      base.lodAccum = 0;
+      base.lodTimer = cadence;
+      const startedAt = performance.now();
+      const spent = base.planner.update(state, base.cp, plannerDt, base.resources);
+      const elapsed = performance.now() - startedAt;
+      this.lastPlannerUpdateMs += elapsed;
+      this.lastPlannerMaxMs = Math.max(this.lastPlannerMaxMs, elapsed);
       base.resources = Math.max(0, base.resources - spent);
       for (const msg of base.planner.drainChats()) {
         hud.showAIChat('BASE', msg, Colors.alert1);
@@ -305,7 +330,34 @@ export class PracticeMode {
 
     const planner = new EnemyBasePlanner(Team.Enemy, config, Math.floor(Math.random() * 0xffffff));
     planner.init(state, cp);
-    return { cp, planner, resources: config.enemyStartingResources };
+    return { cp, planner, resources: config.enemyStartingResources, lodTimer: 0, lodAccum: 0 };
+  }
+
+  private survivalPlannerCadence(state: GameState, base: EnemyBaseRuntime): number {
+    if (!this.survivalMode) return 0;
+    if (base.cp.health < base.cp.maxHealth) return 0;
+    const playerDist = state.player.position.distanceTo(base.cp.position);
+    if (playerDist <= 2800) return 0;
+    if (this.baseHasNearbyCombat(state, base.cp.position, 1200)) return 0;
+    if (playerDist <= 5200) return 0.5;
+    return 2.0;
+  }
+
+  private baseHasNearbyCombat(state: GameState, pos: Vec2, radius: number): boolean {
+    const radiusSq = radius * radius;
+    for (const f of state.fighters) {
+      if (!f.alive || f.docked) continue;
+      const dx = f.position.x - pos.x;
+      const dy = f.position.y - pos.y;
+      if (dx * dx + dy * dy <= radiusSq) return true;
+    }
+    for (const p of state.projectiles) {
+      if (!p.alive) continue;
+      const dx = p.position.x - pos.x;
+      const dy = p.position.y - pos.y;
+      if (dx * dx + dy * dy <= radiusSq) return true;
+    }
+    return false;
   }
 
   private updateSurvivalDestroyedBaseCount(): void {
@@ -359,11 +411,13 @@ export class PracticeMode {
   // --------------------------------------------------------------------
 
   private updateTurrets(state: GameState): void {
-    const allEntities = state.allEntities();
+    const phase = Math.floor(state.gameTime / TURRET_FIRE_CHECK_INTERVAL);
     for (const b of state.buildings) {
       if (!b.alive || !(b instanceof TurretBase)) continue;
       if (b.buildProgress < 1) continue;
-      b.acquireTarget(allEntities);
+      if (!b.targetEntity || ((b.id + phase) % 2) === 0) {
+        state.acquireTurretTarget(b);
+      }
     }
   }
 

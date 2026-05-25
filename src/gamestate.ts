@@ -15,7 +15,7 @@ import { Camera } from './camera.js';
 import { Audio } from './audio.js';
 import { WorldGrid, GRID_CELL_SIZE, cellKey, footprintOrigin, footprintCenter } from './grid.js';
 import { PowerGraph } from './power.js';
-import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN, CONDUIT_COST, RESEARCH_TIME, TICK_RATE } from './constants.js';
+import { RESOURCE_GAIN_RATE, BASELINE_RESOURCE_GAIN, CONDUIT_COST, RESEARCH_TIME, TICK_RATE, DT } from './constants.js';
 import { findClosestEnemy } from './combatUtils.js';
 import { WORLD_WIDTH, WORLD_HEIGHT, ENTITY_RADIUS } from './constants.js';
 import { buildCostForBuildingType, type BuildDef } from './builddefs.js';
@@ -34,6 +34,7 @@ import {
   scoreShipRoute,
 } from './shippath.js';
 import { buildingBlocksShips, buildingFootprintOrigin, buildingShipCollisionRect } from './buildingCollision.js';
+import { SpatialIndex, type SpatialIndexStats } from './spatialIndex.js';
 
 export interface DestroyedBuildingRecord {
   type: EntityType;
@@ -73,6 +74,23 @@ export interface AIDebugSnapshot {
 }
 
 export type GameMode = 'menu' | 'tutorial' | 'practice' | 'vs_ai' | 'playing' | 'lan_host' | 'lan_client' | 'online_host' | 'online_client';
+
+export interface GamePerfStats {
+  gameStateUpdateMs: number;
+  practiceUpdateMs: number;
+  practicePlannerMs: number;
+  practicePlannerMaxMs: number;
+  turretAcquireMs: number;
+  projectileCollisionMs: number;
+  fighterCombatMs: number;
+  fighterSeparationMs: number;
+  activeEnemyBases: number;
+  spatial: SpatialIndexStats;
+}
+
+function emptySpatialStats(): SpatialIndexStats {
+  return { queryCount: 0, candidateCount: 0, insertedCount: 0, cellCount: 0 };
+}
 
 export class GameState {
   /**
@@ -135,10 +153,24 @@ export class GameState {
     targetY: number;
     expiresAt: number;
   }> = new Map();
+  private spatialIndex: SpatialIndex = new SpatialIndex(GRID_CELL_SIZE * 3);
+  private spatialQueryScratch: Entity[] = [];
   private pathBudgetRemaining = 0;
   private pathBudgetFrameToken = -1;
   survivalKillRewardsEnabled = false;
   survivalEnemyRewardBank = 0;
+  perfStats: GamePerfStats = {
+    gameStateUpdateMs: 0,
+    practiceUpdateMs: 0,
+    practicePlannerMs: 0,
+    practicePlannerMaxMs: 0,
+    turretAcquireMs: 0,
+    projectileCollisionMs: 0,
+    fighterCombatMs: 0,
+    fighterSeparationMs: 0,
+    activeEnemyBases: 0,
+    spatial: emptySpatialStats(),
+  };
 
   /**
    * Countdown until the next pending conduit is promoted to the active grid.
@@ -254,6 +286,8 @@ export class GameState {
 
   /** Find all living entities within a given range of a world position. */
   getEntitiesInRange(pos: Vec2, range: number): Entity[] {
+    const indexed = this.spatialIndex.queryCircle(pos, range);
+    if (indexed.length > 0 || this.perfStats.spatial.insertedCount > 0) return indexed.slice();
     const result: Entity[] = [];
     const rSq = range * range;
     for (const e of this.allEntities()) {
@@ -264,6 +298,46 @@ export class GameState {
       }
     }
     return result;
+  }
+
+  queryEntitiesInRange(pos: Vec2, range: number, out: Entity[]): Entity[] {
+    if (this.perfStats.spatial.insertedCount > 0) {
+      return this.spatialIndex.queryCircle(pos, range, out);
+    }
+    out.length = 0;
+    const rSq = range * range;
+    for (const e of this.allEntities()) {
+      const dx = e.position.x - pos.x;
+      const dy = e.position.y - pos.y;
+      if (dx * dx + dy * dy <= rSq) out.push(e);
+    }
+    return out;
+  }
+
+  recordGameStateUpdateMs(ms: number): void {
+    this.perfStats.gameStateUpdateMs = ms;
+  }
+
+  addTurretAcquireTime(ms: number): void {
+    this.perfStats.turretAcquireMs += ms;
+  }
+
+  addFighterCombatTime(ms: number): void {
+    this.perfStats.fighterCombatMs += ms;
+  }
+
+  acquireTurretTarget(turret: TurretBase): void {
+    const startedAt = performance.now();
+    const nearby = this.queryEntitiesInRange(turret.position, turret.range, this.spatialQueryScratch);
+    turret.acquireTarget(nearby);
+    this.addTurretAcquireTime(performance.now() - startedAt);
+  }
+
+  recordPracticePerf(updateMs: number, plannerMs: number, plannerMaxMs: number, activeBases: number): void {
+    this.perfStats.practiceUpdateMs = updateMs;
+    this.perfStats.practicePlannerMs = plannerMs;
+    this.perfStats.practicePlannerMaxMs = plannerMaxMs;
+    this.perfStats.activeEnemyBases = activeBases;
   }
 
   /** All living entities hostile to the given team. */
@@ -285,6 +359,7 @@ export class GameState {
   update(dt: number): void {
     if (this.gameMode === 'menu') return;
 
+    this.resetPerfStatsForTick();
     this.gameTime += dt;
     this.beginNavigationFrame();
     for (const circles of this.territoryCirclesByTeam.values()) {
@@ -313,8 +388,11 @@ export class GameState {
       if (b instanceof SynonymousMineLayer) b.tickMineLayer(this);
     }
     this.synonymous.updateBuildingIntegrity(this.buildings);
+    this.rebuildSpatialIndex();
 
+    const separationStart = performance.now();
     this.applyFighterSeparation(dt);
+    this.perfStats.fighterSeparationMs = performance.now() - separationStart;
 
     // Update fighters
     for (const f of this.fighters) {
@@ -339,12 +417,15 @@ export class GameState {
         this.detonateProjectile(p);
       }
     }
+    this.rebuildSpatialIndex();
 
     // Collision detection
     // First let enemy bullets intercept swarm missiles (GOAL 3C)
+    const collisionStart = performance.now();
     this.resolveMineProjectileDamage();
     this.resolveProjectileInterceptions();
     this.resolveCollisions();
+    this.perfStats.projectileCollisionMs = performance.now() - collisionStart;
     this.synonymous.updateBuildingIntegrity(this.buildings);
 
     // Resources from factories
@@ -371,6 +452,33 @@ export class GameState {
 
     // Cleanup dead entities
     this.cleanupDead();
+    this.rebuildSpatialIndex();
+  }
+
+  private resetPerfStatsForTick(): void {
+    const previousGameStateMs = this.perfStats.gameStateUpdateMs;
+    this.spatialIndex.clear(true);
+    this.perfStats = {
+      gameStateUpdateMs: previousGameStateMs,
+      practiceUpdateMs: 0,
+      practicePlannerMs: 0,
+      practicePlannerMaxMs: 0,
+      turretAcquireMs: 0,
+      projectileCollisionMs: 0,
+      fighterCombatMs: 0,
+      fighterSeparationMs: 0,
+      activeEnemyBases: 0,
+      spatial: emptySpatialStats(),
+    };
+  }
+
+  private rebuildSpatialIndex(): void {
+    this.spatialIndex.clear(false);
+    for (const ship of this.playerShips.values()) this.spatialIndex.insert(ship);
+    for (const b of this.buildings) this.spatialIndex.insert(b);
+    for (const f of this.fighters) this.spatialIndex.insert(f);
+    for (const p of this.projectiles) this.spatialIndex.insert(p);
+    this.perfStats.spatial = this.spatialIndex.stats();
   }
 
   // -----------------------------------------------------------------------
@@ -382,16 +490,21 @@ export class GameState {
       if (!proj.alive) continue;
 
       const isRegen = proj instanceof RegenBullet;
+      const queryRadius = proj.radius + ENTITY_RADIUS.building + Math.hypot(proj.velocity.x, proj.velocity.y) * DT + GRID_CELL_SIZE;
+      const nearby = this.queryEntitiesInRange(proj.position, queryRadius, this.spatialQueryScratch);
 
       // Check against buildings
-      for (const b of this.buildings) {
-        if (!b.alive) continue;
+      for (const e of nearby) {
+        if (!(e instanceof BuildingBase)) continue;
+        const b = e;
         if (this.checkHit(proj, b, isRegen)) break;
       }
       if (!proj.alive) continue;
 
       // Check against fighters
-      for (const f of this.fighters) {
+      for (const e of nearby) {
+        if (!(e instanceof FighterShip)) continue;
+        const f = e;
         if (!f.alive || f.docked) continue;
         if (this.checkHit(proj, f, isRegen)) break;
       }
@@ -408,7 +521,10 @@ export class GameState {
   private resolveMineProjectileDamage(): void {
     for (const mine of this.projectiles) {
       if (!mine.alive || !isSynonymousDriftMine(mine)) continue;
-      for (const shot of this.projectiles) {
+      const nearby = this.queryEntitiesInRange(mine.position, mine.radius + 90, this.spatialQueryScratch);
+      for (const candidate of nearby) {
+        if (!(candidate instanceof ProjectileBase)) continue;
+        const shot = candidate;
         if (!shot.alive || shot === mine || isSynonymousDriftMine(shot)) continue;
         const dist = 'targetPos' in shot
           ? pointToSegmentDistance(mine.position, shot.position, (shot as ProjectileBase & { targetPos: Vec2 }).targetPos)
@@ -649,10 +765,13 @@ export class GameState {
   }
 
   private applyStructureInteraction(): void {
-    const walls = this.buildings.filter((b) => b.alive && b.buildProgress >= 1 && b.type === EntityType.Wall);
     for (const proj of this.projectiles) {
       if (!proj.alive) continue;
-      for (const wall of walls) {
+      const nearby = this.queryEntitiesInRange(proj.position, proj.radius + ENTITY_RADIUS.building + GRID_CELL_SIZE, this.spatialQueryScratch);
+      for (const candidate of nearby) {
+        if (!(candidate instanceof BuildingBase)) continue;
+        const wall = candidate;
+        if (wall.buildProgress < 1 || wall.type !== EntityType.Wall) continue;
         if (proj.team === wall.team) continue;
         if (this.projectileIntersectsBuildingFootprint(proj, wall)) {
           this.applyProjectileDamage(proj, wall);
@@ -670,7 +789,10 @@ export class GameState {
     }
 
     for (const ship of shipsToCheck) {
-      for (const building of this.buildings) {
+      const nearby = this.queryEntitiesInRange(ship.position, ship.radius + ENTITY_RADIUS.building + GRID_CELL_SIZE * 2, this.spatialQueryScratch);
+      for (const candidate of nearby) {
+        if (!(candidate instanceof BuildingBase)) continue;
+        const building = candidate;
         if (!building.alive || building.buildProgress < 1) continue;
         if (!buildingBlocksShips(building)) continue;
         this.pushEntityOutOfBuildingFootprint(ship, building);
@@ -713,9 +835,11 @@ export class GameState {
     for (let i = 0; i < this.fighters.length; i++) {
       const a = this.fighters[i];
       if (!a.alive || a.docked) continue;
-      for (let j = i + 1; j < this.fighters.length; j++) {
-        const b = this.fighters[j];
-        if (!b.alive || b.docked || a.team !== b.team) continue;
+      const nearby = this.queryEntitiesInRange(a.position, 72, this.spatialQueryScratch);
+      for (const candidate of nearby) {
+        if (!(candidate instanceof FighterShip)) continue;
+        const b = candidate;
+        if (b.id <= a.id || !b.alive || b.docked || a.team !== b.team) continue;
         a.applySeparationFrom(b, dt);
         b.applySeparationFrom(a, dt);
       }
@@ -724,21 +848,20 @@ export class GameState {
 
   private updatePlayerShieldAura(): void {
     const radius = 90;
+    const protectedIds = new Set<number>();
+    for (const ship of this.playerShips.values()) {
+      if (!ship.shieldUnlocked || !ship.alive || ship.shield <= 0) continue;
+      const nearby = this.queryEntitiesInRange(ship.position, radius, this.spatialQueryScratch);
+      for (const candidate of nearby) {
+        if (!(candidate instanceof FighterShip)) continue;
+        if (!candidate.alive || candidate.docked || candidate.team !== ship.team) continue;
+        protectedIds.add(candidate.id);
+      }
+    }
     for (const f of this.fighters) {
       if (!f.alive || f.docked) continue;
-      let protectedByAura = false;
-      for (const ship of this.playerShips.values()) {
-        if (!ship.shieldUnlocked || !ship.alive || ship.shield <= 0 || ship.team !== f.team) continue;
-        if (f.position.distanceTo(ship.position) <= radius) {
-          protectedByAura = true;
-          break;
-        }
-      }
-      if (protectedByAura) {
-        f.enableShield();
-      } else if (f.shieldUnlocked) {
-        f.disableShield();
-      }
+      if (protectedIds.has(f.id)) f.enableShield();
+      else if (f.shieldUnlocked) f.disableShield();
     }
   }
 
@@ -844,7 +967,7 @@ export class GameState {
   }
 
   private applyBlastDamage(proj: ProjectileBase, directTarget: Entity, blastRadius: number): void {
-    for (const e of this.allEntities()) {
+    for (const e of this.spatialIndex.queryCircle(proj.position, blastRadius + ENTITY_RADIUS.building, [])) {
       if (!e.alive || e === proj || e.team === Team.Neutral || e.team === proj.team) continue;
       const d = e.position.distanceTo(proj.position);
       if (d > blastRadius + e.radius) continue;
@@ -966,7 +1089,7 @@ export class GameState {
   private applyNovaBombPulse(proj: SynonymousNovaBomb): void {
     // Nova Bombs apply two fixed-damage pulses; radius/damage are already
     // scaled by living bomber drones when the projectile is created.
-    for (const e of this.allEntities()) {
+    for (const e of this.spatialIndex.queryCircle(proj.position, proj.aoeRadius + ENTITY_RADIUS.building, [])) {
       if (!e.alive || e === proj || e.team === Team.Neutral || e.team === proj.team) continue;
       if (e.position.distanceTo(proj.position) > proj.aoeRadius + e.radius) continue;
       e.takeDamage(proj.pulseDamage, proj);
@@ -1003,7 +1126,7 @@ export class GameState {
   }
 
   private applyMassDriverPulse(proj: MassDriverBullet, radius: number): void {
-    for (const e of this.allEntities()) {
+    for (const e of this.spatialIndex.queryCircle(proj.position, radius + ENTITY_RADIUS.building, [])) {
       if (!e.alive || e === proj || e.team === Team.Neutral || e.team === proj.team) continue;
       const d = e.position.distanceTo(proj.position);
       if (d > radius + e.radius) continue;
@@ -1261,9 +1384,11 @@ export class GameState {
       const swarm = this.projectiles[i];
       if (!swarm.alive || !swarm.interceptable) continue;
 
-      for (let j = 0; j < this.projectiles.length; j++) {
-        if (i === j) continue;
-        const bullet = this.projectiles[j];
+      const nearby = this.spatialIndex.queryCircle(swarm.position, swarm.radius + 90, []);
+      for (const candidate of nearby) {
+        if (!(candidate instanceof ProjectileBase)) continue;
+        const bullet = candidate;
+        if (bullet === swarm) continue;
         if (!bullet.alive || bullet.team === swarm.team) continue;
         // Interceptable missiles shouldn't intercept each other
         if (bullet.interceptable) continue;
@@ -1290,10 +1415,19 @@ export class GameState {
     // Draw exhaust/thrust particles BEFORE all ship bodies so thrust visually
     // sits underneath the ship silhouettes rather than on top of them.
     this.particles.drawExhaust(ctx, camera);
-    for (const b of this.buildings) b.draw(ctx, camera);
+    for (const b of this.buildings) {
+      if (!camera.isOnScreen(b.position, GRID_CELL_SIZE * 8)) continue;
+      b.draw(ctx, camera);
+    }
     this.synonymous.draw(ctx, camera, this.gameTime);
-    for (const f of this.fighters) f.draw(ctx, camera);
-    for (const p of this.projectiles) p.draw(ctx, camera);
+    for (const f of this.fighters) {
+      if (!camera.isOnScreen(f.position, GRID_CELL_SIZE * 5)) continue;
+      f.draw(ctx, camera);
+    }
+    for (const p of this.projectiles) {
+      if (!camera.isOnScreen(p.position, GRID_CELL_SIZE * 16)) continue;
+      p.draw(ctx, camera);
+    }
     for (const ship of this.playerShips.values()) {
       if (ship.alive) ship.draw(ctx, camera);
     }
@@ -1307,6 +1441,7 @@ export class GameState {
     ctx.lineWidth = 1;
     for (const wreck of this.destroyedBuildings) {
       if (wreck.erased) continue;
+      if (!camera.isOnScreen(wreck.position, GRID_CELL_SIZE * 8)) continue;
       const screen = camera.worldToScreen(wreck.position);
       const color = wreck.team === Team.Player
         ? colorToCSS(Colors.radar_friendly_status, 0.23)
@@ -1321,10 +1456,12 @@ export class GameState {
     }
     for (const conduit of this.destroyedConduits) {
       if (conduit.erased) continue;
-      const screen = camera.worldToScreen(new Vec2(
+      const world = new Vec2(
         (conduit.cx + 0.5) * GRID_CELL_SIZE,
         (conduit.cy + 0.5) * GRID_CELL_SIZE,
-      ));
+      );
+      if (!camera.isOnScreen(world, GRID_CELL_SIZE * 3)) continue;
+      const screen = camera.worldToScreen(world);
       const cellPx = GRID_CELL_SIZE * camera.zoom;
       ctx.strokeStyle = conduit.team === Team.Player
         ? colorToCSS(Colors.radar_friendly_status, 0.20)

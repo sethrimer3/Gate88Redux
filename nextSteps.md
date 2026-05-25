@@ -2,6 +2,90 @@
 
 ---
 
+## Survival Scale Performance Pass - Remaining Work
+
+This pass added a reusable spatial hash, F3 performance metrics, nearby-only
+fighter separation, broadphase projectile collision, spatial turret targeting,
+conservative render culling, and partial survival-base planner LOD.
+
+### Deferred / intentionally avoided
+
+**1. Path blocker spatial index for ship routing**
+
+`src/shippath.ts` still caches ship blockers per frame, but `collectWalls(...)`
+continues to scan all blocking buildings when the cache is invalid or a new
+inflate value is requested. A future pass should add a building-collision
+version counter to `GameState`, cache blocking rectangles until that version
+changes, and optionally index `WallRect`s by grid cell so route-corridor checks
+query only nearby blockers.
+
+Files/functions: `src/shippath.ts -> collectWalls`, `isBlockedCell`,
+`hasClearLine`, `findBestBreachPoint`; `src/gamestate.ts` building add/remove
+and construction-completion paths.
+
+**2. Fuller survival base simulation LOD**
+
+Current LOD only throttles planner updates for extra survival bases that are far
+from the player and not near active combat. Actual buildings, turrets, fighters,
+projectiles, power, construction completion, and defeat state remain live. A
+deeper LOD could also stagger distant shipyard production checks, expensive
+base audits, and nonessential effects, but should first add per-base engagement
+state so bases wake immediately when attacked or when their launched wave reaches
+the player.
+
+Files/functions: `src/practicemode.ts -> survivalPlannerCadence`,
+`updateEnemyShipyards`, `updateEnemyFighters`; `src/enemybaseplanner.ts ->
+update`, audit helpers.
+
+**3. PowerGraph clean-tick cost**
+
+`src/power.ts -> PowerGraph.recompute` correctly avoids BFS when clean, but it
+still reapplies `powered` to every building each tick so newly completed
+buildings and power-loss transitions stay correct. This is safe but still
+O(buildings). A future optimization should track construction-completion and
+dirty-power versioning so clean ticks only touch buildings that need a power
+state refresh.
+
+**4. Remaining all-entity scans**
+
+The hottest combat/collision paths now use the spatial index, but some strategic
+and UI scans remain intentionally simple. Good follow-up targets are player
+threat evaluation, staged-wave counts, shipyard caps, Synonymous mine counts,
+and helper paths that still call `state.allEntities()` for rare effects.
+
+Files/functions: `src/practicemode.ts -> updateFailedWaveDetection`,
+`getStrategyDebugInfo`, `enemyWaveLaunchThreshold`; `src/turret.ts ->
+SynonymousMineLayer.tickMineLayer`; `src/commandMode.ts`.
+
+### Validation steps for survival with 5+ bases
+
+1. Start Survival or Ranked Survival and let the match reach at least five live
+   enemy Command Posts.
+2. Press F3 and record: frame/fixed/render time, `sim state`, `practice`,
+   `planners`, `hotspots`, `spatial`, and `ship paths` lines.
+3. Fly near a distant base and confirm its planner wakes up: buildings should
+   continue to complete, turrets should fire, and shipyards should still launch
+   fighters.
+4. Stress-test dense fights around the player base and verify projectiles still
+   hit buildings, fighters, ships, walls, mines, interceptable missiles, Mass
+   Driver pulses, Nova bombs, and Regen healing targets correctly.
+5. Compare against an older build by watching fixed-update spikes and path stats
+   after the fifth base spawns.
+
+### Known behavior changes
+
+- Extra survival bases far from the player and away from active combat run their
+  `EnemyBasePlanner` less frequently. Their saved-up planner `dt` is applied on
+  the next update, so escalation continues, but construction/audit decisions can
+  be delayed by up to roughly 0.5s at reduced tier or 2.0s at dormant tier.
+- Turret target acquisition is staggered by turret id. Existing targets keep
+  updating normally; brand-new target acquisition can be delayed by a fraction
+  of a second when many turrets exist.
+- Offscreen entity drawing now uses conservative camera margins. Extremely long
+  beams or unusual effects should be watched for pop-in during manual testing.
+
+---
+
 ## Fighter Control Group Status UI — Build 048 — Known Limitations
 
 Build 048 implemented the fighter control group status UI in `src/fighterGroupStatus.ts`.

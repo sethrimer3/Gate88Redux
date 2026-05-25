@@ -22,11 +22,13 @@ import { Vec2 } from './math.js';
  * `localTeam`.  Uses `state.player.position` for spatial audio distance.
  */
 export function fireTurretShots(state: GameState, localTeam: Team): void {
-  const allEntities = state.allEntities();
+  const phase = Math.floor(state.gameTime * 12);
   for (const b of state.buildings) {
     if (!b.alive || b.team !== localTeam || !(b instanceof TurretBase)) continue;
     if (b.buildProgress < 1) continue;
-    b.acquireTarget(allEntities);
+    if (!b.targetEntity || ((b.id + phase) % 3) === 0) {
+      state.acquireTurretTarget(b);
+    }
     if (!b.canFire()) continue;
     const target = b.targetEntity;
     if (!target) continue;

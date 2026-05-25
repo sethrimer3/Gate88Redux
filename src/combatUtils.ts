@@ -59,8 +59,8 @@ export function findClosestEnemy(
 ): Entity | null {
   let best: Entity | null = null;
   let bestDist = range;
-  for (const e of state.getEnemiesOf(team)) {
-    if (!e.alive) continue;
+  for (const e of state.getEntitiesInRange(pos, range)) {
+    if (!e.alive || e.team === team || e.team === Team.Neutral) continue;
     if (!isHomingTarget(e)) continue;
     const d = e.position.distanceTo(pos);
     if (d < bestDist) {
@@ -96,7 +96,9 @@ export function damageLaserLine(
   const lenSq = dx * dx + dy * dy;
   if (lenSq <= 0) return;
 
-  for (const target of state.allEntities()) {
+  const mid = new Vec2((start.x + end.x) * 0.5, (start.y + end.y) * 0.5);
+  const queryRadius = Math.sqrt(lenSq) * 0.5 + hitRadius + 120;
+  for (const target of state.getEntitiesInRange(mid, queryRadius)) {
     if (!target.alive || target.team === source.team || target.team === Team.Neutral) continue;
     const tx = target.position.x - start.x;
     const ty = target.position.y - start.y;
@@ -141,7 +143,9 @@ export function damageLaserLineLimited(
   if (lenSq <= 0) return;
 
   const hits: Array<{ target: Entity; t: number }> = [];
-  for (const target of state.allEntities()) {
+  const mid = new Vec2((start.x + end.x) * 0.5, (start.y + end.y) * 0.5);
+  const queryRadius = Math.sqrt(lenSq) * 0.5 + hitRadius + 120;
+  for (const target of state.getEntitiesInRange(mid, queryRadius)) {
     if (!target.alive || target.team === source.team || target.team === Team.Neutral) continue;
     const tx = target.position.x - start.x;
     const ty = target.position.y - start.y;

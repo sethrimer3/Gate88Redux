@@ -10,6 +10,7 @@ const DIST_INDEX = path.join(REPO_ROOT, 'dist', 'index.html');
 const USER_DATA_DIR = path.join(REPO_ROOT, '.electron-user-data');
 const PRELOAD_PATH = path.join(__dirname, 'preload.cjs');
 const LAN_SERVER_ENTRY = path.join(REPO_ROOT, 'server', 'lanServer.ts');
+const APP_ICON_PATH = path.resolve(REPO_ROOT, 'ASSETS', 'icon', 'Sign99_Icon.ico');
 const LAN_PORT = parseInt(process.env.LAN_PORT ?? '8787', 10);
 const LAN_DISCOVERY_HTTP_PORT = parseInt(process.env.LAN_DISCOVERY_HTTP_PORT ?? '8788', 10);
 const SHOULD_AUTO_START_LAN_HELPER =
@@ -218,6 +219,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 540,
     backgroundColor: '#000000',
+    icon: APP_ICON_PATH,
     show: false,
     webPreferences: {
       contextIsolation: true,

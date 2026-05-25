@@ -542,7 +542,9 @@ export class Game {
     }
 
     // Update core game state (entities, collision, power, resources, research, particles)
+    const stateUpdateStart = performance.now();
     this.state.update(DT);
+    this.state.recordGameStateUpdateMs(performance.now() - stateUpdateStart);
     while (this.state.completedResearchNotifications.length > 0) {
       const item = this.state.completedResearchNotifications.shift()!;
       this.hud.showMessage(`Research complete: ${researchDisplayName(item)}`, Colors.researchlab_detail, 4);
@@ -699,7 +701,9 @@ export class Game {
 
     // Player ship fighter spawning from shipyards
     this.updatePlayerShipyards();
+    const fighterCombatStart = performance.now();
     updateFighterWeaponFire(this.state, this.spaceFluid);
+    this.state.addFighterCombatTime(performance.now() - fighterCombatStart);
     if (this.state.gameMode !== 'practice' && this.state.gameMode !== 'vs_ai') {
       fireTurretShots(this.state, this.localPlayerTeam());
     }
@@ -717,7 +721,14 @@ export class Game {
 
     // Mode-specific logic
     if (this.state.gameMode === 'practice' || this.state.gameMode === 'vs_ai') {
+      const practiceStart = performance.now();
       this.practiceMode.update(this.state, this.hud, DT);
+      this.state.recordPracticePerf(
+        performance.now() - practiceStart,
+        this.practiceMode.lastPlannerUpdateMs,
+        this.practiceMode.lastPlannerMaxMs,
+        this.practiceMode.activeEnemyBaseCount,
+      );
       this.recordRankedVsAIResultIfNeeded();
     } else if (this.state.gameMode === 'tutorial') {
       this.tutorialMode.update(this.state, this.hud, DT);
