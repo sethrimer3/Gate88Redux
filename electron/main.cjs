@@ -1,4 +1,4 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, session } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { spawn } = require('node:child_process');
@@ -19,6 +19,8 @@ const OPEN_DEVTOOLS =
   process.argv.includes('--devtools') ||
   process.env.ELECTRON_DEBUG === '1' ||
   process.env.ELECTRON_DEBUG === 'true';
+const ELECTRON_DEV_URL = process.env.GATE88_ELECTRON_DEV_URL ?? '';
+const IS_DEV_RENDERER = ELECTRON_DEV_URL.length > 0;
 const DISABLE_GPU =
   process.env.GATE88_DISABLE_GPU === '1' ||
   process.env.GATE88_DISABLE_GPU === 'true';
@@ -158,6 +160,57 @@ function stopLanHelper() {
   }, 1500).unref();
 }
 
+function joinCspDirectives(directives) {
+  return directives
+    .map(([name, ...values]) => `${name} ${values.join(' ')}`)
+    .join('; ');
+}
+
+function createProductionCsp() {
+  return joinCspDirectives([
+    ['default-src', "'self'", 'file:'],
+    ['script-src', "'self'", 'file:'],
+    ['style-src', "'self'", "'unsafe-inline'", 'file:'],
+    ['img-src', "'self'", 'data:', 'blob:', 'file:'],
+    ['media-src', "'self'", 'data:', 'blob:', 'file:'],
+    ['font-src', "'self'", 'data:', 'file:'],
+    ['connect-src', "'self'", 'http://127.0.0.1:*', 'ws://127.0.0.1:*', 'http://localhost:*', 'ws://localhost:*'],
+    ['worker-src', "'self'", 'blob:', 'file:'],
+    ['child-src', "'none'"],
+    ['object-src', "'none'"],
+    ['base-uri', "'self'"],
+    ['frame-ancestors', "'none'"],
+  ]);
+}
+
+function createDevelopmentCsp() {
+  return joinCspDirectives([
+    ['default-src', "'self'", 'file:', 'http://localhost:*', 'http://127.0.0.1:*'],
+    ['script-src', "'self'", "'unsafe-eval'", 'file:', 'http://localhost:*', 'http://127.0.0.1:*'],
+    ['style-src', "'self'", "'unsafe-inline'", 'file:', 'http://localhost:*', 'http://127.0.0.1:*'],
+    ['img-src', "'self'", 'data:', 'blob:', 'file:', 'http://localhost:*', 'http://127.0.0.1:*'],
+    ['media-src', "'self'", 'data:', 'blob:', 'file:', 'http://localhost:*', 'http://127.0.0.1:*'],
+    ['font-src', "'self'", 'data:', 'file:', 'http://localhost:*', 'http://127.0.0.1:*'],
+    ['connect-src', "'self'", 'http://localhost:*', 'http://127.0.0.1:*', 'ws://localhost:*', 'ws://127.0.0.1:*'],
+    ['worker-src', "'self'", 'blob:', 'file:', 'http://localhost:*', 'http://127.0.0.1:*'],
+    ['child-src', "'none'"],
+    ['object-src', "'none'"],
+    ['base-uri', "'self'"],
+    ['frame-ancestors', "'none'"],
+  ]);
+}
+
+function installElectronCsp() {
+  const csp = IS_DEV_RENDERER ? createDevelopmentCsp() : createProductionCsp();
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const responseHeaders = { ...details.responseHeaders };
+    delete responseHeaders['Content-Security-Policy'];
+    delete responseHeaders['content-security-policy'];
+    responseHeaders['Content-Security-Policy'] = [csp];
+    callback({ responseHeaders });
+  });
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1600,
@@ -170,6 +223,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webSecurity: true,
       ...(fs.existsSync(PRELOAD_PATH) ? { preload: PRELOAD_PATH } : {}),
     },
   });
@@ -181,6 +235,11 @@ function createWindow() {
     }
   });
 
+  if (IS_DEV_RENDERER) {
+    void win.loadURL(ELECTRON_DEV_URL);
+    return;
+  }
+
   if (!fs.existsSync(DIST_INDEX)) {
     throw new Error(`Missing built game entry: ${DIST_INDEX}. Run npm run build first.`);
   }
@@ -189,6 +248,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  installElectronCsp();
   void ensureLanHelperRunning();
   createWindow();
 
