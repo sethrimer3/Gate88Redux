@@ -836,7 +836,7 @@ export class Game {
     const timeSeconds = Math.max(0, Math.floor(this.practiceMode.score.timeSurvived));
     const difficultyMultiplier = Math.max(0, cfg.aiRank / 100);
     const rawScore = timeSeconds * difficultyMultiplier;
-    const score = Math.floor(rawScore / 100) * 100;
+    const score = Math.floor(rawScore);
     return { timeSeconds, difficultyMultiplier, score };
   }
 

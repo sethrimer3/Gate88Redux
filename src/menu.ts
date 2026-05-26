@@ -1187,7 +1187,7 @@ export class MainMenu {
     }
     if (this.rankedSliderDragging && Input.mouseDown) {
       const tt = Math.max(0, Math.min(1, (this.mouseX() - sx) / sw));
-      const nextRank = Math.round((tt * 3000) / 10) * 10;
+      const nextRank = Math.round((tt * 3000) / 100) * 100;
       if (nextRank !== cfg.aiRank) {
         cfg.aiRank = nextRank;
         cfg.difficulty = rankedDifficultyName(nextRank);
