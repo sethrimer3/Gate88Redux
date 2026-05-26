@@ -15,18 +15,14 @@ F3 spatial stats distinguish raw candidates from returned entities.
 
 ### Deferred / intentionally avoided
 
-**1. Path blocker spatial index for ship routing**
+**1. Path blocker spatial index for ship routing - completed**
 
-`src/shippath.ts` still caches ship blockers per frame, but `collectWalls(...)`
-continues to scan all blocking buildings when the cache is invalid or a new
-inflate value is requested. A future pass should add a building-collision
-version counter to `GameState`, cache blocking rectangles until that version
-changes, and optionally index `WallRect`s by grid cell so route-corridor checks
-query only nearby blockers.
-
-Files/functions: `src/shippath.ts -> collectWalls`, `isBlockedCell`,
-`hasClearLine`, `findBestBreachPoint`; `src/gamestate.ts` building add/remove
-and construction-completion paths.
+`GameState` now exposes a building-collision version counter that changes when
+buildings are added, removed, cleaned up, or finish construction. `src/shippath.ts`
+reuses blocking rectangles until that version or the requested inflate value
+changes, and indexes cached `WallRect`s by navigation cell so route-corridor
+checks query nearby blockers instead of repeatedly scanning the full building
+list.
 
 **2. Fuller survival base simulation LOD**
 

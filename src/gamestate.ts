@@ -215,6 +215,7 @@ export class GameState {
   private spatialQueryScratch: Entity[] = [];
   private pathBudgetRemaining = 0;
   private pathBudgetFrameToken = -1;
+  private buildingCollisionVersionCounter = 0;
   survivalKillRewardsEnabled = false;
   survivalEnemyRewardBank = 0;
   perfStats: GamePerfStats = {
@@ -317,6 +318,7 @@ export class GameState {
         else if (entity.type === EntityType.TimeBomb) entity.synonymousVisualKind = 'minelayer';
       }
       this.buildings.push(entity);
+      this.markBuildingCollisionDirty();
       if (!isSynonymousFaction(this.factionByTeam, entity.team)) {
         this.addAutomaticBuildingConduits(entity);
       }
@@ -328,7 +330,16 @@ export class GameState {
   }
 
   removeEntity(entity: Entity): void {
+    if (entity instanceof BuildingBase && entity.alive) this.markBuildingCollisionDirty();
     entity.alive = false;
+  }
+
+  get buildingCollisionVersion(): number {
+    return this.buildingCollisionVersionCounter;
+  }
+
+  private markBuildingCollisionDirty(): void {
+    this.buildingCollisionVersionCounter++;
   }
 
   /** Return all living entities across every list plus the player. */
@@ -489,6 +500,9 @@ export class GameState {
     this.updateBuildingPower();
     for (const b of this.buildings) {
       b.update(dt);
+      if (b.completionEffectPending) {
+        this.markBuildingCollisionDirty();
+      }
       if (
         b.completionEffectPending &&
         (b.type === EntityType.CommandPost || b.type === EntityType.PowerGenerator)
@@ -1502,6 +1516,7 @@ export class GameState {
     compactAlive(this.buildings);
     if (this.buildings.length !== beforeBuildings) {
       this.power.markDirty();
+      this.markBuildingCollisionDirty();
     }
     compactAlive(this.projectiles);
     compactAlive(this.fighters);

@@ -19,6 +19,7 @@ interface NavCell {
 }
 
 interface WallRect {
+  id: number;
   left: number;
   right: number;
   top: number;
@@ -57,9 +58,12 @@ let cachedReusesThisFrame = 0;
 let skippedThisFrame = 0;
 let sharedPathUsesThisFrame = 0;
 let lastBlockerCount = 0;
-let wallCacheFrameToken = -1;
+let wallCacheVersion = -1;
 let wallCacheInflate = -1;
 let wallCache: WallRect[] = [];
+let wallCacheBuckets = new Map<number, WallRect[]>();
+const wallQueryScratch: WallRect[] = [];
+const wallQuerySeen = new Set<number>();
 
 export function beginShipPathFrame(frameToken: number): void {
   if (frameToken === lastFrameToken) return;
@@ -165,8 +169,8 @@ export function getShipPathDebugStats(): ShipPathDebugStats {
 }
 
 function collectWalls(state: GameState, inflate: number): WallRect[] {
-  const frameToken = Math.floor(state.gameTime * 60);
-  if (wallCacheFrameToken === frameToken && Math.abs(wallCacheInflate - inflate) < 0.001) {
+  const version = state.buildingCollisionVersion;
+  if (wallCacheVersion === version && Math.abs(wallCacheInflate - inflate) < 0.001) {
     lastBlockerCount = wallCache.length;
     return wallCache;
   }
@@ -175,6 +179,7 @@ function collectWalls(state: GameState, inflate: number): WallRect[] {
     if (!b.alive || b.buildProgress < 1 || !buildingBlocksShips(b)) continue;
     const rect = buildingShipCollisionRect(b, inflate);
     walls.push({
+      id: b.id,
       left: rect.left,
       right: rect.right,
       top: rect.top,
@@ -183,15 +188,20 @@ function collectWalls(state: GameState, inflate: number): WallRect[] {
       hp: Math.max(1, b.health + ('shield' in b ? Number(b.shield) || 0 : 0)),
     });
   }
-  wallCacheFrameToken = frameToken;
+  wallCacheVersion = version;
   wallCacheInflate = inflate;
   wallCache = walls;
+  wallCacheBuckets = buildWallBuckets(walls);
   lastBlockerCount = walls.length;
   return walls;
 }
 
 function hasClearLine(from: Vec2, to: Vec2, walls: WallRect[]): boolean {
-  for (const wall of walls) {
+  const minX = Math.min(from.x, to.x);
+  const maxX = Math.max(from.x, to.x);
+  const minY = Math.min(from.y, to.y);
+  const maxY = Math.max(from.y, to.y);
+  for (const wall of queryWalls(walls, minX, maxX, minY, maxY)) {
     if (segmentIntersectsRect(from, to, wall)) return false;
   }
   return true;
@@ -219,7 +229,7 @@ function nudgeOutsideBlockingRect(target: Vec2, walls: WallRect[], margin: numbe
   let pos = target.clone();
   let adjusted = false;
   for (let i = 0; i < 4; i++) {
-    const wall = walls.find((w) => pointInRect(pos, w));
+    const wall = queryWalls(walls, pos.x, pos.x, pos.y, pos.y).find((w) => pointInRect(pos, w));
     if (!wall) break;
     const candidates = [
       new Vec2(wall.left - margin, pos.y),
@@ -254,7 +264,11 @@ function recordPathTiming(ms: number): void {
 function findCheapDetour(from: Vec2, target: Vec2, walls: WallRect[], radius: number): Vec2 | null {
   let nearest: WallRect | null = null;
   let nearestDist = Infinity;
-  for (const wall of walls) {
+  const minX = Math.min(from.x, target.x);
+  const maxX = Math.max(from.x, target.x);
+  const minY = Math.min(from.y, target.y);
+  const maxY = Math.max(from.y, target.y);
+  for (const wall of queryWalls(walls, minX, maxX, minY, maxY)) {
     if (!segmentIntersectsRect(from, target, wall)) continue;
     const d = pointToSegmentDistance(wall.center, from, target);
     if (d < nearestDist) {
@@ -427,7 +441,12 @@ function findBestBreachPoint(
   options: ShipPathOptions,
 ): { pos: Vec2; worthIt: boolean } | null {
   let best: { pos: Vec2; score: number; wallHp: number } | null = null;
-  for (const wall of walls) {
+  const corridor = NAV_CELL * 4;
+  const minX = Math.min(from.x, target.x) - corridor;
+  const maxX = Math.max(from.x, target.x) + corridor;
+  const minY = Math.min(from.y, target.y) - corridor;
+  const maxY = Math.max(from.y, target.y) + corridor;
+  for (const wall of queryWalls(walls, minX, maxX, minY, maxY)) {
     const lineDist = pointToSegmentDistance(wall.center, from, target);
     if (lineDist > NAV_CELL * 4) continue;
     const fire = localThreat(state, options.team, wall.center);
@@ -478,7 +497,7 @@ function threatWeight(intelligence: number): number {
 }
 
 function isBlocked(pos: Vec2, walls: WallRect[]): boolean {
-  return walls.some((w) => pointInRect(pos, w));
+  return queryWalls(walls, pos.x, pos.x, pos.y, pos.y).some((w) => pointInRect(pos, w));
 }
 
 function isBlockedCell(cell: NavCell, walls: WallRect[]): boolean {
@@ -486,7 +505,7 @@ function isBlockedCell(cell: NavCell, walls: WallRect[]): boolean {
   const right = left + NAV_CELL;
   const top = cell.cy * NAV_CELL;
   const bottom = top + NAV_CELL;
-  return walls.some((w) => rectsOverlap(left, right, top, bottom, w));
+  return queryWalls(walls, left, right, top, bottom).some((w) => rectsOverlap(left, right, top, bottom, w));
 }
 
 function rectsOverlap(left: number, right: number, top: number, bottom: number, wall: WallRect): boolean {
@@ -548,4 +567,52 @@ function neighbors(c: NavCell): NavCell[] {
     { cx: c.cx - 1, cy: c.cy + 1 },
     { cx: c.cx - 1, cy: c.cy - 1 },
   ];
+}
+
+function buildWallBuckets(walls: WallRect[]): Map<number, WallRect[]> {
+  const buckets = new Map<number, WallRect[]>();
+  for (const wall of walls) {
+    const minCx = Math.floor(wall.left / NAV_CELL);
+    const maxCx = Math.floor(wall.right / NAV_CELL);
+    const minCy = Math.floor(wall.top / NAV_CELL);
+    const maxCy = Math.floor(wall.bottom / NAV_CELL);
+    for (let cy = minCy; cy <= maxCy; cy++) {
+      for (let cx = minCx; cx <= maxCx; cx++) {
+        const key = wallBucketKey(cx, cy);
+        let bucket = buckets.get(key);
+        if (!bucket) {
+          bucket = [];
+          buckets.set(key, bucket);
+        }
+        bucket.push(wall);
+      }
+    }
+  }
+  return buckets;
+}
+
+function queryWalls(walls: WallRect[], left: number, right: number, top: number, bottom: number): WallRect[] {
+  if (walls !== wallCache || wallCacheBuckets.size === 0) return walls;
+  wallQueryScratch.length = 0;
+  wallQuerySeen.clear();
+  const minCx = Math.floor(left / NAV_CELL);
+  const maxCx = Math.floor(right / NAV_CELL);
+  const minCy = Math.floor(top / NAV_CELL);
+  const maxCy = Math.floor(bottom / NAV_CELL);
+  for (let cy = minCy; cy <= maxCy; cy++) {
+    for (let cx = minCx; cx <= maxCx; cx++) {
+      const bucket = wallCacheBuckets.get(wallBucketKey(cx, cy));
+      if (!bucket) continue;
+      for (const wall of bucket) {
+        if (wallQuerySeen.has(wall.id)) continue;
+        wallQuerySeen.add(wall.id);
+        wallQueryScratch.push(wall);
+      }
+    }
+  }
+  return wallQueryScratch;
+}
+
+function wallBucketKey(cx: number, cy: number): number {
+  return (cx + 32768) * 65536 + (cy + 32768);
 }
