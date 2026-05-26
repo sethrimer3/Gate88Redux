@@ -35,6 +35,11 @@ const SPAWN_GROUPS = [ShipGroup.Red, ShipGroup.Green, ShipGroup.Blue] as const;
 const FLANK_POSITION_VARIANCE = 60;
 const SURVIVAL_BASE_INTERVAL_SECONDS = 60;
 const SURVIVAL_BASE_RANK_ESCALATION = 100;
+const SURVIVAL_CHEATER_RANK = 3000;
+const SURVIVAL_POST_CAP_STARTING_RESOURCES_STEP = 250;
+const SURVIVAL_POST_CAP_INCOME_STEP = 0.1;
+const SURVIVAL_POST_CAP_BUILD_SPEED_STEP = 0.08;
+const SURVIVAL_POST_CAP_BUILDER_STEP_INTERVAL = 2;
 const SURVIVAL_BASE_LOD_CHECK_INTERVAL = 0.5;
 const DORMANT_ENEMY_TURRET_RANGE_SQ = 5600 * 5600;
 
@@ -71,6 +76,8 @@ export interface PracticeScore {
 interface EnemyBaseRuntime {
   cp: CommandPost;
   planner: EnemyBasePlanner;
+  config: PracticeConfig;
+  incomeMul: number;
   resources: number;
   lodTimer: number;
   lodAccum: number;
@@ -291,8 +298,9 @@ export class PracticeMode {
     for (const base of this.extraBases) {
       if (!base.cp.alive) continue;
       this.activeEnemyBaseCount++;
-      base.resources += this.enemyIncomeMul *
-        (BASELINE_RESOURCE_GAIN * difficultyIncomeMul + poweredFactories * RESOURCE_GAIN_RATE) *
+      const baseDifficultyIncomeMul = [0.55, 0.8, 1.0, 1.2, 1.45, 1.85][difficultyIndex(base.config.difficulty)];
+      base.resources += base.incomeMul *
+        (BASELINE_RESOURCE_GAIN * baseDifficultyIncomeMul + poweredFactories * RESOURCE_GAIN_RATE) *
         dt;
       base.lodAccum += dt;
       base.lodTimer -= dt;
@@ -370,6 +378,8 @@ export class PracticeMode {
     return {
       cp,
       planner,
+      config,
+      incomeMul: config.enemyIncomeMul,
       resources: config.enemyStartingResources,
       lodTimer: 0,
       lodAccum: 0,
@@ -445,14 +455,32 @@ export class PracticeMode {
     }
     if (!bestPos) return;
     const nextBaseNumber = this.extraBases.length + 1;
-    const rank = clampRank(this.config.survivalAiRank + nextBaseNumber * SURVIVAL_BASE_RANK_ESCALATION);
+    const rawRank = this.config.survivalAiRank + nextBaseNumber * SURVIVAL_BASE_RANK_ESCALATION;
+    const rank = clampRank(rawRank);
+    const postCapTier = Math.max(0, Math.ceil((rawRank - SURVIVAL_CHEATER_RANK) / SURVIVAL_BASE_RANK_ESCALATION));
+    const cheaterBase = postCapTier > 0;
     const config = {
       ...this.config,
       difficulty: rankedDifficultyName(rank),
       survivalAiRank: rank,
+      enemyIncomeMul: cheaterBase
+        ? Math.max(this.config.enemyIncomeMul, 1.25 + postCapTier * SURVIVAL_POST_CAP_INCOME_STEP)
+        : this.config.enemyIncomeMul,
+      enemyStartingResources: cheaterBase
+        ? this.config.enemyStartingResources + postCapTier * SURVIVAL_POST_CAP_STARTING_RESOURCES_STEP
+        : this.config.enemyStartingResources,
+      enemyBuildSpeedMul: cheaterBase
+        ? this.config.enemyBuildSpeedMul + postCapTier * SURVIVAL_POST_CAP_BUILD_SPEED_STEP
+        : this.config.enemyBuildSpeedMul,
+      enemyMaxBuilders: cheaterBase
+        ? this.config.enemyMaxBuilders + Math.floor((postCapTier - 1) / SURVIVAL_POST_CAP_BUILDER_STEP_INTERVAL) + 1
+        : this.config.enemyMaxBuilders,
     };
     this.extraBases.push(this.createEnemyBase(state, bestPos, config));
-    hud.showMessage(`Survival escalation: rank ${rank} enemy base is constructing!`, Colors.alert1, 6);
+    const modifierText = cheaterBase
+      ? ` cheater tier ${postCapTier}, ${config.enemyStartingResources} resources`
+      : '';
+    hud.showMessage(`Survival escalation: rank ${rank}${modifierText} enemy base is constructing!`, Colors.alert1, 6);
     Audio.playSound('enemyhere');
   }
 
@@ -538,7 +566,7 @@ export class PracticeMode {
       if (!target) continue;
       const aim = b.computeAim(target);
       const angle = aimAngle(aim);
-      if (b.type !== EntityType.RegenTurret && angle === null) continue;
+      if (b.type !== EntityType.RegenTurret && b.type !== EntityType.ExciterTurret && angle === null) continue;
       if (angle !== null) b.turretAngle = angle;
       if (b.type === EntityType.RegenTurret) {
         b.consumeShot();

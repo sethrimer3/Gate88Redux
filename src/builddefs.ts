@@ -163,7 +163,7 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
   researchlab: {
     key: 'researchlab',
     label: 'Research Lab',
-    description: 'Enables research of new technologies and ship upgrades.',
+    description: 'Enables research of new technologies and Main Ship upgrades.',
     cost: BUILDING_COST.researchlab,
     footprintCells: 9,
     buildTime: BUILD_TIME.researchlab,

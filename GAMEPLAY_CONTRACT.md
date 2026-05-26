@@ -12,7 +12,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 ## Controls
 
 - WASD moves the player ship. Mouse aims. Left mouse fires the primary weapon.
-- Shift boosts the player ship only while it has at least 10% energy. Passive hull regeneration is doubled while the energy bar is full.
+- Shift boosts the player ship only while it has at least 10% energy. After Main Ship Dash research, first pressing Shift while above 75% energy spends 25% maximum energy and bursts the ship forward in its facing direction with a bright trail for roughly 1.6 seconds. Passive hull regeneration is doubled while the energy bar is full.
 - Right mouse fires the equipped special. Cannon drops a cross-laser mine, Gatling triggers overdrive, Laser charges a burst, and Guided Missile fires a missile swarm.
 - Hold Q for the build menu, choose a building from the left palette, then left click or drag over valid footprints to place it. Right mouse deletes player buildings.
 - Hold Z for the ship menu, view ship stats/upgrades, and select the active primary weapon by clicking or using the mouse wheel.
@@ -27,7 +27,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 - Practice/Vs. AI defeat depends on setup, but the default is losing the player Command Post.
 - The player ship can respawn after destruction if the match is not otherwise lost.
 - Ranked Vs. AI difficulties progress through Easy, Normal, Hard, Expert, Nightmare, and Zenith. Ranked APM scales over the full rank ladder from 10 APM at rank 0 to 500 APM at the top of Zenith.
-- In Survival, each newly spawned enemy base escalates by 100 AI-rank points from the starting Survival rank before deriving that base planner's difficulty.
+- In Survival, each newly spawned enemy base escalates by 100 AI-rank points from the starting Survival rank before deriving that base planner's difficulty. Once the time-based escalation would exceed rank 3000, new bases stay at rank 3000 with cheater-style resource income enabled and then continue spawning with increasingly developed starts: more starting resources, faster build speed, and more builders over later post-cap tiers.
 - Ranked Survival score is whole seconds survived multiplied by the difficulty multiplier (AI rank / 100), then floored to the nearest 100 points.
 - Ranked Vs. AI can opt into the existing full-map-knowledge and 1.25x-resource AI modifiers. Each adds +0.25 to the score multiplier; both together score at x1.5 total.
 
@@ -80,7 +80,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 
 - Research requires at least one powered, finished Research Lab to progress.
 - One active research item can run at a time.
-- Active research items are turret unlocks, Bomber Yard, and Advanced Fighters.
+- Active research items are turret unlocks, Bomber Yard, Advanced Fighters, and Main Ship upgrades including Dash.
 - Mine Layer research and construction are exclusive to The Synonymous faction; Terran players do not see or unlock Mine Layers.
 - Completed research is hidden from the research menu and summarized on the HUD.
 - Gatling Turret is a starter long-range suppressive bullet turret. Missile Turret costs $80 to research before it appears in the build menu. Exciter Turret remains research-gated, uses a 4x4 footprint with a plus-shaped body, and fires a 2-second lock-on laser with a 3-second cooldown. Its target countdown shows converging arrows plus a clockwise-filling lock circle. It may lock ships, fighters, buildings, and interceptable hostile missiles, but it must not lock ordinary bullets.

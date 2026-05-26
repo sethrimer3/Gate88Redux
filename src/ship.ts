@@ -24,6 +24,7 @@ const PASSIVE_HEALTH_REGEN_DELAY = 5;
 const PASSIVE_HEALTH_REGEN_RATE = 1;
 const TRAIL_LIFETIME = 0.42;
 const TRAIL_MIN_DISTANCE = 3;
+const DASH_TRAIL_LIFETIME = 1.6;
 const SHIP_WEAPON_IDS = ['cannon', 'gatling', 'laser', 'guidedmissile', 'synonymousLaser'] as const;
 export type ShipWeaponId = typeof SHIP_WEAPON_IDS[number];
 export const SHIP_WEAPON_OPTIONS: ReadonlyArray<{
@@ -51,6 +52,11 @@ const BOOST_BATTERY_DRAIN = 30;
 const BOOST_LOCKOUT_FRACTION = 0.01;
 const BOOST_REENABLE_BATTERY = 25;
 const FULL_ENERGY_HEALTH_REGEN_MULT = 2;
+const DASH_MIN_ENERGY_FRACTION = 0.75;
+const DASH_ENERGY_COST_FRACTION = 0.25;
+const DASH_INITIAL_SPEED = 760;
+const DASH_TRAIL_MIN_DISTANCE = 6;
+const DASH_TRAIL_MAX_POINTS = 52;
 
 /**
  * How quickly the visual ship rotation chases the mouse-aim target. Set high
@@ -82,6 +88,7 @@ export class PlayerShip extends Entity {
   primaryWeaponId: ShipWeaponId = 'cannon';
   fireCooldownMultiplier: number = 1;
   shieldUnlocked = false;
+  dashUnlocked = false;
   shield: number = 0;
   maxShield: number = 0;
   shieldRegenRate: number = SHIELD_REGEN_RATE;
@@ -97,6 +104,8 @@ export class PlayerShip extends Entity {
   synonymousMuzzleFlash = 0;
   private synonymousRenderer: SynonymousShipRenderer | null = null;
   private trail: TrailPoint[] = [];
+  private dashTrail: TrailPoint[] = [];
+  private dashEffectTimer = 0;
 
   /** Accumulated time used for visual effects like the low-battery flash. */
   drawTime: number = 0;
@@ -234,6 +243,8 @@ export class PlayerShip extends Entity {
     this.aimWorld = new Vec2(position.x + 100, position.y);
     this.thrustDir = new Vec2(0, 0);
     this.trail = [{ pos: position.clone(), age: 0 }];
+    this.dashTrail = [];
+    this.dashEffectTimer = 0;
     this.isThrusting = false;
     this.isBoosting = false;
     this.boostLockedUntilRecharge = false;
@@ -268,6 +279,8 @@ export class PlayerShip extends Entity {
       this.angle = wrapAngle(this.angle + delta);
       return;
     }
+
+    if (Input.wasPressed('Shift')) this.tryDash();
 
     // --- Movement: WASD as a 4-axis direction, decoupled from facing -----
     let dx = 0;
@@ -434,6 +447,9 @@ export class PlayerShip extends Entity {
         this.shield = this.maxShield;
         this.shieldRegenDelay = 0;
         break;
+      case 'shipDash':
+        this.dashUnlocked = true;
+        break;
       default:
         break;
     }
@@ -532,6 +548,30 @@ export class PlayerShip extends Entity {
       this.trail.push({ pos: this.position.clone(), age: 0 });
     }
     if (this.trail.length > 24) this.trail.shift();
+
+    for (const point of this.dashTrail) point.age += dt;
+    this.dashTrail = this.dashTrail.filter((point) => point.age <= DASH_TRAIL_LIFETIME);
+    if (this.dashEffectTimer > 0) {
+      this.dashEffectTimer = Math.max(0, this.dashEffectTimer - dt);
+      const dashLast = this.dashTrail[this.dashTrail.length - 1];
+      if (!dashLast || dashLast.pos.distanceTo(this.position) >= DASH_TRAIL_MIN_DISTANCE) {
+        this.dashTrail.push({ pos: this.position.clone(), age: 0 });
+      }
+    }
+    while (this.dashTrail.length > DASH_TRAIL_MAX_POINTS) this.dashTrail.shift();
+  }
+
+  private tryDash(): void {
+    if (!this.dashUnlocked || this.gatlingOverheatTimer > 0) return;
+    if (this.battery <= this.maxBattery * DASH_MIN_ENERGY_FRACTION) return;
+    const dir = new Vec2(Math.cos(this.angle), Math.sin(this.angle));
+    this.battery = Math.max(0, this.battery - this.maxBattery * DASH_ENERGY_COST_FRACTION);
+    this.velocity = this.velocity.add(dir.scale(DASH_INITIAL_SPEED));
+    this.dashEffectTimer = DASH_TRAIL_LIFETIME;
+    this.dashTrail = [
+      { pos: this.position.add(dir.scale(-this.radius * 0.8)), age: DASH_TRAIL_LIFETIME * 0.16 },
+      { pos: this.position.clone(), age: 0 },
+    ];
   }
 
   private drawMotionTrail(ctx: CanvasRenderingContext2D, camera: Camera, color: Color): void {
@@ -560,11 +600,42 @@ export class PlayerShip extends Entity {
     ctx.restore();
   }
 
+  private drawDashTrail(ctx: CanvasRenderingContext2D, camera: Camera, color: Color): void {
+    if (this.dashTrail.length < 2) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    for (let i = 1; i < this.dashTrail.length; i++) {
+      const a = this.dashTrail[i - 1];
+      const b = this.dashTrail[i];
+      const fade = 1 - Math.max(a.age, b.age) / DASH_TRAIL_LIFETIME;
+      if (fade <= 0) continue;
+      const from = camera.worldToScreen(a.pos);
+      const to = camera.worldToScreen(b.pos);
+      const headBias = i / Math.max(1, this.dashTrail.length - 1);
+      ctx.strokeStyle = colorToCSS(color, 0.10 + fade * 0.48);
+      ctx.lineWidth = (4 + fade * 10 + headBias * 4) * camera.zoom;
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+      ctx.strokeStyle = colorToCSS(Colors.particles_spark, 0.08 + fade * 0.32);
+      ctx.lineWidth = (1.5 + fade * 3) * camera.zoom;
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   // --- Drawing ---
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
     if (!this.alive) return;
     const coreColor = teamColor(this.team);
+    this.drawDashTrail(ctx, camera, coreColor);
     this.drawMotionTrail(ctx, camera, coreColor);
     if (this.faction === 'synonymous') {
       if (!this.synonymousRenderer) this.synonymousRenderer = new SynonymousShipRenderer();
@@ -685,6 +756,22 @@ export class PlayerShip extends Entity {
       ctx.beginPath();
       ctx.arc(screen.x, screen.y, r * (1.45 + shieldFrac * 0.08), 0, Math.PI * 2);
       ctx.stroke();
+      ctx.restore();
+    }
+
+    if (this.dashEffectTimer > 0) {
+      const frac = this.dashEffectTimer / DASH_TRAIL_LIFETIME;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = colorToCSS(Colors.particles_spark, 0.16 + frac * 0.42);
+      ctx.lineWidth = 1.5 + frac * 2.5;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r * (1.35 + (1 - frac) * 1.0), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = colorToCSS(coreColor, 0.04 + frac * 0.16);
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r * (1.9 + frac * 0.5), 0, Math.PI * 2);
+      ctx.fill();
       ctx.restore();
     }
 

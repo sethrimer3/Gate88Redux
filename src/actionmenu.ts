@@ -55,6 +55,7 @@ const RESEARCH_DESCRIPTIONS: Record<string, string> = {
   shipSpeedEnergy:      'Boosts max movement speed and energy regeneration rate.',
   shipFireSpeed:        'Reduces weapon fire cooldown for a faster rate of fire.',
   shipShield:           'Unlocks a rechargeable shield aura that absorbs incoming damage.',
+  shipDash:             'Shift tap burns 25% energy to dash forward with a bright trail.',
   synonymousPierce:     'Harmonic tunneling lets shots phase through multiple targets.',
   synonymousSpeed:      'Enhances drone cohesion and overall movement speed.',
   synonymousFireSpeed1: 'Speeds up pulse fire rate. Level 1 of 4.',
@@ -291,6 +292,7 @@ const RESEARCH_LABELS: Record<string, string> = {
   shipSpeedEnergy: 'Speed +\nEnergy Regen',
   shipFireSpeed: 'Fire\nSpeed',
   shipShield: 'Shield',
+  shipDash: 'Dash',
   synonymousPierce: 'Harmonic\nTunneling',
   synonymousSpeed: 'Cohesion\nDrive',
   synonymousFireSpeed1: 'Pulse\nSynchrony I',
@@ -521,7 +523,7 @@ function buildResearchRoot(state: GameState): RadialItem[] {
   if (isPlayerSynonymous(state)) {
     const nextFireSpeed = `synonymousFireSpeed${Math.min(4, state.player.synonymousFireSpeedLevel + 1)}`;
     return visibleCategories([
-      category('Ship', ['synonymousSpeed', 'synonymousVitality']),
+      category('Main Ship', ['synonymousSpeed', 'synonymousVitality']),
       category('Weapons', ['synonymousPierce', nextFireSpeed]),
       category('Fighters', ['advancedFighters', 'bomberyard', 'swarmyard']),
       category('Defensive Turrets', ['synonymousminelayer', 'exciterturret', 'massdriverturret', 'regenturret']),
@@ -529,7 +531,7 @@ function buildResearchRoot(state: GameState): RadialItem[] {
   }
   return visibleCategories([
     category('Defensive Turrets', ['missileturret', 'exciterturret', 'massdriverturret', 'regenturret', 'advancedRegenTurrets']),
-    category('Ship', ['shipHp', 'shipSpeedEnergy', 'shipFireSpeed', 'shipShield']),
+    category('Main Ship', ['shipHp', 'shipSpeedEnergy', 'shipFireSpeed', 'shipShield', 'shipDash']),
     category('Fighters', ['advancedFighters', 'bomberyard', 'swarmyard']),
     category('Weapons', ['weaponCannon', 'weaponGatling', 'weaponLaser', 'weaponGuidedMissile'], [
       { label: 'Cannon', sublabel: 'Ready', disabled: true, infoOnly: true },
@@ -1317,6 +1319,7 @@ class ShipMenu {
             ['Speed + Energy Regen', 'shipSpeedEnergy'],
             ['Fire Speed', 'shipFireSpeed'],
             ['Shield Aura', 'shipShield'],
+            ['Dash', 'shipDash'],
           ]),
     ] as Array<[string, string]>;
     const unlockedUpgrades = upgrades.filter(([, key]) => state.researchedItems.has(key));
