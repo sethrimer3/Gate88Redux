@@ -95,6 +95,7 @@ import {
 import { FighterGroupStatusUI } from './fighterGroupStatus.js';
 
 type GamePhase = 'menu' | 'playing' | 'paused';
+type PersistentGroupOrder = 'waypoint' | 'follow' | 'protect';
 
 const PLAYER_FIRE_COOLDOWN = WEAPON_STATS.fire.fireRate * DT;
 const MAX_FIXED_UPDATES_PER_FRAME = 5;
@@ -130,12 +131,13 @@ export class Game {
   private lastFixedUpdateMs = 0;
   private lastRenderMs = 0;
   private waypointMarkers = new Map<ShipCommandGroup, WaypointMarker>();
+  private lastGroupOrders = new Map<ShipCommandGroup, PersistentGroupOrder>();
   private commandModeState: CommandModeState = createCommandModeState();
   private readonly boundIssueShipOrder = (
     group: ShipCommandGroup,
     order: string,
     targetOverride?: Vec2,
-  ): void => issueShipOrder(this.commandModeCtx(), group, order, targetOverride);
+  ): void => this.issuePersistentShipOrder(group, order, targetOverride);
   /**
    * Accumulates total dt between fighter exhaust emissions.
    * Fighter exhaust is rate-limited (not every tick) to reduce particle count at scale.
@@ -884,6 +886,11 @@ export class Game {
   }
 
   private updatePlayerShipyards(): void {
+    const dockedByYard = new Map<Shipyard, number>();
+    for (const f of this.state.fighters) {
+      if (!f.alive || !f.docked || !f.homeYard || f.team !== Team.Player) continue;
+      dockedByYard.set(f.homeYard, (dockedByYard.get(f.homeYard) ?? 0) + 1);
+    }
     for (const b of this.state.buildings) {
       if (!b.alive || b.team !== Team.Player) continue;
       if (!(b instanceof Shipyard)) continue;
@@ -894,9 +901,7 @@ export class Game {
         b.shipCapacity = 7;
         b.buildInterval = 4;
       }
-      b.dockedShips = this.state.fighters.filter(
-        (f) => f.alive && f.homeYard === b && f.docked,
-      ).length;
+      b.dockedShips = dockedByYard.get(b) ?? 0;
 
       if (b.shouldSpawnShip()) {
         const isBomber = b.type === EntityType.BomberYard;
@@ -913,24 +918,63 @@ export class Game {
           : synonymous
             ? new SynonymousFighterShip(spawnPos.clone(), Team.Player, group, b, this.state.researchedItems.has('advancedFighters'))
             : new FighterShip(spawnPos.clone(), Team.Player, group, b);
-        if (!synonymous && !isBomber && !isSwarm && this.state.researchedItems.has('advancedFighters')) fighter.weaponDamage = 2;
+        if (this.state.researchedItems.has('advancedFighters')) fighter.upgradeToAdvanced();
         b.activeShips++;
         this.state.addEntity(fighter);
         b.dockedShips++;
-        const waypoint = this.getWaypointForGroup(group);
-        if (waypoint && !b.holdDocked) {
-          fighter.order = 'waypoint';
-          fighter.targetPos = waypoint.clone();
-          fighter.launch();
-          b.dockedShips = Math.max(0, b.dockedShips - 1);
-        } else if (!b.holdDocked) {
-          fighter.order = 'waypoint';
-          fighter.targetPos = b.position.clone();
-          fighter.launch();
+        if (!b.holdDocked && this.applySpawnOrderToFighter(fighter, b)) {
           b.dockedShips = Math.max(0, b.dockedShips - 1);
         }
       }
     }
+  }
+
+  private issuePersistentShipOrder(group: ShipCommandGroup, order: string, targetOverride?: Vec2): void {
+    issueShipOrder(this.commandModeCtx(), group, order, targetOverride);
+    if (order === 'waypoint' || order === 'follow' || order === 'protect') {
+      if (group === 'all') {
+        this.lastGroupOrders.clear();
+      } else {
+        this.lastGroupOrders.delete('all');
+      }
+      this.lastGroupOrders.set(group, order);
+    } else if (order === 'dock') {
+      this.lastGroupOrders.delete(group);
+      if (group === 'all') this.lastGroupOrders.clear();
+    }
+  }
+
+  private applySpawnOrderToFighter(fighter: FighterShip, yard: Shipyard): boolean {
+    const order = this.lastGroupOrders.get(yard.assignedGroup) ?? this.lastGroupOrders.get('all') ?? null;
+    if (order === 'waypoint') {
+      const waypoint = this.getWaypointForGroup(yard.assignedGroup);
+      if (!waypoint) return this.launchFighterAroundYard(fighter, yard);
+      fighter.order = 'waypoint';
+      fighter.targetPos = waypoint;
+      fighter.launch();
+      return true;
+    }
+    if (order === 'follow') {
+      fighter.order = 'follow';
+      fighter.targetPos = this.state.player.position.clone();
+      fighter.launch();
+      return true;
+    }
+    if (order === 'protect') {
+      const cp = this.state.getPlayerCommandPost();
+      fighter.order = 'protect';
+      fighter.targetPos = (cp?.position ?? this.state.player.position).clone();
+      fighter.launch();
+      return true;
+    }
+    return this.launchFighterAroundYard(fighter, yard);
+  }
+
+  private launchFighterAroundYard(fighter: FighterShip, yard: Shipyard): boolean {
+    fighter.order = 'waypoint';
+    fighter.targetPos = yard.position.clone();
+    fighter.launch();
+    return true;
   }
 
   private handleActionResult(result: MenuResult): void {
@@ -939,7 +983,7 @@ export class Game {
         this.placeBuilding(result.buildingType, result.cell);
         break;
       case 'order':
-        issueShipOrder(this.commandModeCtx(), result.group, result.order);
+        this.issuePersistentShipOrder(result.group, result.order);
         break;
       case 'research':
         this.startResearch(result.item);
@@ -1004,6 +1048,10 @@ export class Game {
 
     if (cost === undefined || time === undefined) return;
     if (!(ACTIVE_RESEARCH_ITEMS as readonly string[]).includes(item)) return;
+    if (item === 'advancedRegenTurrets' && !this.state.researchedItems.has('regenturret')) {
+      this.hud.showMessage('Research Regen Turrets first!', Colors.alert1, 3);
+      return;
+    }
     if (this.state.researchedItems.has(item) || this.state.researchProgress.item === item || this.state.researchQueue.includes(item)) {
       this.hud.showMessage(`${researchDisplayName(item)} is already queued or complete`, Colors.alert2, 3);
       return;
@@ -1094,6 +1142,7 @@ export class Game {
     this.actionMenu = new ActionMenu();
     this.hud = new HUD();
     this.waypointMarkers.clear();
+    this.lastGroupOrders.clear();
     this.commandModeState.selectedFighters.clear();
     this.commandModeState.selectedTurrets.clear();
     this.commandModeState.dragStart = null;
@@ -1289,6 +1338,7 @@ export class Game {
     this.actionMenu = new ActionMenu();
     this.hud = new HUD();
     this.waypointMarkers.clear();
+    this.lastGroupOrders.clear();
     this.spaceFluid.reset();
     this.spaceFluid.resize(this.screenW, this.screenH);
 
@@ -1472,6 +1522,7 @@ export class Game {
     this.actionMenu = new ActionMenu();
     this.hud = new HUD();
     this.waypointMarkers.clear();
+    this.lastGroupOrders.clear();
     this.spaceFluid.reset();
     this.spaceFluid.resize(this.screenW, this.screenH);
 
@@ -1772,6 +1823,7 @@ export class Game {
         f.velocity.x = sf.vx;
         f.velocity.y = sf.vy;
         f.angle = sf.angle;
+        if (sf.advancedTier) f.upgradeToAdvanced();
         if (!sf.alive && f.alive) f.destroy();
       } else {
         // Fighter has been removed from host state (dead/docked) — destroy locally.
@@ -1787,6 +1839,7 @@ export class Game {
       const newFighter = isBomber
         ? new BomberShip(new Vec2(sf.x, sf.y), sf.team as Team, ShipGroup.Red, null)
         : new FighterShip(new Vec2(sf.x, sf.y), sf.team as Team, ShipGroup.Red, null);
+      if (sf.advancedTier) newFighter.upgradeToAdvanced();
       // Force the id to match the host's id so future snapshots can find it.
       (newFighter as unknown as { id: number }).id = sf.id;
       newFighter.velocity.x = sf.vx;
@@ -1912,6 +1965,7 @@ export class Game {
         vy: f.velocity.y,
         angle: f.angle,
         alive: f.alive,
+        advancedTier: f.advancedTier,
       });
     }
 

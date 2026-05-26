@@ -150,6 +150,7 @@ export interface SerializedFighter {
   vx: number; vy: number;
   angle: number;
   alive: boolean;
+  advancedTier?: boolean;
 }
 
 export interface SerializedTerritoryCircle {

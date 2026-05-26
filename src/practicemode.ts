@@ -73,6 +73,17 @@ interface EnemyBaseRuntime {
   lodAccum: number;
 }
 
+interface PracticeTickCache {
+  token: number;
+  poweredEnemyFactories: number;
+  poweredEnemyShipyards: number;
+  playerShipyards: number;
+  playerTurrets: number;
+  playerMassDrivers: BuildingBase[];
+  stagedEnemyFighters: FighterShip[];
+  attackingEnemyFighters: number;
+}
+
 export class PracticeMode {
   private turretCheckTimer: number = 0;
   private planner: EnemyBasePlanner | null = null;
@@ -121,6 +132,16 @@ export class PracticeMode {
   private urgencyLevel: number = 0;
   private readonly nearbyCombatScratch: Entity[] = [];
   private readonly enemyFighterTargetScratch: Entity[] = [];
+  private readonly tickCache: PracticeTickCache = {
+    token: -1,
+    poweredEnemyFactories: 0,
+    poweredEnemyShipyards: 0,
+    playerShipyards: 0,
+    playerTurrets: 0,
+    playerMassDrivers: [],
+    stagedEnemyFighters: [],
+    attackingEnemyFighters: 0,
+  };
 
   score: PracticeScore = { basesDestroyed: 0, timeSurvived: 0 };
   gameOver: boolean = false;
@@ -223,13 +244,8 @@ export class PracticeMode {
       }
     }
 
-    const poweredFactories = state.buildings.filter(
-      (b) => b.alive &&
-        b.team === Team.Enemy &&
-        b.type === EntityType.Factory &&
-        b.powered &&
-        b.buildProgress >= 1,
-    ).length;
+    const tickCache = this.refreshTickCache(state);
+    const poweredFactories = tickCache.poweredEnemyFactories;
     const difficultyIncomeMul = [0.55, 0.8, 1.0, 1.2, 1.45, 1.85][difficultyIndex(this.config.difficulty)];
     this.enemyResources += this.enemyIncomeMul *
       (BASELINE_RESOURCE_GAIN * difficultyIncomeMul + poweredFactories * RESOURCE_GAIN_RATE) *
@@ -301,6 +317,7 @@ export class PracticeMode {
     // Ships only spawn from POWERED, finished shipyards. The CP no longer
     // produces fighters directly.
     this.updateEnemyShipyards(state);
+    this.tickCache.token = -1;
 
     // Combat AI for already-launched fighters.
     this.updateEnemyFighters(state, dt);
@@ -401,6 +418,47 @@ export class PracticeMode {
     this.extraBases.push(this.createEnemyBase(state, bestPos, config));
     hud.showMessage(`Survival escalation: rank ${rank} enemy base is constructing!`, Colors.alert1, 6);
     Audio.playSound('enemyhere');
+  }
+
+  private refreshTickCache(state: GameState): PracticeTickCache {
+    const token = Math.floor(state.gameTime * 60);
+    if (this.tickCache.token === token) return this.tickCache;
+
+    this.tickCache.token = token;
+    this.tickCache.poweredEnemyFactories = 0;
+    this.tickCache.poweredEnemyShipyards = 0;
+    this.tickCache.playerShipyards = 0;
+    this.tickCache.playerTurrets = 0;
+    this.tickCache.attackingEnemyFighters = 0;
+    this.tickCache.playerMassDrivers.length = 0;
+    this.tickCache.stagedEnemyFighters.length = 0;
+
+    for (const b of state.buildings) {
+      if (!b.alive) continue;
+      if (b.team === Team.Enemy) {
+        if (b.powered && b.buildProgress >= 1) {
+          if (b.type === EntityType.Factory) this.tickCache.poweredEnemyFactories++;
+          else if (b instanceof Shipyard) this.tickCache.poweredEnemyShipyards++;
+        }
+      } else if (b.team === Team.Player) {
+        if (b instanceof Shipyard) this.tickCache.playerShipyards++;
+        if (b instanceof TurretBase) {
+          this.tickCache.playerTurrets++;
+          if (b.type === EntityType.MassDriverTurret) this.tickCache.playerMassDrivers.push(b);
+        }
+      }
+    }
+
+    for (const f of state.fighters) {
+      if (!f.alive || f.docked || f.team !== Team.Enemy || isBuilderDrone(f)) continue;
+      if (f.order === 'attack') {
+        this.tickCache.attackingEnemyFighters++;
+      } else if (f.order === 'waypoint' || f.order === 'follow' || f.order === 'protect') {
+        this.tickCache.stagedEnemyFighters.push(f);
+      }
+    }
+
+    return this.tickCache;
   }
 
   // --------------------------------------------------------------------
@@ -517,8 +575,10 @@ export class PracticeMode {
                 ? new SwarmShip(b.bayPosition(), Team.Enemy, spawnGroup, b)
                 : new FighterShip(b.position.clone(), Team.Enemy, spawnGroup, b);
         if (zenith && !(fighter instanceof SynonymousNovaBomberShip)) {
-          fighter.weaponDamage = Math.max(fighter.weaponDamage, 2);
+          fighter.upgradeToAdvanced();
           fighter.enableShield();
+        } else if (state.researchedItems.has('advancedFighters') && fighter.team === Team.Player) {
+          fighter.upgradeToAdvanced();
         }
         fighter.launch();
         b.activeShips++;
@@ -721,18 +781,7 @@ export class PracticeMode {
   private updateEnemyAttackWaves(state: GameState, dt: number): void {
     if (!this.shouldStageEnemyWaves()) return;
     this.enemyWaveTimer -= dt;
-    const staged: FighterShip[] = [];
-    for (const f of state.fighters) {
-      if (
-        f.alive &&
-        !f.docked &&
-        f.team === Team.Enemy &&
-        !isBuilderDrone(f) &&
-        (f.order === 'waypoint' || f.order === 'follow' || f.order === 'protect')
-      ) {
-        staged.push(f);
-      }
-    }
+    const staged = this.refreshTickCache(state).stagedEnemyFighters;
     const idx = difficultyIndex(this.config.difficulty);
     const threshold = this.enemyWaveLaunchThreshold(state, idx);
 
@@ -784,6 +833,7 @@ export class PracticeMode {
         f.targetPos = target.position.clone();
       }
     }
+    this.tickCache.token = -1;
 
     // Track the launch and reset stagnation timer.
     this.secsSinceLastWave = 0;
@@ -819,23 +869,14 @@ export class PracticeMode {
     const timeBonus = idx >= 2 ? Math.min(8, Math.floor(Math.max(0, gameTimeMins - 2) / 2)) : 0;
 
     // Scale with AI shipyard count: more yards → larger desired wave.
-    let aiShipyardCount = 0;
-    for (const b of state.buildings) {
-      if (!b.alive || b.team !== Team.Enemy || !(b instanceof Shipyard)) continue;
-      if (!b.powered || b.buildProgress < 1) continue;
-      aiShipyardCount++;
-    }
+    const aiShipyardCount = this.refreshTickCache(state).poweredEnemyShipyards;
     const yardBonus = Math.max(0, aiShipyardCount - 1); // 0 for 1 yard, +1 per extra yard
 
     // Scale with consecutive failures: failed waves push us to want bigger groups.
     const failureBonus = Math.min(6, this.consecutiveFailedWaves * 2);
 
     // Player turrets count as defensive pressure.
-    let playerTurretCount = 0;
-    for (const b of state.buildings) {
-      if (!b.alive || b.team !== Team.Player || !(b instanceof TurretBase)) continue;
-      playerTurretCount++;
-    }
+    const playerTurretCount = this.refreshTickCache(state).playerTurrets;
     const defenseBonus = Math.min(idx >= 5 ? 8 : 4, Math.floor(playerTurretCount / 3));
 
     const threshold = base + timeBonus + yardBonus + failureBonus + defenseBonus;
@@ -854,13 +895,9 @@ export class PracticeMode {
    * Feeds into reactive turret selection in the planner.
    */
   private evaluatePlayerThreat(state: GameState): void {
-    let playerShipyards = 0;
-    let playerTurrets = 0;
-    for (const b of state.buildings) {
-      if (!b.alive || b.team !== Team.Player) continue;
-      if (b instanceof Shipyard) playerShipyards++;
-      if (b instanceof TurretBase) playerTurrets++;
-    }
+    const tickCache = this.refreshTickCache(state);
+    const playerShipyards = tickCache.playerShipyards;
+    const playerTurrets = tickCache.playerTurrets;
     const playerResearch = state.researchedItems.size;
 
     // Classify strategy.
@@ -940,10 +977,8 @@ export class PracticeMode {
   private _waveJustLaunched: boolean = false;
 
   private updateFailedWaveDetection(state: GameState): void {
-    let attackers = 0;
-    for (const f of state.fighters) {
-      if (f.alive && !f.docked && f.team === Team.Enemy && !isBuilderDrone(f) && f.order === 'attack') attackers++;
-    }
+    const tickCache = this.refreshTickCache(state);
+    const attackers = tickCache.attackingEnemyFighters;
 
     // Rising edge: wave just launched.
     if (!this._waveJustLaunched && attackers > 0 && this._prevLivingAttackers === 0) {
@@ -953,18 +988,7 @@ export class PracticeMode {
     if (this._waveJustLaunched && attackers === 0 && this.secsSinceLastWave < WAVE_COMPLETION_WINDOW) {
       // If the entire wave died quickly with no staged units left to replace them,
       // treat this as a failed (repelled) wave.
-      let stagedLeft = 0;
-      for (const f of state.fighters) {
-        if (
-          f.alive &&
-          !f.docked &&
-          f.team === Team.Enemy &&
-          !isBuilderDrone(f) &&
-          (f.order === 'waypoint' || f.order === 'follow' || f.order === 'protect')
-        ) {
-          stagedLeft++;
-        }
-      }
+      const stagedLeft = tickCache.stagedEnemyFighters.length;
       if (stagedLeft === 0 && this.secsSinceLastWave < QUICK_FAILURE_THRESHOLD) {
         this.consecutiveFailedWaves++;
       } else {
@@ -1055,8 +1079,7 @@ export class PracticeMode {
   }
 
   private nearPlayerMassDriver(state: GameState, pos: Vec2): boolean {
-    for (const b of state.buildings) {
-      if (!b.alive || b.team !== Team.Player || b.type !== EntityType.MassDriverTurret) continue;
+    for (const b of this.refreshTickCache(state).playerMassDrivers) {
       if (b.position.distanceTo(pos) <= 360) return true;
     }
     return false;
@@ -1086,15 +1109,7 @@ export class PracticeMode {
     if (!this.planner) return null;
     const idx = difficultyIndex(this.config.difficulty);
     const snapshot = this.planner.snapshot();
-    let staged = 0;
-    for (const f of state.fighters) {
-      if (
-        f.alive && !f.docked && f.team === Team.Enemy && !isBuilderDrone(f) &&
-        (f.order === 'waypoint' || f.order === 'follow' || f.order === 'protect')
-      ) {
-        staged++;
-      }
-    }
+    const staged = this.refreshTickCache(state).stagedEnemyFighters.length;
     return {
       urgency:               this.urgencyLevel,
       playerStrategy:        this.playerStrategy,

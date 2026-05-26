@@ -66,6 +66,7 @@ export class FighterShip extends Entity {
   shieldRegenRate: number = SHIELD_REGEN_RATE;
   private shieldRegenDelay = 0;
   protected healthRegenDelay = 0;
+  advancedTier = false;
 
   constructor(
     position: Vec2,
@@ -238,6 +239,30 @@ export class FighterShip extends Entity {
     this.fireTimer = cooldownTicks / TICK_RATE;
   }
 
+  upgradeToAdvanced(): void {
+    if (this.advancedTier) return;
+    this.advancedTier = true;
+    this.maxHealth *= 1.5;
+    this.health = this.maxHealth;
+    this.maxShield = this.maxHealth * 0.5;
+    this.thrustPower *= 1.5;
+    this.maxSpeed *= 1.5;
+    this.turnRate *= 1.2;
+    this.weaponDamage *= 1.5;
+    this.weaponRange *= 1.08;
+    this.fireRate = Math.max(1, this.fireRate / 1.5);
+  }
+
+  avoidHazard(center: Vec2, radius: number, dt: number): void {
+    if (!this.alive || this.docked || radius <= 0) return;
+    const offset = this.position.sub(center);
+    const dist = offset.length();
+    const avoidRadius = radius + this.radius + 72;
+    if (dist <= 0.001 || dist > avoidRadius) return;
+    const strength = (1 - dist / avoidRadius) * this.maxSpeed * 5.5 * dt;
+    this.avoidVelocity = this.avoidVelocity.add(offset.scale(1 / dist).scale(strength));
+  }
+
   firingOrigin(index: number = 0): Vec2 {
     void index;
     return this.position.clone();
@@ -315,8 +340,13 @@ export class FighterShip extends Entity {
   }
 
   private updateTrail(dt: number): void {
-    for (const point of this.trail) point.age += dt;
-    this.trail = this.trail.filter((point) => point.age <= TRAIL_LIFETIME);
+    let write = 0;
+    for (let read = 0; read < this.trail.length; read++) {
+      const point = this.trail[read];
+      point.age += dt;
+      if (point.age <= TRAIL_LIFETIME) this.trail[write++] = point;
+    }
+    this.trail.length = write;
     const last = this.trail[this.trail.length - 1];
     if (!last || last.pos.distanceTo(this.position) >= TRAIL_MIN_DISTANCE) {
       this.trail.push({ pos: this.position.clone(), age: 0 });
@@ -712,6 +742,7 @@ export class BomberShip extends FighterShip {
     this.maxSpeed = SHIP_STATS.bomber.speed;
     this.fireRate = 20;
     this.weaponRange = 200;
+    this.weaponDamage = WEAPON_STATS.bigmissile.damage;
   }
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera): void {
@@ -814,8 +845,15 @@ export class SwarmShip extends FighterShip {
     this.weaponDamage = 0.75;
   }
 
-  protected override updatePassiveHealthRegen(_dt: number): void {
-    // Swarm craft stay fragile; their 5 HP is the balancing identity.
+  override upgradeToAdvanced(): void {
+    super.upgradeToAdvanced();
+    this.maxShield = 0;
+    this.shield = 0;
+  }
+
+  protected override updatePassiveHealthRegen(dt: number): void {
+    if (!this.advancedTier) return;
+    super.updatePassiveHealthRegen(dt);
   }
 
   override draw(ctx: CanvasRenderingContext2D, camera: Camera): void {

@@ -17,6 +17,14 @@ const GROUP_COLORS: Record<ShipGroup, Color> = {
   [ShipGroup.Blue]: Colors.bluegroup,
 };
 
+const RADAR_BACKGROUND = 'rgba(1, 18, 7, 0.84)';
+const RADAR_FRIENDLY_FILL = 'rgba(184, 255, 184, 0.86)';
+const RADAR_FRIENDLY_STROKE = 'rgba(0, 210, 82, 0.98)';
+const RADAR_ENEMY_FILL = 'rgba(255, 185, 185, 0.86)';
+const RADAR_ENEMY_STROKE = 'rgba(205, 12, 34, 0.98)';
+const RADAR_PLAYER_FILL = 'rgba(208, 255, 208, 0.96)';
+const RADAR_PLAYER_STROKE = 'rgba(0, 255, 112, 1)';
+
 // ---------------------------------------------------------------------------
 // Edge Indicators (always active)
 // ---------------------------------------------------------------------------
@@ -120,6 +128,71 @@ function drawWarningTriangle(
   ctx.restore();
 }
 
+function drawRadarSquare(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  fill: string,
+  stroke: string,
+): void {
+  const half = size * 0.5;
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.rect(x - half, y - half, size, size);
+  ctx.fill();
+  ctx.stroke();
+}
+
+function drawRadarCircle(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  fill: string,
+  stroke: string,
+): void {
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+}
+
+function drawRadarShipTriangle(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  angle: number,
+  fill: string,
+  stroke: string,
+): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(size, 0);
+  ctx.lineTo(-size * 0.72, size * 0.62);
+  ctx.lineTo(-size * 0.48, 0);
+  ctx.lineTo(-size * 0.72, -size * 0.62);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function velocityAngle(entity: Entity): number {
+  return entity.velocity.length() > 1 ? Math.atan2(entity.velocity.y, entity.velocity.x) : entity.angle;
+}
+
 export function drawEdgeIndicators(
   ctx: CanvasRenderingContext2D,
   camera: Camera,
@@ -180,7 +253,7 @@ export function drawEdgeIndicators(
 
   // Entities under attack (flashing red)
   for (const id of state.recentlyDamaged) {
-    const entity = state.allEntities().find((e) => e.id === id);
+    const entity = state.getEntityById(id);
     if (!entity || entity.team !== Team.Player) continue;
     const sp = camera.worldToScreen(entity.position);
     const edge = clampToEdge(sp, screenW, screenH);
@@ -200,16 +273,16 @@ export function drawEdgeIndicators(
   }
 
   // Fighter group targets (rotating T at edge)
+  const groupTargets: Array<Vec2 | null> = [null, null, null];
+  for (const f of state.fighters) {
+    if (!f.alive || f.docked || f.team !== Team.Player || f.order !== 'attack' || !f.targetPos) continue;
+    if (!groupTargets[f.group]) groupTargets[f.group] = f.targetPos;
+  }
   for (const group of [ShipGroup.Red, ShipGroup.Green, ShipGroup.Blue]) {
-    const groupFighters = state.getFightersByGroup(Team.Player, group);
-    if (groupFighters.length === 0) continue;
-    // Show target of first fighter that has one
-    const withTarget = groupFighters.find(
-      (f) => f.targetPos !== null && f.order === 'attack',
-    );
-    if (!withTarget || !withTarget.targetPos) continue;
+    const targetPos = groupTargets[group];
+    if (!targetPos) continue;
 
-    const sp = camera.worldToScreen(withTarget.targetPos);
+    const sp = camera.worldToScreen(targetPos);
     const edge = clampToEdge(sp, screenW, screenH);
     if (edge.offScreen) {
       drawRotatingT(
@@ -278,7 +351,7 @@ export function drawRadarOverlay(
   const scale = Math.min(screenW, screenH) * 0.45 / RADAR_RANGE;
 
   // Semi-transparent background tint
-  ctx.fillStyle = colorToCSS(Colors.radar_tint, 0.35);
+  ctx.fillStyle = RADAR_BACKGROUND;
   ctx.fillRect(0, 0, screenW, screenH);
 
   // Grid lines
@@ -301,71 +374,75 @@ export function drawRadarOverlay(
   const playerPos = state.player.position;
 
   // Draw player at center
-  ctx.fillStyle = colorToCSS(Colors.radar_friendly_status);
-  ctx.beginPath();
-  ctx.arc(centerX, centerY, 3, 0, Math.PI * 2);
-  ctx.fill();
+  drawRadarShipTriangle(
+    ctx,
+    centerX,
+    centerY,
+    5,
+    velocityAngle(state.player),
+    RADAR_PLAYER_FILL,
+    RADAR_PLAYER_STROKE,
+  );
 
-  // Friendly buildings
+  // Buildings
   for (const b of state.buildings) {
-    if (!b.alive || b.team !== Team.Player) continue;
+    if (!b.alive || (b.team !== Team.Player && b.team !== Team.Enemy)) continue;
     const dx = (b.position.x - playerPos.x) * scale;
     const dy = (b.position.y - playerPos.y) * scale;
     const rx = centerX + dx;
     const ry = centerY + dy;
     if (rx < 0 || rx > screenW || ry < 0 || ry > screenH) continue;
 
-    const size = b.type === EntityType.CommandPost ? 4 : 2;
-    ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.9);
-    ctx.beginPath();
-    ctx.arc(rx, ry, size, 0, Math.PI * 2);
-    ctx.fill();
+    const friendly = b.team === Team.Player;
+    const fill = friendly ? RADAR_FRIENDLY_FILL : RADAR_ENEMY_FILL;
+    const stroke = friendly ? RADAR_FRIENDLY_STROKE : RADAR_ENEMY_STROKE;
+    if (b.type === EntityType.CommandPost) {
+      drawRadarCircle(ctx, rx, ry, 4.5, fill, stroke);
+    } else {
+      drawRadarSquare(ctx, rx, ry, 4.5, fill, stroke);
+    }
   }
 
-  // Enemy buildings
-  for (const b of state.buildings) {
-    if (!b.alive || b.team !== Team.Enemy) continue;
-    const dx = (b.position.x - playerPos.x) * scale;
-    const dy = (b.position.y - playerPos.y) * scale;
+  // Ships. Friendly ships use pale green so red group never reads as hostile.
+  for (const ship of state.playerShips.values()) {
+    if (!ship.alive || ship === state.player || (ship.team !== Team.Player && ship.team !== Team.Enemy)) continue;
+    const dx = (ship.position.x - playerPos.x) * scale;
+    const dy = (ship.position.y - playerPos.y) * scale;
     const rx = centerX + dx;
     const ry = centerY + dy;
     if (rx < 0 || rx > screenW || ry < 0 || ry > screenH) continue;
 
-    const size = b.type === EntityType.CommandPost ? 4 : 2;
-    ctx.fillStyle = colorToCSS(Colors.radar_enemy_status, 0.9);
-    ctx.beginPath();
-    ctx.arc(rx, ry, size, 0, Math.PI * 2);
-    ctx.fill();
+    const friendly = ship.team === Team.Player;
+    drawRadarShipTriangle(
+      ctx,
+      rx,
+      ry,
+      4.6,
+      velocityAngle(ship),
+      friendly ? RADAR_FRIENDLY_FILL : RADAR_ENEMY_FILL,
+      friendly ? RADAR_FRIENDLY_STROKE : RADAR_ENEMY_STROKE,
+    );
   }
 
-  // Friendly fighters - use the player's color so red group never reads as hostile.
+  // Fighters.
   for (const f of state.fighters) {
-    if (!f.alive || f.docked || f.team !== Team.Player) continue;
+    if (!f.alive || f.docked || (f.team !== Team.Player && f.team !== Team.Enemy)) continue;
     const dx = (f.position.x - playerPos.x) * scale;
     const dy = (f.position.y - playerPos.y) * scale;
     const rx = centerX + dx;
     const ry = centerY + dy;
     if (rx < 0 || rx > screenW || ry < 0 || ry > screenH) continue;
 
-    ctx.fillStyle = colorToCSS(Colors.mainguy, 0.9);
-    ctx.beginPath();
-    ctx.arc(rx, ry, 2, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Enemy fighters
-  for (const f of state.fighters) {
-    if (!f.alive || f.docked || f.team !== Team.Enemy) continue;
-    const dx = (f.position.x - playerPos.x) * scale;
-    const dy = (f.position.y - playerPos.y) * scale;
-    const rx = centerX + dx;
-    const ry = centerY + dy;
-    if (rx < 0 || rx > screenW || ry < 0 || ry > screenH) continue;
-
-    ctx.fillStyle = colorToCSS(Colors.radar_enemy_status, 0.6);
-    ctx.beginPath();
-    ctx.arc(rx, ry, 2, 0, Math.PI * 2);
-    ctx.fill();
+    const friendly = f.team === Team.Player;
+    drawRadarShipTriangle(
+      ctx,
+      rx,
+      ry,
+      3.4,
+      velocityAngle(f),
+      friendly ? RADAR_FRIENDLY_FILL : RADAR_ENEMY_FILL,
+      friendly ? RADAR_FRIENDLY_STROKE : RADAR_ENEMY_STROKE,
+    );
   }
 
   // Distance label

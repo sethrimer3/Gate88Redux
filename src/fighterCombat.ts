@@ -7,7 +7,7 @@
  */
 
 import { Audio } from './audio.js';
-import { Team } from './entities.js';
+import { EntityType, Team } from './entities.js';
 import { GameState } from './gamestate.js';
 import {
   BomberShip,
@@ -41,19 +41,17 @@ const fighterTargetScratch: Entity[] = [];
 export function updateFighterWeaponFire(state: GameState, spaceFluid: SpaceFluid): void {
   for (const f of state.fighters) {
     if (!f.alive || f.docked || f.team !== Team.Player) continue;
-    if (!(f instanceof BomberShip) && !(f instanceof SynonymousFighterShip)) {
-      f.weaponDamage = state.researchedItems.has('advancedFighters') ? 2 : 1;
-    }
     if (!f.canFire()) continue;
 
     const nearby = state.queryEntitiesInRange(f.position, f.weaponRange, fighterTargetScratch);
     let target = null;
-    let bestDist = Infinity;
+    let bestScore = Infinity;
     for (const e of nearby) {
       if (!isCombatTargetValid(f, e, f.weaponRange)) continue;
       const d = f.position.distanceTo(e.position);
-      if (d < bestDist) {
-        bestDist = d;
+      const score = fighterTargetScore(f, e, d);
+      if (score < bestScore) {
+        bestScore = score;
         target = e;
       }
     }
@@ -134,4 +132,18 @@ export function updateFighterWeaponFire(state: GameState, spaceFluid: SpaceFluid
       createdAt: state.gameTime,
     });
   }
+}
+
+function fighterTargetScore(fighter: FighterShip, target: Entity, distance: number): number {
+  if (!fighter.advancedTier) return distance;
+  if (target.type === EntityType.RegenTurret) return distance - 20_000;
+  if (
+    target.type === EntityType.GatlingTurret ||
+    target.type === EntityType.MissileTurret ||
+    target.type === EntityType.ExciterTurret ||
+    target.type === EntityType.MassDriverTurret
+  ) {
+    return distance - 10_000;
+  }
+  return distance;
 }

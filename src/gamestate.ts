@@ -92,6 +92,8 @@ function emptySpatialStats(): SpatialIndexStats {
   return { queryCount: 0, rawCandidateCount: 0, returnedCount: 0, insertedCount: 0, cellCount: 0 };
 }
 
+const DISTANT_STAGED_FIGHTER_SLEEP_RANGE_SQ = 3600 * 3600;
+
 function projectileSegmentEnd(projectile: ProjectileBase): Vec2 {
   const maybeSegment = projectile as ProjectileBase & { targetPos?: Vec2 };
   return maybeSegment.targetPos ?? projectile.position;
@@ -209,6 +211,7 @@ export class GameState {
    * frontier outward, with a 0.5 s delay between each.
    */
   private conduitBuildTimer: number = 0.5;
+  private advancedRegenConduitRepairTimer: number = 0.5;
 
   resources: number = 500;
   researchProgress: ResearchProgress = { item: null, progress: 0, timeNeeded: 0 };
@@ -315,6 +318,22 @@ export class GameState {
     return result;
   }
 
+  getEntityById(id: number): Entity | null {
+    for (const ship of this.playerShips.values()) {
+      if (ship.alive && ship.id === id) return ship;
+    }
+    for (const b of this.buildings) {
+      if (b.alive && b.id === id) return b;
+    }
+    for (const f of this.fighters) {
+      if (f.alive && f.id === id) return f;
+    }
+    for (const p of this.projectiles) {
+      if (p.alive && p.id === id) return p;
+    }
+    return null;
+  }
+
   /** Find all living entities within a given range of a world position. */
   getEntitiesInRange(pos: Vec2, range: number): Entity[] {
     const indexed = this.spatialIndex.queryCircle(pos, range);
@@ -361,7 +380,7 @@ export class GameState {
       if (dx * dx + dy * dy <= rangeSq) out.push(b);
     }
     for (const f of this.fighters) {
-      if (!f.alive) continue;
+      if (!f.alive || f.docked || this.shouldSleepDistantStagedFighter(f)) continue;
       const dx = f.position.x - pos.x;
       const dy = f.position.y - pos.y;
       if (dx * dx + dy * dy <= rangeSq) out.push(f);
@@ -454,8 +473,27 @@ export class GameState {
     this.applyFighterSeparation(dt);
     this.perfStats.fighterSeparationMs = performance.now() - separationStart;
 
-    // Update fighters
+    let enemyCommandPosts = 0;
+    for (const b of this.buildings) {
+      if (b.alive && b.team === Team.Enemy && b.type === EntityType.CommandPost) enemyCommandPosts++;
+    }
+    const survivalScaleEnemyBases = enemyCommandPosts > 1;
+
+    // Update fighters. Docked fighters are capacity bookkeeping for their
+    // shipyards; they do not need hazard avoidance or route refreshes.
     for (const f of this.fighters) {
+      if (f.docked) {
+        f.setNavigationTarget(null);
+        this.fighterNavCache.delete(f.id);
+        f.update(dt);
+        continue;
+      }
+      if (survivalScaleEnemyBases && this.shouldSleepDistantStagedFighter(f)) {
+        f.setNavigationTarget(null);
+        this.fighterNavCache.delete(f.id);
+        continue;
+      }
+      this.applyAdvancedFighterHazardAvoidance(f, dt);
       this.updateFighterNavigation(f);
       f.update(dt);
     }
@@ -498,6 +536,7 @@ export class GameState {
 
     // Tick pending conduit fronts. Every eligible frontier cell builds together.
     this.tickPendingConduits(dt);
+    this.tickAdvancedRegenConduitRepair(dt);
 
     // Research progress
     this.tickResearch(dt);
@@ -536,7 +575,9 @@ export class GameState {
     this.spatialIndex.clear(false);
     for (const ship of this.playerShips.values()) this.spatialIndex.insert(ship);
     for (const b of this.buildings) this.spatialIndex.insert(b);
-    for (const f of this.fighters) this.spatialIndex.insert(f);
+    for (const f of this.fighters) {
+      if (!f.docked && !this.shouldSleepDistantStagedFighter(f)) this.spatialIndex.insert(f);
+    }
     for (const p of this.projectiles) this.spatialIndex.insert(p);
     this.perfStats.spatial = this.spatialIndex.stats();
   }
@@ -902,6 +943,7 @@ export class GameState {
     for (let i = 0; i < this.fighters.length; i++) {
       const a = this.fighters[i];
       if (!a.alive || a.docked) continue;
+      if (this.shouldSleepDistantStagedFighter(a)) continue;
       const nearby = this.queryEntitiesInRange(a.position, 72, this.spatialQueryScratch);
       for (const candidate of nearby) {
         if (!(candidate instanceof FighterShip)) continue;
@@ -970,6 +1012,49 @@ export class GameState {
       this.ringEffects.spawn('build_complete_wave', new Vec2((first.cx + 0.5) * GRID_CELL_SIZE, (first.cy + 0.5) * GRID_CELL_SIZE), 8, 70, 0.55, 0.55);
     }
     Audio.playSound('build');
+  }
+
+  private tickAdvancedRegenConduitRepair(dt: number): void {
+    if (!this.researchedItems.has('advancedRegenTurrets') || this.destroyedConduits.length === 0) return;
+    this.advancedRegenConduitRepairTimer -= dt;
+    if (this.advancedRegenConduitRepairTimer > 0) return;
+    this.advancedRegenConduitRepairTimer = 0.5;
+
+    let repaired = 0;
+    for (const b of this.buildings) {
+      if (!b.alive || b.team !== Team.Player || !(b instanceof TurretBase)) continue;
+      if (b.type !== EntityType.RegenTurret || b.buildProgress < 1 || !b.powered) continue;
+      const conduit = this.findDestroyedConduitForRegenTurret(b);
+      if (!conduit) continue;
+      this.grid.addConduit(conduit.cx, conduit.cy, conduit.team);
+      conduit.erased = true;
+      repaired++;
+      const pos = new Vec2((conduit.cx + 0.5) * GRID_CELL_SIZE, (conduit.cy + 0.5) * GRID_CELL_SIZE);
+      b.turretAngle = b.position.angleTo(pos);
+      b.showBeam(pos);
+      this.particles.emitHealing(pos);
+      this.ringEffects.spawn('build_complete_wave', pos, 5, 42, 0.42, 0.5);
+    }
+    if (repaired === 0) return;
+    this.destroyedConduits = this.destroyedConduits.filter((c) => !c.erased);
+    this.power.markDirty();
+    Audio.playSound('build');
+  }
+
+  private findDestroyedConduitForRegenTurret(turret: TurretBase): DestroyedConduitRecord | null {
+    let best: DestroyedConduitRecord | null = null;
+    let bestDist = turret.range;
+    for (const conduit of this.destroyedConduits) {
+      if (conduit.erased || conduit.team !== turret.team) continue;
+      if (!this.isConduitPlacementCellClear(conduit.cx, conduit.cy).valid) continue;
+      const pos = new Vec2((conduit.cx + 0.5) * GRID_CELL_SIZE, (conduit.cy + 0.5) * GRID_CELL_SIZE);
+      const dist = turret.position.distanceTo(pos);
+      if (dist <= bestDist) {
+        best = conduit;
+        bestDist = dist;
+      }
+    }
+    return best;
   }
 
   /**
@@ -1207,6 +1292,14 @@ export class GameState {
     Audio.playSoundAt('explode1', this.player.position.distanceTo(proj.position));
   }
 
+  private applyAdvancedFighterHazardAvoidance(fighter: FighterShip, dt: number): void {
+    if (!fighter.advancedTier || fighter.docked || !fighter.alive) return;
+    for (const p of this.queryEntitiesInRange(fighter.position, 220, this.spatialQueryScratch)) {
+      if (!(p instanceof MassDriverBullet) || !p.isBursting || p.team === fighter.team) continue;
+      fighter.avoidHazard(p.position, p.radius, dt);
+    }
+  }
+
   private emitBuildingDamageSparks(target: Entity, hitSource: Vec2): void {
     if (!(target instanceof BuildingBase)) return;
     const impact = this.buildingImpactFromPoint(target, hitSource);
@@ -1311,6 +1404,9 @@ export class GameState {
             b.shipCapacity = 7;
             b.buildInterval = 4;
           }
+        }
+        for (const f of this.fighters) {
+          if (f.alive && f.team === Team.Player) f.upgradeToAdvanced();
         }
       } else if (completed === 'shipShield') {
         for (const f of this.fighters) {
@@ -1490,10 +1586,12 @@ export class GameState {
     }
     this.synonymous.draw(ctx, camera, this.gameTime);
     for (const f of this.fighters) {
+      if (!f.alive || f.docked || this.shouldSleepDistantStagedFighter(f)) continue;
       if (!camera.isOnScreen(f.position, GRID_CELL_SIZE * 5)) continue;
       f.draw(ctx, camera);
     }
     for (const p of this.projectiles) {
+      if (!p.alive) continue;
       if (!camera.isOnScreen(p.position, GRID_CELL_SIZE * 16)) continue;
       p.draw(ctx, camera);
     }
@@ -1602,6 +1700,14 @@ export class GameState {
       radius,
       preferBreach: intelligence >= 3,
     });
+  }
+
+  private shouldSleepDistantStagedFighter(f: FighterShip): boolean {
+    if (f.team !== Team.Enemy) return false;
+    if (f.order !== 'waypoint' && f.order !== 'follow' && f.order !== 'protect') return false;
+    const dx = f.position.x - this.player.position.x;
+    const dy = f.position.y - this.player.position.y;
+    return dx * dx + dy * dy > DISTANT_STAGED_FIGHTER_SLEEP_RANGE_SQ;
   }
 
   private updateFighterNavigation(f: FighterShip): void {
@@ -1812,9 +1918,14 @@ export class GameState {
     team: Team,
     group: number,
   ): { docked: number; total: number } {
-    const groupFighters = this.getFightersByGroup(team, group);
-    const docked = groupFighters.filter((f) => f.docked).length;
-    return { docked, total: groupFighters.length };
+    let docked = 0;
+    let total = 0;
+    for (const f of this.fighters) {
+      if (!f.alive || f.team !== team || f.group !== group) continue;
+      total++;
+      if (f.docked) docked++;
+    }
+    return { docked, total };
   }
 
 

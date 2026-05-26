@@ -556,9 +556,15 @@ export class EnemyBasePlanner {
     const idx = difficultyIndex(this.config.difficulty);
     const maxOrders = [0, 2, 4, 7, 10, 14][idx];
     let added = 0;
-    const unpowered = state.buildings
-      .filter((b) => b.alive && b.team === this.team && b.buildProgress >= 1 && !b.powered && !(b instanceof PowerGenerator))
-      .sort((a, b) => this.powerRepairPriority(b) - this.powerRepairPriority(a));
+    const unpowered: BuildingBase[] = [];
+    for (const b of state.buildings) {
+      if (!b.alive || b.team !== this.team || b.buildProgress < 1 || b.powered || b instanceof PowerGenerator) continue;
+      const priority = this.powerRepairPriority(b);
+      let insertAt = unpowered.length;
+      while (insertAt > 0 && this.powerRepairPriority(unpowered[insertAt - 1]) < priority) insertAt--;
+      unpowered.splice(insertAt, 0, b);
+      if (unpowered.length > maxOrders * 2) unpowered.length = maxOrders * 2;
+    }
 
     for (const b of unpowered) {
       if (added >= maxOrders) break;
@@ -602,15 +608,20 @@ export class EnemyBasePlanner {
   private findPowerRepairPath(state: GameState, cx: number, cy: number, maxDistance: number): Array<{ cx: number; cy: number }> {
     let best: Array<{ cx: number; cy: number }> = [];
     let bestLen = Infinity;
-    const targets = [...this.spokes.flat(), ...this.rings.flatMap((r) => r.conduitCells)];
-    for (const t of targets) {
-      if (!state.power.isCellEnergized(this.team, t.cx, t.cy) && state.grid.conduitTeam(t.cx, t.cy) !== this.team) continue;
+    const visitTarget = (t: { cx: number; cy: number }): void => {
+      if (!state.power.isCellEnergized(this.team, t.cx, t.cy) && state.grid.conduitTeam(t.cx, t.cy) !== this.team) return;
       const d = Math.abs(t.cx - cx) + Math.abs(t.cy - cy);
-      if (d <= 1 || d > maxDistance || d >= bestLen) continue;
+      if (d <= 1 || d > maxDistance || d >= bestLen) return;
       const path = traceLine(t.cx, t.cy, cx, cy).slice(1);
-      if (path.some((cell) => !state.grid.hasConduit(cell.cx, cell.cy) && !this.canAIPlaceConduit(state, cell.cx, cell.cy))) continue;
+      if (path.some((cell) => !state.grid.hasConduit(cell.cx, cell.cy) && !this.canAIPlaceConduit(state, cell.cx, cell.cy))) return;
       best = path;
       bestLen = d;
+    };
+    for (const spoke of this.spokes) {
+      for (const t of spoke) visitTarget(t);
+    }
+    for (const ring of this.rings) {
+      for (const t of ring.conduitCells) visitTarget(t);
     }
     return best;
   }

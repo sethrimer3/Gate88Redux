@@ -76,13 +76,22 @@ export abstract class ProjectileBase extends Entity {
   }
 
   protected updateTrail(dt: number): void {
-    for (const point of this.trail) point.age += dt;
-    this.trail = this.trail.filter((point) => point.age <= this.trailLifetime);
+    this.compactTrail(dt, this.trailLifetime);
     const last = this.trail[this.trail.length - 1];
     if (!last || last.pos.distanceTo(this.position) >= this.trailMinDistance) {
       this.trail.push({ pos: this.position.clone(), age: 0 });
     }
     while (this.trail.length > this.trailMaxPoints) this.trail.shift();
+  }
+
+  protected compactTrail(dt: number, lifetime: number): void {
+    let write = 0;
+    for (let read = 0; read < this.trail.length; read++) {
+      const point = this.trail[read];
+      point.age += dt;
+      if (point.age <= lifetime) this.trail[write++] = point;
+    }
+    this.trail.length = write;
   }
 
   protected drawTrail(
@@ -268,8 +277,7 @@ export class GatlingBullet extends ProjectileBase {
       super.updateTrail(dt);
       return;
     }
-    for (const point of this.trail) point.age += dt;
-    this.trail = this.trail.filter((point) => point.age <= GATLING_TRAIL_LIFETIME);
+    this.compactTrail(dt, GATLING_TRAIL_LIFETIME);
     const last = this.trail[this.trail.length - 1];
     if (!last || last.pos.distanceTo(this.position) >= 5) {
       this.trail.push({ pos: this.position.clone(), age: 0 });
@@ -319,8 +327,7 @@ export class GatlingTurretBullet extends ProjectileBase {
   }
 
   protected override updateTrail(dt: number): void {
-    for (const point of this.trail) point.age += dt;
-    this.trail = this.trail.filter((point) => point.age <= GATLING_TRAIL_LIFETIME);
+    this.compactTrail(dt, GATLING_TRAIL_LIFETIME);
     const last = this.trail[this.trail.length - 1];
     if (!last || last.pos.distanceTo(this.position) >= 4) {
       this.trail.push({ pos: this.position.clone(), age: 0 });

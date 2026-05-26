@@ -84,6 +84,7 @@ This build targets a small playable Gate 88 loop: direct ship control, grid-snap
 - Mine Layer research and construction are exclusive to The Synonymous faction; Terran players do not see or unlock Mine Layers.
 - Completed research is hidden from the research menu and summarized on the HUD.
 - Gatling Turret is a starter long-range suppressive bullet turret. Missile Turret costs $80 to research before it appears in the build menu. Exciter Turret remains research-gated and fires a 2-second lock-on laser with a 3-second cooldown. It may lock ships, fighters, buildings, and interceptable hostile missiles, but it must not lock ordinary bullets.
+- Advanced Regen Turrets research appears after Regen Turrets research and lets finished powered player Regen Turrets rebuild nearby destroyed player conduits for free.
 - Player guided missiles and missile-swarm projectiles are interceptable hostile projectiles. Enemy shots and exciter beams can destroy them before impact.
 - Cannon mine deployment can repeat quickly while right mouse is held. Each mine costs 75% of the player's baseline maximum energy, reduced to 50% after Cannon V.2 research.
 

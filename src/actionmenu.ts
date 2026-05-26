@@ -71,6 +71,7 @@ const RESEARCH_DESCRIPTIONS: Record<string, string> = {
   exciterturret:        'Unlocks construction of Exciter Turrets. Sustained-beam defense.',
   massdriverturret:     'Unlocks construction of Mass Driver Turrets. Extreme-range kinetics.',
   regenturret:          'Unlocks construction of Regen Turrets. Heals nearby structures.',
+  advancedRegenTurrets: 'Regen Turrets rebuild destroyed conduits for free.',
   bomberyard:           'Unlocks construction of Bomber Yards for nova bombers.',
   advancedFighters:     'Improves fighter ships with enhanced stats and combat AI.',
 };
@@ -307,6 +308,7 @@ const RESEARCH_LABELS: Record<string, string> = {
   exciterturret: 'Exciter\nTurret',
   massdriverturret: 'Mass Driver\nTurret',
   regenturret: 'Regen\nTurret',
+  advancedRegenTurrets: 'Advanced\nRegen Turrets',
   bomberyard: 'Bomber\nYard',
   swarmyard: 'Swarm\nYard',
   advancedFighters: 'Advanced\nFighters',
@@ -384,6 +386,27 @@ function usesSynonymousSymbol(text: string): boolean {
 
 function isBuildDefAvailable(def: BuildDef, state: GameState): boolean {
   return !def.researchKey || state.researchedItems.has(def.researchKey);
+}
+
+function placementRangeForBuildDef(def: BuildDef): number {
+  switch (def.key) {
+    case 'gatlingturret':
+      return 560;
+    case 'missileturret':
+      return 400;
+    case 'exciterturret':
+      return 720;
+    case 'massdriverturret':
+      return 500;
+    case 'regenturret':
+      return 300;
+    case 'commandpost':
+      return COMMANDPOST_BUILD_RADIUS;
+    case 'powergenerator':
+      return POWERGENERATOR_COVERAGE_RADIUS;
+    default:
+      return 0;
+  }
 }
 
 /**
@@ -469,6 +492,7 @@ function buildResearchRoot(state: GameState): RadialItem[] {
     if (state.researchProgress.item === key) return null;
     if (state.researchQueue.includes(key)) return null;
     if (!(ACTIVE_RESEARCH_ITEMS as readonly string[]).includes(key)) return null;
+    if (key === 'advancedRegenTurrets' && !state.researchedItems.has('regenturret')) return null;
     const researchKey = key as keyof typeof RESEARCH_COST;
     return {
       label: isPlayerSynonymous(state) && key === 'bomberyard' ? 'Nova\nBombers' : RESEARCH_LABELS[key] ?? key,
@@ -494,7 +518,7 @@ function buildResearchRoot(state: GameState): RadialItem[] {
     ];
   }
   return [
-    category('Defensive Turrets', ['missileturret', 'exciterturret', 'massdriverturret', 'regenturret']),
+    category('Defensive Turrets', ['missileturret', 'exciterturret', 'massdriverturret', 'regenturret', 'advancedRegenTurrets']),
     category('Ship', ['shipHp', 'shipSpeedEnergy', 'shipFireSpeed', 'shipShield']),
     category('Fighters', ['advancedFighters', 'bomberyard', 'swarmyard']),
     category('Weapons', ['weaponCannon', 'weaponGatling', 'weaponLaser', 'weaponGuidedMissile'], [
@@ -1760,26 +1784,24 @@ class QuickBuildMenu {
     ctx.strokeRect(screen.x - sizePx / 2, screen.y - sizePx / 2, sizePx, sizePx);
     ctx.setLineDash([]);
 
-    // Pulsing influence-range ring for buildings that have an effect radius
-    if (status.valid) {
-      let effectRadius = 0;
-      if (def.key === 'commandpost') effectRadius = COMMANDPOST_BUILD_RADIUS;
-      else if (def.key === 'powergenerator') effectRadius = POWERGENERATOR_COVERAGE_RADIUS;
-      if (effectRadius > 0) {
-        const t = performance.now() * 0.001;
-        const pulse = 0.5 + 0.5 * Math.sin(t * 2.4);
-        const ringR = effectRadius * camera.zoom;
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.13 + pulse * 0.11);
-        ctx.lineWidth = 1;
-        ctx.setLineDash([9, 7]);
-        ctx.beginPath();
-        ctx.arc(screen.x, screen.y, ringR, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.restore();
-      }
+    // Pulsing influence/weapon-range ring for buildings that expose one.
+    const placementRange = placementRangeForBuildDef(def);
+    if (placementRange > 0) {
+      const t = performance.now() * 0.001;
+      const pulse = 0.5 + 0.5 * Math.sin(t * 2.4);
+      const ringR = placementRange * camera.zoom;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = status.valid
+        ? colorToCSS(Colors.radar_friendly_status, 0.13 + pulse * 0.11)
+        : colorToCSS(Colors.alert1, 0.10 + pulse * 0.08);
+      ctx.lineWidth = def.tier === 'turret' ? 1.25 : 1;
+      ctx.setLineDash(def.tier === 'turret' ? [12, 7] : [9, 7]);
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
     }
 
     ctx.font = '10px "Poiret One", sans-serif';

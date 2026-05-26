@@ -283,6 +283,20 @@ interface GroupEntry {
   assigned: number;
 }
 
+interface FighterGroupSummary {
+  group: Record<ShipGroup, Partial<Record<IconType, number>>>;
+  follow: Partial<Record<IconType, number>>;
+  protect: Partial<Record<IconType, number>>;
+}
+
+function emptyIconCounts(): Partial<Record<IconType, number>> {
+  return {};
+}
+
+function addIconCount(counts: Partial<Record<IconType, number>>, iconType: IconType): void {
+  counts[iconType] = (counts[iconType] ?? 0) + 1;
+}
+
 // ---------------------------------------------------------------------------
 // FighterGroupStatusUI class
 // ---------------------------------------------------------------------------
@@ -309,16 +323,16 @@ export class FighterGroupStatusUI {
    * so that alive counts are current.
    */
   update(state: GameState, dt: number): void {
-    const playerFighters = state.fighters.filter((f) => f.alive && f.team === Team.Player);
+    const summary = this.summarizePlayerFighters(state);
 
     // Numbered groups
     for (let g = 0; g < NUM_GROUPS; g++) {
-      this.updateForFilter(playerFighters, (f) => f.group === g, `group:${g}`, dt);
+      this.updateCounts(summary.group[g as ShipGroup], `group:${g}`, dt);
     }
 
     // Command-mode categories
-    this.updateForFilter(playerFighters, (f) => f.order === 'follow', 'follow', dt);
-    this.updateForFilter(playerFighters, (f) => f.order === 'protect', 'protect', dt);
+    this.updateCounts(summary.follow, 'follow', dt);
+    this.updateCounts(summary.protect, 'protect', dt);
   }
 
   /**
@@ -332,24 +346,24 @@ export class FighterGroupStatusUI {
     _screenH: number,
     animTime: number,
   ): void {
-    const playerFighters = state.fighters.filter((f) => f.alive && f.team === Team.Player);
+    const summary = this.summarizePlayerFighters(state);
     let boxY = BOX_START_Y;
 
     // --- Numbered groups ---
     for (let g = 0; g < NUM_GROUPS; g++) {
-      const entries = this.computeEntries(playerFighters, (f) => f.group === g, `group:${g}`);
+      const entries = this.computeEntries(summary.group[g as ShipGroup], `group:${g}`);
       if (entries.length === 0) continue;
       boxY = this.drawBox(ctx, entries, boxY, g, null, animTime) + BOX_GAP;
     }
 
     // --- Follow-player box ---
-    const followEntries = this.computeEntries(playerFighters, (f) => f.order === 'follow', 'follow');
+    const followEntries = this.computeEntries(summary.follow, 'follow');
     if (followEntries.length > 0) {
       boxY = this.drawBox(ctx, followEntries, boxY, null, 'follow', animTime) + BOX_GAP;
     }
 
     // --- Protect-base box ---
-    const protectEntries = this.computeEntries(playerFighters, (f) => f.order === 'protect', 'protect');
+    const protectEntries = this.computeEntries(summary.protect, 'protect');
     if (protectEntries.length > 0) {
       this.drawBox(ctx, protectEntries, boxY, null, 'protect', animTime);
     }
@@ -359,23 +373,34 @@ export class FighterGroupStatusUI {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  private updateForFilter(
-    fighters: FighterShip[],
-    filter: (f: FighterShip) => boolean,
+  private summarizePlayerFighters(state: GameState): FighterGroupSummary {
+    const summary: FighterGroupSummary = {
+      group: {
+        [ShipGroup.Red]: emptyIconCounts(),
+        [ShipGroup.Green]: emptyIconCounts(),
+        [ShipGroup.Blue]: emptyIconCounts(),
+      },
+      follow: emptyIconCounts(),
+      protect: emptyIconCounts(),
+    };
+    for (const f of state.fighters) {
+      if (!f.alive || f.team !== Team.Player) continue;
+      const iconType = getIconType(f);
+      addIconCount(summary.group[f.group], iconType);
+      if (f.order === 'follow') addIconCount(summary.follow, iconType);
+      if (f.order === 'protect') addIconCount(summary.protect, iconType);
+    }
+    return summary;
+  }
+
+  private updateCounts(
+    aliveCounts: Partial<Record<IconType, number>>,
     prefix: string,
     dt: number,
   ): void {
-    // Count alive fighters by icon type for this filter
-    const aliveCounts = new Map<IconType, number>();
-    for (const f of fighters) {
-      if (!filter(f)) continue;
-      const t = getIconType(f);
-      aliveCounts.set(t, (aliveCounts.get(t) ?? 0) + 1);
-    }
-
     for (const iconType of ICON_TYPE_ORDER) {
       const key = `${prefix}:${iconType}`;
-      const alive = aliveCounts.get(iconType) ?? 0;
+      const alive = aliveCounts[iconType] ?? 0;
       const prev = this.assignedCounts.get(key) ?? 0;
       const assigned = Math.max(prev, alive);
 
@@ -401,23 +426,15 @@ export class FighterGroupStatusUI {
    * and the persisted assigned counts.
    */
   private computeEntries(
-    fighters: FighterShip[],
-    filter: (f: FighterShip) => boolean,
+    aliveCounts: Partial<Record<IconType, number>>,
     prefix: string,
   ): GroupEntry[] {
-    const aliveCounts = new Map<IconType, number>();
-    for (const f of fighters) {
-      if (!filter(f)) continue;
-      const t = getIconType(f);
-      aliveCounts.set(t, (aliveCounts.get(t) ?? 0) + 1);
-    }
-
     const entries: GroupEntry[] = [];
     for (const iconType of ICON_TYPE_ORDER) {
       const key = `${prefix}:${iconType}`;
       const assigned = this.assignedCounts.get(key) ?? 0;
       if (assigned === 0) continue;
-      const alive = aliveCounts.get(iconType) ?? 0;
+      const alive = aliveCounts[iconType] ?? 0;
       entries.push({ iconType, alive, assigned });
     }
     return entries;

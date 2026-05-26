@@ -166,8 +166,8 @@ export class PowerGraph {
 
       // Flood through team-owned conduits, recording BFS parent direction
       // (points FROM source TOWARD the cell, i.e. energy flow direction).
-      while (queue.length > 0) {
-        const cur = queue.shift()!;
+      for (let head = 0; head < queue.length; head++) {
+        const cur = queue[head];
         const neighbours: Array<[number, number, { dx: number; dy: number }]> = [
           [cur.cx + 1, cur.cy, DIR_RIGHT],
           [cur.cx - 1, cur.cy, DIR_LEFT],
