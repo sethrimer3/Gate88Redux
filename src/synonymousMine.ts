@@ -23,6 +23,7 @@ export class SynonymousDriftMine extends ProjectileBase {
   readonly maxRadius: number;
   readonly marker = 'synonymousDriftMine';
   private age = 0;
+  private readonly targetScratch: Entity[] = [];
 
   constructor(team: Team, home: Vec2, angle: number, maxRadius: number, source: Entity | null, private readonly state: GameState) {
     super({
@@ -104,7 +105,8 @@ export class SynonymousDriftMine extends ProjectileBase {
   private nearestEnemy(): Entity | null {
     let best: Entity | null = null;
     let bestDist = MINE_ARM_RADIUS;
-    for (const e of this.state.allEntities()) {
+    const nearby = this.state.queryEntitiesInRange(this.position, MINE_ARM_RADIUS, this.targetScratch);
+    for (const e of nearby) {
       if (!e.alive || e.team === this.team || e.team === Team.Neutral) continue;
       if (e instanceof ProjectileBase) continue;
       const d = this.position.distanceTo(e.position);

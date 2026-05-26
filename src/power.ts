@@ -80,11 +80,8 @@ export class PowerGraph {
    */
   recompute(state: GameState): void {
     if (!this.dirty) {
-      // Still need to resolve building power because new construction
-      // may have ticked since last call. For minimal CPU, only the dirty
-      // path runs full BFS — but updating per-building power against the
-      // cached snapshot is O(buildings) and worth doing every tick.
-      this.applyBuildingPower(state);
+      // Clean frames keep cached powered flags. GameState marks this dirty
+      // when a source finishes construction or topology changes.
       return;
     }
     this.dirty = false;
@@ -168,25 +165,23 @@ export class PowerGraph {
       // (points FROM source TOWARD the cell, i.e. energy flow direction).
       for (let head = 0; head < queue.length; head++) {
         const cur = queue[head];
-        const neighbours: Array<[number, number, { dx: number; dy: number }]> = [
-          [cur.cx + 1, cur.cy, DIR_RIGHT],
-          [cur.cx - 1, cur.cy, DIR_LEFT],
-          [cur.cx, cur.cy + 1, DIR_DOWN],
-          [cur.cx, cur.cy - 1, DIR_UP],
-        ];
-        for (const [nx, ny, dir] of neighbours) {
-          const nk = cellKey(nx, ny);
-          if (visited.has(nk)) continue;
-          if (conduitMap.has(nk)) {
-            visited.add(nk);
-            teamFlowDirs.set(nk, dir);
-            queue.push({ cx: nx, cy: ny });
-          }
-        }
+        visitConduitNeighbour(cur.cx + 1, cur.cy, DIR_RIGHT);
+        visitConduitNeighbour(cur.cx - 1, cur.cy, DIR_LEFT);
+        visitConduitNeighbour(cur.cx, cur.cy + 1, DIR_DOWN);
+        visitConduitNeighbour(cur.cx, cur.cy - 1, DIR_UP);
       }
 
       energized.set(team, visited);
       newFlowDirs.set(team, teamFlowDirs);
+
+      function visitConduitNeighbour(nx: number, ny: number, dir: { dx: number; dy: number }): void {
+        const nk = cellKey(nx, ny);
+        if (visited.has(nk)) return;
+        if (!conduitMap.has(nk)) return;
+        visited.add(nk);
+        teamFlowDirs.set(nk, dir);
+        queue.push({ cx: nx, cy: ny });
+      }
     }
     this.flowDirs = newFlowDirs;
 

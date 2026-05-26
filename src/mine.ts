@@ -173,6 +173,7 @@ export class CrossLaserMine extends ProjectileBase {
   private burstBulletsRemaining = 0;
   private burstBulletsFired = 0;
   private burstTimer = 0;
+  private readonly triggerScratch: Entity[] = [];
 
   constructor(
     team: Team,
@@ -259,9 +260,14 @@ export class CrossLaserMine extends ProjectileBase {
   // --------------------------------------------------------------------------
 
   private checkLaserTriggers(): void {
-    const hostiles = this.gameState.getEnemiesOf(this.team);
+    const hostiles = this.gameState.queryEntitiesInRange(
+      this.position,
+      TERRAN_MINE_LASER_RANGE + ENTITY_RADIUS.mainguy,
+      this.triggerScratch,
+    );
     for (const enemy of hostiles) {
       if (!enemy.alive) continue;
+      if (enemy.team === this.team || enemy.team === Team.Neutral) continue;
       // Only mobile ships/fighters can trigger mines (not buildings or shots).
       if (
         enemy.type !== EntityType.PlayerShip &&

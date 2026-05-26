@@ -125,6 +125,26 @@ function segmentSegmentDistance(a0: Vec2, a1: Vec2, b0: Vec2, b1: Vec2): number 
   );
 }
 
+function compactAlive<T extends Entity>(items: T[]): void {
+  let write = 0;
+  for (let read = 0; read < items.length; read++) {
+    const item = items[read];
+    if (!item.alive) continue;
+    items[write++] = item;
+  }
+  items.length = write;
+}
+
+function compactKeep<T>(items: T[], keep: (item: T) => boolean): void {
+  let write = 0;
+  for (let read = 0; read < items.length; read++) {
+    const item = items[read];
+    if (!keep(item)) continue;
+    items[write++] = item;
+  }
+  items.length = write;
+}
+
 export class GameState {
   /**
    * Map of slot index → PlayerShip for all active player ships (slots 0–7).
@@ -462,7 +482,15 @@ export class GameState {
 
     // Update buildings and power status
     this.updateBuildingPower();
-    for (const b of this.buildings) b.update(dt);
+    for (const b of this.buildings) {
+      b.update(dt);
+      if (
+        b.completionEffectPending &&
+        (b.type === EntityType.CommandPost || b.type === EntityType.PowerGenerator)
+      ) {
+        this.power.markDirty();
+      }
+    }
     for (const b of this.buildings) {
       if (b instanceof SynonymousMineLayer) b.tickMineLayer(this);
     }
@@ -1036,7 +1064,7 @@ export class GameState {
       this.ringEffects.spawn('build_complete_wave', pos, 5, 42, 0.42, 0.5);
     }
     if (repaired === 0) return;
-    this.destroyedConduits = this.destroyedConduits.filter((c) => !c.erased);
+    compactKeep(this.destroyedConduits, (c) => !c.erased);
     this.power.markDirty();
     Audio.playSound('build');
   }
@@ -1161,7 +1189,7 @@ export class GameState {
   private updateExplosionGlows(dt: number): void {
     for (const glow of this.explosionGlows) glow.lifeSeconds -= dt;
     if (this.explosionGlows.length > 0) {
-      this.explosionGlows = this.explosionGlows.filter((glow) => glow.lifeSeconds > 0);
+      compactKeep(this.explosionGlows, (glow) => glow.lifeSeconds > 0);
     }
   }
 
@@ -1353,8 +1381,8 @@ export class GameState {
       }
     }
     if (removed) {
-      this.destroyedBuildings = this.destroyedBuildings.filter((w) => !w.erased);
-      this.destroyedConduits = this.destroyedConduits.filter((c) => !c.erased);
+      compactKeep(this.destroyedBuildings, (w) => !w.erased);
+      compactKeep(this.destroyedConduits, (c) => !c.erased);
     }
     return removed;
   }
@@ -1458,12 +1486,12 @@ export class GameState {
       this.awardSurvivalDestroyedBuildingReward(b);
       this.ringEffects.spawn('shockwave', b.position, b.radius * 0.7, b.radius * 5.5, 0.75, b.team === Team.Player ? 0.85 : 1.05);
     }
-    this.buildings = this.buildings.filter((b) => b.alive);
+    compactAlive(this.buildings);
     if (this.buildings.length !== beforeBuildings) {
       this.power.markDirty();
     }
-    this.projectiles = this.projectiles.filter((p) => p.alive);
-    this.fighters = this.fighters.filter((f) => f.alive);
+    compactAlive(this.projectiles);
+    compactAlive(this.fighters);
   }
 
   private awardSurvivalDestroyedBuildingReward(b: BuildingBase): void {

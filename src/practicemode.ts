@@ -34,6 +34,8 @@ const SPAWN_GROUPS = [ShipGroup.Red, ShipGroup.Green, ShipGroup.Blue] as const;
 const FLANK_POSITION_VARIANCE = 60;
 const SURVIVAL_BASE_INTERVAL_SECONDS = 60;
 const SURVIVAL_BASE_RANK_ESCALATION = 100;
+const SURVIVAL_BASE_LOD_CHECK_INTERVAL = 0.5;
+const DORMANT_ENEMY_TURRET_RANGE_SQ = 5600 * 5600;
 
 /** Interval (seconds) between player-threat evaluations. */
 const THREAT_EVAL_INTERVAL = 10;
@@ -71,6 +73,8 @@ interface EnemyBaseRuntime {
   resources: number;
   lodTimer: number;
   lodAccum: number;
+  lodCheckTimer: number;
+  lodCadence: number;
 }
 
 interface PracticeTickCache {
@@ -80,6 +84,8 @@ interface PracticeTickCache {
   playerShipyards: number;
   playerTurrets: number;
   playerMassDrivers: BuildingBase[];
+  turrets: TurretBase[];
+  poweredEnemyShipyardsList: Shipyard[];
   stagedEnemyFighters: FighterShip[];
   attackingEnemyFighters: number;
 }
@@ -139,6 +145,8 @@ export class PracticeMode {
     playerShipyards: 0,
     playerTurrets: 0,
     playerMassDrivers: [],
+    turrets: [],
+    poweredEnemyShipyardsList: [],
     stagedEnemyFighters: [],
     attackingEnemyFighters: 0,
   };
@@ -257,17 +265,25 @@ export class PracticeMode {
 
     // Drive the planner — only when there's still a CP.
     const cp = this.primaryBase?.cp.alive ? this.primaryBase.cp : null;
-    if (cp && this.planner) {
+    if (cp && this.planner && this.primaryBase) {
       this.activeEnemyBaseCount++;
-      const startedAt = performance.now();
-      const spent = this.planner.update(state, cp, dt, this.enemyResources);
-      const elapsed = performance.now() - startedAt;
-      this.lastPlannerUpdateMs += elapsed;
-      this.lastPlannerMaxMs = Math.max(this.lastPlannerMaxMs, elapsed);
-      this.enemyResources = Math.max(0, this.enemyResources - spent);
-      // Drain planner chat narration and forward to HUD.
-      for (const msg of this.planner.drainChats()) {
-        hud.showAIChat('BASE', msg, Colors.alert1);
+      this.primaryBase.lodAccum += dt;
+      this.primaryBase.lodTimer -= dt;
+      const cadence = this.cachedSurvivalPlannerCadence(state, this.primaryBase, dt);
+      if (this.primaryBase.lodTimer <= 0) {
+        const plannerDt = Math.max(dt, this.primaryBase.lodAccum);
+        this.primaryBase.lodAccum = 0;
+        this.primaryBase.lodTimer = cadence;
+        const startedAt = performance.now();
+        const spent = this.planner.update(state, cp, plannerDt, this.enemyResources);
+        const elapsed = performance.now() - startedAt;
+        this.lastPlannerUpdateMs += elapsed;
+        this.lastPlannerMaxMs = Math.max(this.lastPlannerMaxMs, elapsed);
+        this.enemyResources = Math.max(0, this.enemyResources - spent);
+        // Drain planner chat narration and forward to HUD.
+        for (const msg of this.planner.drainChats()) {
+          hud.showAIChat('BASE', msg, Colors.alert1);
+        }
       }
     }
 
@@ -279,7 +295,7 @@ export class PracticeMode {
         dt;
       base.lodAccum += dt;
       base.lodTimer -= dt;
-      const cadence = this.survivalPlannerCadence(state, base);
+      const cadence = this.cachedSurvivalPlannerCadence(state, base, dt);
       if (base.lodTimer > 0) continue;
       const plannerDt = Math.max(dt, base.lodAccum);
       base.lodAccum = 0;
@@ -294,6 +310,7 @@ export class PracticeMode {
         hud.showAIChat('BASE', msg, Colors.alert1);
       }
     }
+    this.tickCache.token = -1;
 
     // Periodic player threat evaluation.
     this.threatEvalTimer -= dt;
@@ -349,7 +366,25 @@ export class PracticeMode {
 
     const planner = new EnemyBasePlanner(Team.Enemy, config, Math.floor(Math.random() * 0xffffff));
     planner.init(state, cp);
-    return { cp, planner, resources: config.enemyStartingResources, lodTimer: 0, lodAccum: 0 };
+    return {
+      cp,
+      planner,
+      resources: config.enemyStartingResources,
+      lodTimer: 0,
+      lodAccum: 0,
+      lodCheckTimer: 0,
+      lodCadence: 0,
+    };
+  }
+
+  private cachedSurvivalPlannerCadence(state: GameState, base: EnemyBaseRuntime, dt: number): number {
+    if (!this.survivalMode) return 0;
+    base.lodCheckTimer -= dt;
+    if (base.lodCheckTimer <= 0) {
+      base.lodCheckTimer = SURVIVAL_BASE_LOD_CHECK_INTERVAL;
+      base.lodCadence = this.survivalPlannerCadence(state, base);
+    }
+    return base.lodCadence;
   }
 
   private survivalPlannerCadence(state: GameState, base: EnemyBaseRuntime): number {
@@ -431,18 +466,25 @@ export class PracticeMode {
     this.tickCache.playerTurrets = 0;
     this.tickCache.attackingEnemyFighters = 0;
     this.tickCache.playerMassDrivers.length = 0;
+    this.tickCache.turrets.length = 0;
+    this.tickCache.poweredEnemyShipyardsList.length = 0;
     this.tickCache.stagedEnemyFighters.length = 0;
 
     for (const b of state.buildings) {
       if (!b.alive) continue;
       if (b.team === Team.Enemy) {
+        if (b instanceof TurretBase && b.buildProgress >= 1) this.tickCache.turrets.push(b);
         if (b.powered && b.buildProgress >= 1) {
           if (b.type === EntityType.Factory) this.tickCache.poweredEnemyFactories++;
-          else if (b instanceof Shipyard) this.tickCache.poweredEnemyShipyards++;
+          else if (b instanceof Shipyard) {
+            this.tickCache.poweredEnemyShipyards++;
+            this.tickCache.poweredEnemyShipyardsList.push(b);
+          }
         }
       } else if (b.team === Team.Player) {
         if (b instanceof Shipyard) this.tickCache.playerShipyards++;
         if (b instanceof TurretBase) {
+          if (b.buildProgress >= 1) this.tickCache.turrets.push(b);
           this.tickCache.playerTurrets++;
           if (b.type === EntityType.MassDriverTurret) this.tickCache.playerMassDrivers.push(b);
         }
@@ -467,19 +509,26 @@ export class PracticeMode {
 
   private updateTurrets(state: GameState): void {
     const phase = Math.floor(state.gameTime / TURRET_FIRE_CHECK_INTERVAL);
-    for (const b of state.buildings) {
-      if (!b.alive || !(b instanceof TurretBase)) continue;
-      if (b.buildProgress < 1) continue;
+    for (const b of this.refreshTickCache(state).turrets) {
+      if (!b.alive) continue;
+      if (this.shouldSkipDormantEnemyTurretAcquire(state, b)) continue;
       if (!b.targetEntity || ((b.id + phase) % 2) === 0) {
         state.acquireTurretTarget(b);
       }
     }
   }
 
+  private shouldSkipDormantEnemyTurretAcquire(state: GameState, turret: TurretBase): boolean {
+    if (!this.survivalMode || turret.team !== Team.Enemy) return false;
+    if (turret.targetEntity && isCombatTargetValid(turret, turret.targetEntity, turret.range)) return false;
+    const dx = turret.position.x - state.player.position.x;
+    const dy = turret.position.y - state.player.position.y;
+    return dx * dx + dy * dy > DORMANT_ENEMY_TURRET_RANGE_SQ;
+  }
+
   private fireTurrets(state: GameState): void {
-    for (const b of state.buildings) {
-      if (!b.alive || !(b instanceof TurretBase)) continue;
-      if (b.buildProgress < 1) continue;
+    for (const b of this.refreshTickCache(state).turrets) {
+      if (!b.alive) continue;
       if (!b.canFire()) continue;
 
       const playerDist = state.player.position.distanceTo(b.position);
@@ -551,12 +600,9 @@ export class PracticeMode {
   // --------------------------------------------------------------------
 
   private updateEnemyShipyards(state: GameState): void {
-    for (const b of state.buildings) {
-      if (!b.alive || b.team !== Team.Enemy) continue;
-      if (!(b instanceof Shipyard)) continue;
-      if (b.buildProgress < 1) continue;
-      // KEY RULE: ships only come from POWERED enemy shipyards.
-      if (!b.powered) continue;
+    for (const b of this.refreshTickCache(state).poweredEnemyShipyardsList) {
+      if (!b.alive || !b.powered) continue;
+      if (this.shouldSkipDormantEnemyShipyard(state, b)) continue;
 
       if (b.shouldSpawnShip()) {
         // Cycle through Red/Green/Blue groups so fighters are naturally distributed
@@ -596,6 +642,13 @@ export class PracticeMode {
         }
       }
     }
+  }
+
+  private shouldSkipDormantEnemyShipyard(state: GameState, yard: Shipyard): boolean {
+    if (!this.survivalMode || yard.team !== Team.Enemy) return false;
+    const dx = yard.position.x - state.player.position.x;
+    const dy = yard.position.y - state.player.position.y;
+    return dx * dx + dy * dy > DORMANT_ENEMY_TURRET_RANGE_SQ;
   }
 
   private updateEnemyFighters(state: GameState, dt: number): void {

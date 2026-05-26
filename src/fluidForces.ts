@@ -8,6 +8,7 @@
  */
 
 import { GameState } from './gamestate.js';
+import { Team } from './entities.js';
 import { Bullet, ProjectileBase } from './projectile.js';
 import { BomberMissile, GuidedMissile } from './projectile.js';
 import { ChargedLaserBurst, ExciterBeam, GatlingBullet, Laser } from './projectile.js';
@@ -15,6 +16,8 @@ import { SpaceFluid } from './spacefluid.js';
 import { CrystalNebula } from './crystalnebula.js';
 import { type Color } from './colors.js';
 import { teamColor } from './teamutils.js';
+
+const DISTANT_STAGED_FIGHTER_SLEEP_RANGE_SQ = 3600 * 3600;
 
 function rgbFromColor(color: Color): { r: number; g: number; b: number } {
   return {
@@ -63,6 +66,7 @@ export function injectFluidForces(state: GameState, spaceFluid: SpaceFluid): voi
   // ── All live fighters (player and enemy) ─────────────────────────────
   for (const f of state.fighters) {
     if (!f.alive || f.docked) continue;
+    if (shouldSkipVisualFighterWake(state, f)) continue;
     const fv = f.velocity;
     const color = rgbFromColor(teamColor(f.team));
     spaceFluid.addForce({
@@ -77,7 +81,7 @@ export function injectFluidForces(state: GameState, spaceFluid: SpaceFluid): voi
   }
 
   // ── Projectiles ──────────────────────────────────────────────────────
-  for (const e of state.allEntities()) {
+  for (const e of state.projectiles) {
     if (!e.alive) continue;
     if (
       !(e instanceof Bullet) &&
@@ -132,12 +136,13 @@ export function injectCrystalDisturbances(state: GameState, crystalNebula: Cryst
   // ── All live fighters ────────────────────────────────────────────────────
   for (const f of state.fighters) {
     if (!f.alive || f.docked) continue;
+    if (shouldSkipVisualFighterWake(state, f)) continue;
     const fv = f.velocity;
     crystalNebula.addDisturbance(f.position.x, f.position.y, fv.x, fv.y, 70, 0.72);
   }
 
   // ── Projectiles ──────────────────────────────────────────────────────────
-  for (const e of state.allEntities()) {
+  for (const e of state.projectiles) {
     if (!e.alive) continue;
     const ev = e.velocity;
     if (e instanceof ChargedLaserBurst) {
@@ -178,4 +183,12 @@ export function injectCrystalDisturbances(state: GameState, crystalNebula: Cryst
       }
     }
   }
+}
+
+function shouldSkipVisualFighterWake(state: GameState, f: { team: Team; order: string; position: { x: number; y: number } }): boolean {
+  if (f.team !== Team.Enemy) return false;
+  if (f.order !== 'waypoint' && f.order !== 'follow' && f.order !== 'protect') return false;
+  const dx = f.position.x - state.player.position.x;
+  const dy = f.position.y - state.player.position.y;
+  return dx * dx + dy * dy > DISTANT_STAGED_FIGHTER_SLEEP_RANGE_SQ;
 }

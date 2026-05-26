@@ -15,6 +15,8 @@ import { FighterShip } from './fighter.js';
 import type { ShipCommandGroup, WaypointMarker } from './gameRender.js';
 import { isHostile } from './teamutils.js';
 
+const commandEntityScratch: Entity[] = [];
+
 export interface CommandModeState {
   selectedFighters: Set<number>;
   selectedTurrets: Set<number>;
@@ -259,7 +261,8 @@ function findCommandEnemyAt(
 ): Entity | null {
   let best: Entity | null = null;
   let bestDist = 140;
-  for (const e of state.allEntities()) {
+  const nearby = state.queryEntitiesInRange(pos, bestDist + 32, commandEntityScratch);
+  for (const e of nearby) {
     if (!e.alive || !isHostile(localTeam, e.team)) continue;
     const d = e.position.distanceTo(pos);
     if (d <= e.radius + bestDist && d < bestDist) {
@@ -277,7 +280,8 @@ function findNearestEnemyNear(
 ): { position: Vec2 } | null {
   let best: { position: Vec2 } | null = null;
   let bestDist = range;
-  for (const e of state.allEntities()) {
+  const nearby = state.queryEntitiesInRange(pos, range, commandEntityScratch);
+  for (const e of nearby) {
     if (!e.alive || e.team !== Team.Enemy) continue;
     const d = e.position.distanceTo(pos);
     if (d < bestDist) {
@@ -341,10 +345,17 @@ function findPlayerShipyardAt(state: GameState, pos: Vec2): Shipyard | null {
 }
 
 function getPlayerFightersForCommand(state: GameState, group: ShipCommandGroup): FighterShip[] {
+  const fighters: FighterShip[] = [];
   if (group === 'all') {
-    return state.fighters.filter((f) => f.alive && f.team === Team.Player);
+    for (const f of state.fighters) {
+      if (f.alive && f.team === Team.Player) fighters.push(f);
+    }
+    return fighters;
   }
-  return state.getFightersByGroup(Team.Player, group);
+  for (const f of state.fighters) {
+    if (f.alive && f.team === Team.Player && f.group === group) fighters.push(f);
+  }
+  return fighters;
 }
 
 function groupLabel(group: ShipCommandGroup): string {
@@ -374,11 +385,11 @@ function clearWaypointMarker(
 }
 
 function playerShipyardsForCommand(state: GameState, group: ShipCommandGroup): Shipyard[] {
-  return state.buildings.filter(
-    (b): b is Shipyard =>
-      b.alive &&
-      b.team === Team.Player &&
-      b instanceof Shipyard &&
-      (group === 'all' || b.assignedGroup === group),
-  );
+  const yards: Shipyard[] = [];
+  for (const b of state.buildings) {
+    if (!b.alive || b.team !== Team.Player || !(b instanceof Shipyard)) continue;
+    if (group !== 'all' && b.assignedGroup !== group) continue;
+    yards.push(b);
+  }
+  return yards;
 }

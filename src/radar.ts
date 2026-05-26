@@ -24,6 +24,8 @@ const RADAR_ENEMY_FILL = 'rgba(255, 185, 185, 0.86)';
 const RADAR_ENEMY_STROKE = 'rgba(205, 12, 34, 0.98)';
 const RADAR_PLAYER_FILL = 'rgba(208, 255, 208, 0.96)';
 const RADAR_PLAYER_STROKE = 'rgba(0, 255, 112, 1)';
+const RADAR_EDGE_GLOW = 'rgba(150, 255, 184, 0.35)';
+const RADAR_GLASS_SHINE = 'rgba(210, 255, 226, 0.10)';
 
 // ---------------------------------------------------------------------------
 // Edge Indicators (always active)
@@ -137,6 +139,9 @@ function drawRadarSquare(
   stroke: string,
 ): void {
   const half = size * 0.5;
+  ctx.save();
+  ctx.shadowColor = stroke;
+  ctx.shadowBlur = 8;
   ctx.fillStyle = fill;
   ctx.strokeStyle = stroke;
   ctx.lineWidth = 1.4;
@@ -144,6 +149,7 @@ function drawRadarSquare(
   ctx.rect(x - half, y - half, size, size);
   ctx.fill();
   ctx.stroke();
+  ctx.restore();
 }
 
 function drawRadarCircle(
@@ -154,6 +160,9 @@ function drawRadarCircle(
   fill: string,
   stroke: string,
 ): void {
+  ctx.save();
+  ctx.shadowColor = stroke;
+  ctx.shadowBlur = 8;
   ctx.fillStyle = fill;
   ctx.strokeStyle = stroke;
   ctx.lineWidth = 1.5;
@@ -161,6 +170,7 @@ function drawRadarCircle(
   ctx.arc(x, y, radius, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
+  ctx.restore();
 }
 
 function drawRadarShipTriangle(
@@ -175,6 +185,8 @@ function drawRadarShipTriangle(
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
+  ctx.shadowColor = stroke;
+  ctx.shadowBlur = 8;
   ctx.fillStyle = fill;
   ctx.strokeStyle = stroke;
   ctx.lineWidth = 1.4;
@@ -191,6 +203,132 @@ function drawRadarShipTriangle(
 
 function velocityAngle(entity: Entity): number {
   return entity.velocity.length() > 1 ? Math.atan2(entity.velocity.y, entity.velocity.x) : entity.angle;
+}
+
+function drawRadarHalo(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  radius: number,
+  color: string,
+): void {
+  const glow = ctx.createRadialGradient(x, y, 0, x, y, radius);
+  glow.addColorStop(0, color);
+  glow.addColorStop(0.35, color);
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawRadarFrame(
+  ctx: CanvasRenderingContext2D,
+  centerX: number,
+  centerY: number,
+  radius: number,
+  screenW: number,
+  screenH: number,
+  time: number,
+): void {
+  const gridColor = colorToCSS(Colors.radar_gridlines, 0.28);
+  const pulse = 0.5 + 0.5 * Math.sin(time * 2.2);
+
+  const bg = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, Math.max(screenW, screenH) * 0.62);
+  bg.addColorStop(0, 'rgba(8, 42, 18, 0.78)');
+  bg.addColorStop(0.56, RADAR_BACKGROUND);
+  bg.addColorStop(1, 'rgba(0, 4, 3, 0.94)');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, screenW, screenH);
+
+  ctx.save();
+  ctx.translate(centerX, centerY);
+
+  const dishGlow = ctx.createRadialGradient(0, 0, radius * 0.1, 0, 0, radius * 1.08);
+  dishGlow.addColorStop(0, 'rgba(120, 255, 162, 0.05)');
+  dishGlow.addColorStop(0.72, 'rgba(68, 182, 94, 0.03)');
+  dishGlow.addColorStop(1, RADAR_EDGE_GLOW);
+  ctx.fillStyle = dishGlow;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * 1.08, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.18);
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 24; i++) {
+    const a = i * Math.PI / 12;
+    const inner = i % 3 === 0 ? radius * 0.12 : radius * 0.72;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * inner, Math.sin(a) * inner);
+    ctx.lineTo(Math.cos(a) * radius, Math.sin(a) * radius);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = gridColor;
+  ctx.lineWidth = 0.7;
+  const gridStep = 1000;
+  for (let r = gridStep; r <= RADAR_RANGE; r += gridStep) {
+    const rr = r * radius / RADAR_RANGE;
+    ctx.beginPath();
+    ctx.arc(0, 0, rr, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.62 + pulse * 0.18);
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.48);
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 72; i++) {
+    const a = i * Math.PI / 36;
+    const tick = i % 6 === 0 ? 12 : 6;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * (radius - tick), Math.sin(a) * (radius - tick));
+    ctx.lineTo(Math.cos(a) * radius, Math.sin(a) * radius);
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.42);
+  ctx.lineWidth = 0.9;
+  ctx.beginPath();
+  ctx.moveTo(-radius, 0);
+  ctx.lineTo(radius, 0);
+  ctx.moveTo(0, -radius);
+  ctx.lineTo(0, radius);
+  ctx.stroke();
+
+  const sweepAngle = time * 1.65;
+  const sweep = ctx.createConicGradient(sweepAngle, 0, 0);
+  sweep.addColorStop(0, 'rgba(170, 255, 190, 0)');
+  sweep.addColorStop(0.03, 'rgba(170, 255, 190, 0.18)');
+  sweep.addColorStop(0.08, 'rgba(170, 255, 190, 0.06)');
+  sweep.addColorStop(0.16, 'rgba(170, 255, 190, 0)');
+  sweep.addColorStop(1, 'rgba(170, 255, 190, 0)');
+  ctx.fillStyle = sweep;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.55);
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(Math.cos(sweepAngle) * radius, Math.sin(sweepAngle) * radius);
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.fillStyle = RADAR_GLASS_SHINE;
+  ctx.beginPath();
+  ctx.ellipse(centerX - radius * 0.24, centerY - radius * 0.34, radius * 0.62, radius * 0.16, -0.36, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = 'rgba(190,255,205,0.035)';
+  for (let y = 0; y < screenH; y += 4) {
+    ctx.fillRect(0, y, screenW, 1);
+  }
 }
 
 export function drawEdgeIndicators(
@@ -348,32 +486,16 @@ export function drawRadarOverlay(
 ): void {
   const centerX = screenW * 0.5;
   const centerY = screenH * 0.5;
-  const scale = Math.min(screenW, screenH) * 0.45 / RADAR_RANGE;
+  const radarRadius = Math.min(screenW, screenH) * 0.45;
+  const scale = radarRadius / RADAR_RANGE;
 
-  // Semi-transparent background tint
-  ctx.fillStyle = RADAR_BACKGROUND;
-  ctx.fillRect(0, 0, screenW, screenH);
-
-  // Grid lines
-  ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.3);
-  ctx.lineWidth = 0.5;
   const gridStep = 1000;
-  for (let r = gridStep; r <= RADAR_RANGE; r += gridStep) {
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, r * scale, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-  // Cross-hair
-  ctx.beginPath();
-  ctx.moveTo(centerX - RADAR_RANGE * scale, centerY);
-  ctx.lineTo(centerX + RADAR_RANGE * scale, centerY);
-  ctx.moveTo(centerX, centerY - RADAR_RANGE * scale);
-  ctx.lineTo(centerX, centerY + RADAR_RANGE * scale);
-  ctx.stroke();
+  drawRadarFrame(ctx, centerX, centerY, radarRadius, screenW, screenH, state.gameTime);
 
   const playerPos = state.player.position;
 
   // Draw player at center
+  drawRadarHalo(ctx, centerX, centerY, 15, colorToCSS(Colors.radar_friendly_status, 0.22));
   drawRadarShipTriangle(
     ctx,
     centerX,
@@ -389,13 +511,14 @@ export function drawRadarOverlay(
     if (!b.alive || (b.team !== Team.Player && b.team !== Team.Enemy)) continue;
     const dx = (b.position.x - playerPos.x) * scale;
     const dy = (b.position.y - playerPos.y) * scale;
+    if (dx * dx + dy * dy > radarRadius * radarRadius) continue;
     const rx = centerX + dx;
     const ry = centerY + dy;
-    if (rx < 0 || rx > screenW || ry < 0 || ry > screenH) continue;
 
     const friendly = b.team === Team.Player;
     const fill = friendly ? RADAR_FRIENDLY_FILL : RADAR_ENEMY_FILL;
     const stroke = friendly ? RADAR_FRIENDLY_STROKE : RADAR_ENEMY_STROKE;
+    drawRadarHalo(ctx, rx, ry, friendly ? 10 : 12, friendly ? colorToCSS(Colors.radar_friendly_status, 0.12) : colorToCSS(Colors.radar_enemy_status, 0.16));
     if (b.type === EntityType.CommandPost) {
       drawRadarCircle(ctx, rx, ry, 4.5, fill, stroke);
     } else {
@@ -408,11 +531,12 @@ export function drawRadarOverlay(
     if (!ship.alive || ship === state.player || (ship.team !== Team.Player && ship.team !== Team.Enemy)) continue;
     const dx = (ship.position.x - playerPos.x) * scale;
     const dy = (ship.position.y - playerPos.y) * scale;
+    if (dx * dx + dy * dy > radarRadius * radarRadius) continue;
     const rx = centerX + dx;
     const ry = centerY + dy;
-    if (rx < 0 || rx > screenW || ry < 0 || ry > screenH) continue;
 
     const friendly = ship.team === Team.Player;
+    drawRadarHalo(ctx, rx, ry, friendly ? 9 : 11, friendly ? colorToCSS(Colors.radar_friendly_status, 0.12) : colorToCSS(Colors.radar_enemy_status, 0.18));
     drawRadarShipTriangle(
       ctx,
       rx,
@@ -429,11 +553,12 @@ export function drawRadarOverlay(
     if (!f.alive || f.docked || (f.team !== Team.Player && f.team !== Team.Enemy)) continue;
     const dx = (f.position.x - playerPos.x) * scale;
     const dy = (f.position.y - playerPos.y) * scale;
+    if (dx * dx + dy * dy > radarRadius * radarRadius) continue;
     const rx = centerX + dx;
     const ry = centerY + dy;
-    if (rx < 0 || rx > screenW || ry < 0 || ry > screenH) continue;
 
     const friendly = f.team === Team.Player;
+    drawRadarHalo(ctx, rx, ry, friendly ? 7 : 9, friendly ? colorToCSS(Colors.radar_friendly_status, 0.10) : colorToCSS(Colors.radar_enemy_status, 0.16));
     drawRadarShipTriangle(
       ctx,
       rx,
