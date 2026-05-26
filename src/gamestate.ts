@@ -36,6 +36,11 @@ import {
 import { buildingBlocksShips, buildingFootprintOrigin, buildingShipCollisionRect } from './buildingCollision.js';
 import { SpatialIndex, type SpatialIndexStats } from './spatialIndex.js';
 
+const FACTORY_COST_STEP = 25;
+const MAX_FACTORIES = 10;
+const MAX_RESEARCH_LABS = 1;
+const MAX_TURRETS_PER_KIND = 20;
+
 export interface DestroyedBuildingRecord {
   type: EntityType;
   team: Team;
@@ -2014,7 +2019,7 @@ export class GameState {
   }
 
   getPlacementStatus(def: BuildDef, cx: number, cy: number, team: Team): { valid: boolean; reason: string } {
-    const capStatus = this.getShipyardCapStatus(def, team);
+    const capStatus = this.getBuildingCapStatus(def, team);
     if (!capStatus.valid) return capStatus;
     const conduitRefund = this.getReplaceableConduitValue(def, cx, cy, team);
     if (isSynonymousFaction(this.factionByTeam, team)) {
@@ -2022,7 +2027,7 @@ export class GameState {
       if (team === Team.Player && cost > 0 && !this.synonymous.canSpend(team, cost)) {
         return { valid: false, reason: `Need ${cost} ${SYNONYMOUS_CURRENCY_SYMBOL}` };
       }
-    } else if (this.resources + conduitRefund < def.cost && team === Team.Player) {
+    } else if (this.resources + conduitRefund < this.getBuildCost(def, team) && team === Team.Player) {
       return { valid: false, reason: 'Not enough resources' };
     }
     const replaceConduitTeam =
@@ -2077,14 +2082,37 @@ export class GameState {
     return refunded;
   }
 
-  private getShipyardCapStatus(def: BuildDef, team: Team): { valid: boolean; reason: string } {
+  getBuildCost(def: BuildDef, team: Team): number {
+    if (def.key !== 'factory' || team !== Team.Player || isSynonymousFaction(this.factionByTeam, team)) return def.cost;
+    return def.cost + this.countBuildingsOfType(EntityType.Factory, team) * FACTORY_COST_STEP;
+  }
+
+  private countBuildingsOfType(type: EntityType, team: Team): number {
+    return this.buildings.filter((b) => b.alive && b.team === team && b.type === type).length;
+  }
+
+  private getBuildingCapStatus(def: BuildDef, team: Team): { valid: boolean; reason: string } {
     const type = def.key === 'fighteryard' ? EntityType.FighterYard
       : def.key === 'bomberyard' ? EntityType.BomberYard
       : def.key === 'swarmyard' ? EntityType.SwarmYard
+      : def.key === 'factory' ? EntityType.Factory
+      : def.key === 'researchlab' ? EntityType.ResearchLab
+      : def.key === 'gatlingturret' ? EntityType.GatlingTurret
+      : def.key === 'missileturret' ? EntityType.MissileTurret
+      : def.key === 'synonymousminelayer' ? EntityType.TimeBomb
+      : def.key === 'exciterturret' ? EntityType.ExciterTurret
+      : def.key === 'massdriverturret' ? EntityType.MassDriverTurret
+      : def.key === 'regenturret' ? EntityType.RegenTurret
       : null;
     if (type === null) return { valid: true, reason: 'OK' };
-    const cap = type === EntityType.FighterYard ? 10 : type === EntityType.BomberYard && team === Team.Player ? 3 : type === EntityType.SwarmYard ? 5 : 5;
-    const count = this.buildings.filter((b) => b.alive && b.team === team && b.type === type).length;
+    const cap = type === EntityType.Factory ? MAX_FACTORIES
+      : type === EntityType.ResearchLab ? MAX_RESEARCH_LABS
+      : def.tier === 'turret' ? MAX_TURRETS_PER_KIND
+      : type === EntityType.FighterYard ? 10
+      : type === EntityType.BomberYard && team === Team.Player ? 3
+      : type === EntityType.SwarmYard ? 5
+      : 5;
+    const count = this.countBuildingsOfType(type, team);
     if (count >= cap) {
       return {
         valid: false,

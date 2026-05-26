@@ -1026,7 +1026,7 @@ export class Game {
       }
     } else {
       const conduitRefund = this.state.sellReplaceableConduitsUnderFootprint(def, cell.cx, cell.cy, Team.Player);
-      this.state.resources += conduitRefund - def.cost;
+      this.state.resources += conduitRefund - this.state.getBuildCost(def, Team.Player);
     }
     this.state.addEntity(building);
     this.state.applyConfluencePlacement(Team.Player, worldPos, String(building.id));

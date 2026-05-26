@@ -369,7 +369,9 @@ function isPlayerSynonymous(state: GameState): boolean {
 }
 
 function buildCostForState(key: string, fallback: number, state: GameState): number {
-  return isPlayerSynonymous(state) ? SYNONYMOUS_BUILD_COST[key] ?? 0 : fallback;
+  if (isPlayerSynonymous(state)) return SYNONYMOUS_BUILD_COST[key] ?? 0;
+  const def = getBuildDef(key);
+  return def ? state.getBuildCost(def, Team.Player) : fallback;
 }
 
 function formatCost(amount: number, state: GameState): string {
@@ -501,30 +503,38 @@ function buildResearchRoot(state: GameState): RadialItem[] {
       disabled: !canAffordAmount(RESEARCH_COST[researchKey], state),
     };
   };
-  const category = (label: string, keys: string[], extras: RadialItem[] = []): RadialItem => ({
-    label,
-    children: [
+  const category = (label: string, keys: string[], extras: RadialItem[] = []): RadialItem | null => {
+    const researchChildren = keys.map((key) => makeResearchItem(key)).filter((item): item is RadialItem => item !== null);
+    if (researchChildren.length === 0) return null;
+    const children = [
       ...extras,
-      ...keys.map((key) => makeResearchItem(key)).filter((item): item is RadialItem => item !== null),
-    ],
-  });
+      ...researchChildren,
+    ];
+    return { label, children };
+  };
+  const visibleCategories = (items: Array<RadialItem | null>): RadialItem[] => {
+    const categories = items.filter((item): item is RadialItem => item !== null);
+    return categories.length > 0
+      ? categories
+      : [{ label: 'ALL RESEARCH COMPLETE', disabled: true, infoOnly: true }];
+  };
   if (isPlayerSynonymous(state)) {
     const nextFireSpeed = `synonymousFireSpeed${Math.min(4, state.player.synonymousFireSpeedLevel + 1)}`;
-    return [
+    return visibleCategories([
       category('Ship', ['synonymousSpeed', 'synonymousVitality']),
       category('Weapons', ['synonymousPierce', nextFireSpeed]),
       category('Fighters', ['advancedFighters', 'bomberyard', 'swarmyard']),
       category('Defensive Turrets', ['synonymousminelayer', 'exciterturret', 'massdriverturret', 'regenturret']),
-    ];
+    ]);
   }
-  return [
+  return visibleCategories([
     category('Defensive Turrets', ['missileturret', 'exciterturret', 'massdriverturret', 'regenturret', 'advancedRegenTurrets']),
     category('Ship', ['shipHp', 'shipSpeedEnergy', 'shipFireSpeed', 'shipShield']),
     category('Fighters', ['advancedFighters', 'bomberyard', 'swarmyard']),
     category('Weapons', ['weaponCannon', 'weaponGatling', 'weaponLaser', 'weaponGuidedMissile'], [
       { label: 'Cannon', sublabel: 'Ready', disabled: true, infoOnly: true },
     ]),
-  ];
+  ]);
 }
 
 function buildGroupOrders(group: ShipGroup): RadialItem[] {
@@ -1079,7 +1089,7 @@ class LeftHoldMenu {
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = item.disabled
-        ? colorToCSS(Colors.radar_gridlines, 0.35)
+        ? colorToCSS(item.infoOnly ? Colors.radar_gridlines : Colors.alert1, item.infoOnly ? 0.55 : 0.9)
         : active
           ? colorToCSS(Colors.radar_friendly_status)
           : colorToCSS(Colors.general_building, 0.9);
@@ -1088,10 +1098,10 @@ class LeftHoldMenu {
       if (item.sublabel) {
         ctx.font = usesSynonymousSymbol(item.sublabel) ? `18px ${MENU_CANVAS_FONT}` : '18px "Poiret One", sans-serif';
         ctx.fillStyle = item.disabled
-          ? colorToCSS(Colors.radar_gridlines, 0.3)
+          ? colorToCSS(item.infoOnly ? Colors.radar_gridlines : Colors.alert1, item.infoOnly ? 0.55 : 0.9)
           : active
-            ? colorToCSS(Colors.radar_friendly_status, 0.75)
-            : colorToCSS(Colors.factory_detail, 0.9);
+            ? colorToCSS(Colors.radar_friendly_status, 1)
+            : colorToCSS(Colors.radar_friendly_status, 0.9);
         ctx.fillText(item.sublabel, x + w - 20, rowY + rowH * 0.5);
       } else if (item.children && item.children.length > 0) {
         ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.6);
@@ -1841,6 +1851,7 @@ class QuickBuildMenu {
     const buildLabel = isPlayerSynonymous(state) && def.key === 'bomberyard' ? 'Nova Bombers' : def.label;
     ctx.fillText(`${buildLabel} ${def.footprintCells}x${def.footprintCells}`, screen.x, screen.y - sizePx / 2 - 4);
     if (!status.valid) {
+      ctx.font = '20px "Poiret One", sans-serif';
       ctx.textBaseline = 'top';
       ctx.fillText(status.reason, screen.x, screen.y + sizePx / 2 + 4);
     }

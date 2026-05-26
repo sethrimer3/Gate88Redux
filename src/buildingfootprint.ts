@@ -13,8 +13,9 @@ export function footprintForBuildingType(type: EntityType): number {
     case EntityType.SwarmYard:
       return 7;
     case EntityType.Factory:
-    case EntityType.ResearchLab:
       return 4;
+    case EntityType.ResearchLab:
+      return 9;
     default:
       return 3;
   }

@@ -11,12 +11,12 @@
  * - The main radial glow is baked once into an offscreen canvas sized to the
  *   screen.  It is rebuilt only on resize (same pattern as Nebula.screenWisps).
  * - Volumetric light rays are thin tapered triangles — no blur, no getImageData.
- * - Solar corona arcs are simple stroked elliptical arcs.
+ * - Atomic orbit lines are bright partial ellipses with animated length/alpha.
  * - Glints are tiny cross / dot primitives with a per-instance alpha ramp.
  * - Quality-scaled through four new VisualQualityPreset fields:
  *     Low    → glow only, no rays, no corona, no glints.
  *     Medium → glow + 5 subtle rays.
- *     High   → glow + 8 rays + 3 corona arcs + rare warm glints.
+ *     High   → glow + 8 rays + atomic orbit lines + rare warm glints.
  */
 
 import { Camera } from './camera.js';
@@ -24,27 +24,49 @@ import { WORLD_WIDTH, WORLD_HEIGHT } from './constants.js';
 import type { VisualQualityPreset } from './visualquality.js';
 
 // ---------------------------------------------------------------------------
-// Sun placement constants (screen-fraction, rebuilt on resize)
+// Sun placement (one randomized screen-fraction anchor per game load)
 // ---------------------------------------------------------------------------
 
-/** Horizontal screen fraction for the sun center (0 = left, 1 = right). */
-const SUN_CX = 0.82;
-/** Vertical screen fraction for the sun center (negative = above screen top). */
-const SUN_CY = -0.06;
+interface SunPlacement {
+  /** Horizontal screen fraction for the sun center (0 = left, 1 = right). */
+  cx: number;
+  /** Vertical screen fraction for the sun center (0 = top, 1 = bottom). */
+  cy: number;
+}
+
+function randomRange(min: number, max: number): number {
+  return min + Math.random() * (max - min);
+}
+
+function createSunPlacement(): SunPlacement {
+  const side = Math.floor(Math.random() * 4);
+  switch (side) {
+    case 0:
+      return { cx: randomRange(0.14, 0.86), cy: randomRange(0.08, 0.24) };
+    case 1:
+      return { cx: randomRange(0.14, 0.86), cy: randomRange(0.76, 0.92) };
+    case 2:
+      return { cx: randomRange(0.08, 0.24), cy: randomRange(0.16, 0.84) };
+    default:
+      return { cx: randomRange(0.76, 0.92), cy: randomRange(0.16, 0.84) };
+  }
+}
+
+const SUN_PLACEMENT = createSunPlacement();
 
 /**
  * Parallax shift per world-unit of camera displacement.
  * Increased for a stronger sense of depth when the camera pans.
  */
-const PARALLAX_X = 0.018;
-const PARALLAX_Y = 0.018;
+const PARALLAX_X = 0.036;
+const PARALLAX_Y = 0.036;
 
 export function getDistantSunScreenPosition(camera: Camera, screenW: number, screenH: number): { x: number; y: number } {
   const dx = (camera.position.x - WORLD_WIDTH  * 0.5) * PARALLAX_X;
   const dy = (camera.position.y - WORLD_HEIGHT * 0.5) * PARALLAX_Y;
   return {
-    x: screenW * SUN_CX - dx,
-    y: screenH * SUN_CY - dy,
+    x: screenW * SUN_PLACEMENT.cx - dx,
+    y: screenH * SUN_PLACEMENT.cy - dy,
   };
 }
 
@@ -191,8 +213,8 @@ export class DistantSuns {
     const dy = (camera.position.y - WORLD_HEIGHT * 0.5) * PARALLAX_Y;
 
     // Effective screen-space sun center, shifted by parallax.
-    const cx = screenW * SUN_CX - dx;
-    const cy = screenH * SUN_CY - dy;
+    const cx = screenW * SUN_PLACEMENT.cx - dx;
+    const cy = screenH * SUN_PLACEMENT.cy - dy;
 
     // 1 — Baked radial glow (all quality levels).
     ctx.save();
@@ -220,14 +242,19 @@ export class DistantSuns {
       ctx.restore();
     }
 
-    // 4 — Solar corona arcs (high only).
+    // 4 - Back half of atomic orbit lines (high only).
     if (this.coronaEnabled) {
-      this.drawCorona(ctx, cx, cy, screenW, screenH);
+      this.drawAtomicOrbitLayer(ctx, cx, cy, screenW, screenH, false);
     }
 
-    // 5 — Rare warm glints (high only).
+    // 5 - Rare warm glints (high only).
     if (this.glintsEnabled) {
       this.drawGlints(ctx, screenW, screenH);
+    }
+
+    // 6 - Front half of atomic orbit lines (high only).
+    if (this.coronaEnabled) {
+      this.drawAtomicOrbitLayer(ctx, cx, cy, screenW, screenH, true);
     }
   }
 
@@ -237,8 +264,8 @@ export class DistantSuns {
 
   /**
    * Render the sun's radial glow gradient into the offscreen canvas.
-   * The canvas is screen-sized; the gradient is anchored at SUN_CX/SUN_CY
-   * fractions and reaches far enough to spill warmth across the whole viewport.
+   * The canvas is screen-sized; the gradient is anchored at the randomized sun
+   * position and reaches far enough to spill warmth across the whole viewport.
    */
   private bakeSunGlow(): void {
     const w = this.screenW;
@@ -250,8 +277,8 @@ export class DistantSuns {
     if (!ctx) return;
     ctx.clearRect(0, 0, w, h);
 
-    const cx = w * SUN_CX;
-    const cy = h * SUN_CY;
+    const cx = w * SUN_PLACEMENT.cx;
+    const cy = h * SUN_PLACEMENT.cy;
     // Radius generous enough to bathe the whole screen in warmth.
     const r  = Math.hypot(w, h) * 1.18;
 
@@ -379,44 +406,55 @@ export class DistantSuns {
   }
 
   // -------------------------------------------------------------------------
-  // Solar corona arcs (high only)
+  // Atomic orbit lines (high only)
   // -------------------------------------------------------------------------
 
   /**
-   * Draw a few faint, slowly-rotating elliptical arcs around the sun center
-   * to suggest a hot corona.  Each arc is drawn as a stroked partial ellipse
-   * (scale trick to get an elliptical arc from arc()).
+   * Draw bright, partial, slowly shifting orbit lines around the sun.  The
+   * front/back split makes some strokes appear to pass behind the solar core.
    */
-  private drawCorona(
+  private drawAtomicOrbitLayer(
     ctx: CanvasRenderingContext2D,
     cx: number,
     cy: number,
     w: number,
     h: number,
+    front: boolean,
   ): void {
-    const baseR   = Math.max(w, h) * 0.055;
-    const shimmer = 1 + 0.016 * Math.sin(this.time * 1.55);
+    const baseR = Math.max(w, h) * 0.052;
+    const orbitCount = 7;
 
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
 
-    for (let arc = 0; arc < 3; arc++) {
-      const r        = baseR * (0.82 + arc * 0.62) * shimmer;
-      const phase    = this.time * (0.010 - arc * 0.0022) + arc * 1.18;
-      const baseAlpha = (0.10 - arc * 0.026);
-      const alpha    = baseAlpha * (1 + 0.10 * Math.sin(this.time * 0.95 + arc * 1.35));
+    for (let orbit = 0; orbit < orbitCount; orbit++) {
+      const seed = orbit * 1.71;
+      const phase = this.time * (0.15 + orbit * 0.018) + seed;
+      const inFront = Math.sin(phase + orbit * 0.63) >= 0;
+      if (inFront !== front) continue;
+
+      const lengthPulse = 0.58 + 0.28 * Math.sin(this.time * (0.28 + orbit * 0.03) + seed);
+      const arcLength = Math.PI * Math.max(0.32, lengthPulse);
+      const startA = phase + Math.sin(this.time * 0.21 + seed) * 0.65;
+      const endA = startA + arcLength;
+      const r = baseR * (0.82 + orbit * 0.16) * (1 + 0.055 * Math.sin(this.time * 0.34 + seed));
+      const yScale = 0.24 + (orbit % 4) * 0.105;
+      const tilt = orbit * Math.PI / orbitCount + this.time * (0.022 - orbit * 0.0018);
+      const alphaPulse = 0.50 + 0.50 * Math.sin(this.time * (0.42 + orbit * 0.05) + seed * 0.7);
+      const alpha = (front ? 0.46 : 0.22) * alphaPulse;
+      if (alpha < 0.035) continue;
 
       ctx.save();
       ctx.translate(cx, cy);
-      ctx.rotate(phase);
-      // Flattened vertically to feel like a corona ring tilted away from camera.
-      ctx.scale(1, 0.48 + arc * 0.10);
-      ctx.strokeStyle = `rgba(255,202,78,${Math.max(0, alpha).toFixed(3)})`;
-      ctx.lineWidth   = Math.max(0.5, 1.8 - arc * 0.4);
+      ctx.rotate(tilt);
+      ctx.strokeStyle = front
+        ? `rgba(255,245,176,${alpha.toFixed(3)})`
+        : `rgba(255,178,68,${alpha.toFixed(3)})`;
+      ctx.lineWidth = Math.max(0.8, Math.max(w, h) * (front ? 0.00125 : 0.00085));
+      ctx.shadowColor = front ? 'rgba(255,236,146,0.52)' : 'rgba(255,135,34,0.30)';
+      ctx.shadowBlur = front ? 10 : 6;
       ctx.beginPath();
-      const startA = 0.18 + arc * 0.38;
-      const endA   = Math.PI * 1.82 - arc * 0.28;
-      ctx.arc(0, 0, r, startA, endA);
+      ctx.ellipse(0, 0, r, r * yScale, 0, startA, endA);
       ctx.stroke();
       ctx.restore();
     }
@@ -439,8 +477,8 @@ export class DistantSuns {
     // Scatter glints near the sun center (screen-fraction coords).
     const a   = Math.random() * Math.PI * 2;
     const d   = 0.03 + Math.random() * 0.10;
-    slot.x       = SUN_CX + Math.cos(a) * d * 0.72;
-    slot.y       = SUN_CY + Math.sin(a) * d * 0.44;
+    slot.x       = SUN_PLACEMENT.cx + Math.cos(a) * d * 0.72;
+    slot.y       = SUN_PLACEMENT.cy + Math.sin(a) * d * 0.44;
     slot.maxLife = 0.5 + Math.random() * 0.85;
     slot.life    = slot.maxLife;
     slot.size    = 2.5 + Math.random() * 5.5;
