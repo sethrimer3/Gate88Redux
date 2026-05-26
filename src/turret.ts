@@ -14,7 +14,7 @@ import { aimAngle, aimAtEntity, isCombatTargetValid, isFiniteVec, isHostileTeam,
 export const EXCITER_LOCK_TIME_SECS = 2.0;
 export const EXCITER_COOLDOWN_SECS = 3.0;
 export const EXCITER_DAMAGE = WEAPON_STATS.exciterbeam.damage;
-const EXCITER_LOCK_CIRCLE_RADIUS = 18;
+const EXCITER_LOCK_CIRCLE_RADIUS = 22;
 
 function isExciterLockTarget(entity: Entity): boolean {
   return isTurretTargetableEntity(entity);
@@ -439,10 +439,11 @@ export class ExciterTurret extends TurretBase {
     const screen = camera.worldToScreen(this.position);
     const r = this.radius * camera.zoom;
     const detail = colorToCSS(Colors.exciterturret_detail);
-    this.drawTurretBase(ctx, screen, r, detail, camera);
+    this.drawExciterPlusBase(ctx, screen, detail, camera);
 
-    // Y-shaped antenna: center spine + two diagonal wings spreading from mid-point
-    const spineLen = r * 0.88;
+    // Y-shaped focusing mast: center spine + two diagonal wings spreading from mid-point.
+    const baseHalf = this.getBaseVisual(camera).half;
+    const spineLen = baseHalf * 0.62;
     const cosA = Math.cos(this.turretAngle);
     const sinA = Math.sin(this.turretAngle);
     // Spine
@@ -453,9 +454,9 @@ export class ExciterTurret extends TurretBase {
     ctx.lineTo(screen.x + cosA * spineLen, screen.y + sinA * spineLen);
     ctx.stroke();
     // Wings branch from midpoint
-    const pivotX = screen.x + cosA * r * 0.52;
-    const pivotY = screen.y + sinA * r * 0.52;
-    const wingLen = r * 0.56;
+    const pivotX = screen.x + cosA * baseHalf * 0.36;
+    const pivotY = screen.y + sinA * baseHalf * 0.36;
+    const wingLen = baseHalf * 0.32;
     const wingAngleL = this.turretAngle - 0.52;
     const wingAngleR = this.turretAngle + 0.52;
     ctx.strokeStyle = colorToCSS(Colors.exciterturret_detail, 0.75);
@@ -478,13 +479,83 @@ export class ExciterTurret extends TurretBase {
         ctx.arc(
           pivotX + Math.cos(wingA) * wingLen,
           pivotY + Math.sin(wingA) * wingLen,
-          r * 0.11, 0, Math.PI * 2,
+          baseHalf * 0.07, 0, Math.PI * 2,
         );
         ctx.fill();
       }
       ctx.restore();
     }
     this.drawLockOn(ctx, camera, screen);
+  }
+
+  private drawExciterPlusBase(ctx: CanvasRenderingContext2D, screen: Vec2, detailColor: string, camera: Camera): void {
+    const v = this.getBaseVisual(camera);
+    const x = screen.x - v.half;
+    const y = screen.y - v.half;
+    const cell = v.side / 4;
+    const damage = 1 - Math.max(0, Math.min(1, this.healthFraction));
+    const alpha = Math.max(0.15, this.buildProgress);
+    const powerAlpha = this.powered ? 1 : 0.34;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    const plus = new Path2D();
+    plus.rect(x + cell, y, cell * 2, cell * 4);
+    plus.rect(x, y + cell, cell * 4, cell * 2);
+    ctx.clip(plus);
+
+    const grad = ctx.createRadialGradient(screen.x, screen.y, cell * 0.2, screen.x, screen.y, v.half * 1.25);
+    grad.addColorStop(0, `rgba(255, 202, 86, ${(0.84 * powerAlpha).toFixed(3)})`);
+    grad.addColorStop(0.28, `rgba(92, 69, 35, ${(0.96 - damage * 0.25).toFixed(3)})`);
+    grad.addColorStop(0.68, `rgba(34, 47, 43, ${(0.96 - damage * 0.22).toFixed(3)})`);
+    grad.addColorStop(1, 'rgba(10, 15, 18, 0.98)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(x, y, v.side, v.side);
+
+    ctx.strokeStyle = colorToCSS(Colors.menu_background_detail, 0.42);
+    ctx.lineWidth = Math.max(1, camera.zoom);
+    ctx.beginPath();
+    ctx.moveTo(x + cell, y + cell); ctx.lineTo(x + cell * 3, y + cell);
+    ctx.moveTo(x + cell, y + cell * 3); ctx.lineTo(x + cell * 3, y + cell * 3);
+    ctx.moveTo(x + cell, y + cell); ctx.lineTo(x + cell, y + cell * 3);
+    ctx.moveTo(x + cell * 3, y + cell); ctx.lineTo(x + cell * 3, y + cell * 3);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = colorToCSS(Colors.advanced_building, 0.55 * powerAlpha);
+    ctx.lineWidth = Math.max(1.2, 1.8 * camera.zoom);
+    ctx.stroke(plus);
+    ctx.strokeStyle = detailColor;
+    ctx.lineWidth = Math.max(1.1, 1.3 * camera.zoom);
+    ctx.strokeRect(x + cell, y + cell, cell * 2, cell * 2);
+    ctx.fillStyle = colorToCSS(Colors.menu_background_detail, 0.5);
+    ctx.fillRect(x + cell * 1.36, y + cell * 1.36, cell * 1.28, cell * 1.28);
+    ctx.fillStyle = this.powered
+      ? colorToCSS(Colors.radar_allied_status, 0.74)
+      : colorToCSS(Colors.alert1, 0.64);
+    ctx.fillRect(x + cell * 1.2, y + cell * 2.78, cell * 1.6, Math.max(2, cell * 0.12));
+    if (!this.powered) {
+      ctx.strokeStyle = colorToCSS(Colors.alert1, 0.66);
+      ctx.lineWidth = Math.max(1, camera.zoom);
+      ctx.beginPath();
+      ctx.moveTo(screen.x - cell * 0.24, screen.y - cell * 0.18);
+      ctx.lineTo(screen.x, screen.y + cell * 0.28);
+      ctx.lineTo(screen.x + cell * 0.24, screen.y - cell * 0.18);
+      ctx.stroke();
+    }
+    if (this.buildProgress < 1) {
+      ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.18);
+      ctx.fillRect(x, y + v.side * this.buildProgress, v.side, v.side * (1 - this.buildProgress));
+      ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.58);
+      ctx.strokeRect(x, y, v.side, v.side);
+    }
+    if (this.deleting) {
+      ctx.fillStyle = colorToCSS(Colors.alert1, 0.18 + this.deletionProgress * 0.22);
+      ctx.fillRect(x, y, v.side, v.side);
+    }
+    ctx.restore();
   }
 
   private drawLockOn(ctx: CanvasRenderingContext2D, camera: Camera, turretScreen: Vec2): void {
@@ -516,6 +587,32 @@ export class ExciterTurret extends TurretBase {
     ctx.beginPath();
     ctx.arc(target.x, target.y, circleR, 0, Math.PI * 2);
     ctx.stroke();
+
+    ctx.fillStyle = colorToCSS(color, 0.12 + progress * 0.28);
+    ctx.beginPath();
+    ctx.moveTo(target.x, target.y);
+    ctx.arc(target.x, target.y, circleR * 0.86, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = colorToCSS(color, 0.76 + progress * 0.22);
+    ctx.lineWidth = Math.max(2, 3.4 * camera.zoom);
+    ctx.beginPath();
+    ctx.arc(target.x, target.y, circleR * 0.86, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress);
+    ctx.stroke();
+
+    const tickCount = 12;
+    ctx.strokeStyle = colorToCSS(Colors.exciterturret_detail, 0.28 + progress * 0.46);
+    ctx.lineWidth = Math.max(1, 1.2 * camera.zoom);
+    for (let i = 0; i < tickCount; i++) {
+      const a = -Math.PI / 2 + (Math.PI * 2 * i) / tickCount;
+      const inner = circleR * 1.05;
+      const outer = circleR * 1.22;
+      ctx.beginPath();
+      ctx.moveTo(target.x + Math.cos(a) * inner, target.y + Math.sin(a) * inner);
+      ctx.lineTo(target.x + Math.cos(a) * outer, target.y + Math.sin(a) * outer);
+      ctx.stroke();
+    }
 
     ctx.fillStyle = colorToCSS(color, 0.42 + progress * 0.42);
     const dirs = [

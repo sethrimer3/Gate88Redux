@@ -904,7 +904,7 @@ export class ExciterBeam extends ProjectileBase {
       angle,
       damage: WEAPON_STATS.exciterbeam.damage,
       speed: 0,
-      lifetime: 0.08,
+      lifetime: 0.16,
       source,
     });
     this.targetPos = targetPos.clone();
@@ -921,31 +921,51 @@ export class ExciterBeam extends ProjectileBase {
     if (!this.alive) return;
     const from = camera.worldToScreen(this.position);
     const to = camera.worldToScreen(this.targetPos);
-    const fade = Math.max(0, this.lifetime / 0.08);
+    const fade = Math.max(0, this.lifetime / 0.16);
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const len = Math.max(1, Math.hypot(dx, dy));
+    const nx = -dy / len;
+    const ny = dx / len;
+    const pulse = 0.75 + 0.25 * Math.sin(this.lifetime * 180);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
-    // Outer warm halo
-    ctx.strokeStyle = colorToCSS(Colors.exciterturret_detail, 0.18 * fade);
-    ctx.lineWidth = 9;
+    // Broad shock halo.
+    ctx.strokeStyle = colorToCSS(Colors.exciterturret_detail, 0.16 * fade);
+    ctx.lineWidth = 22 * pulse;
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(to.x, to.y);
     ctx.stroke();
-    // Mid warm layer
-    ctx.strokeStyle = colorToCSS(Colors.exciterturret_detail, 0.6 * fade);
-    ctx.lineWidth = 3.5;
+    // Hot beam body.
+    ctx.strokeStyle = colorToCSS(Colors.exciterturret_detail, 0.72 * fade);
+    ctx.lineWidth = 8;
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(to.x, to.y);
     ctx.stroke();
-    // Bright core
-    ctx.strokeStyle = `rgba(255,255,200,${0.9 * fade})`;
-    ctx.lineWidth = 1.2;
+    // Twin cutting edges give the shot a heavy cannon-like read.
+    ctx.strokeStyle = `rgba(255,180,70,${0.62 * fade})`;
+    ctx.lineWidth = 2.2;
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(from.x + nx * side * 5, from.y + ny * side * 5);
+      ctx.lineTo(to.x + nx * side * 5, to.y + ny * side * 5);
+      ctx.stroke();
+    }
+    // Bright core.
+    ctx.strokeStyle = `rgba(255,255,230,${0.96 * fade})`;
+    ctx.lineWidth = 2.6;
     ctx.beginPath();
     ctx.moveTo(from.x, from.y);
     ctx.lineTo(to.x, to.y);
     ctx.stroke();
+
+    ctx.fillStyle = `rgba(255,245,190,${0.72 * fade})`;
+    ctx.beginPath();
+    ctx.arc(to.x, to.y, 8 + 8 * fade, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 }

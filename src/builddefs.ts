@@ -219,9 +219,9 @@ export const BUILD_DEFS: Record<string, BuildDef> = {
   exciterturret: {
     key: 'exciterturret',
     label: 'Exciter Turret',
-    description: 'Fires a sustained energy beam dealing continuous damage to a target.',
+    description: 'Locks onto a target, then fires a heavy energy beam.',
     cost: BUILDING_COST.exciterturret,
-    footprintCells: 6,
+    footprintCells: 4,
     buildTime: BUILD_TIME.exciterturret,
     tier: 'turret',
     radialLabel: 'Exciter\nTurret',
