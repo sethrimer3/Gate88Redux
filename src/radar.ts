@@ -25,7 +25,6 @@ const RADAR_ENEMY_STROKE = 'rgba(205, 12, 34, 0.98)';
 const RADAR_PLAYER_FILL = 'rgba(208, 255, 208, 0.96)';
 const RADAR_PLAYER_STROKE = 'rgba(0, 255, 112, 1)';
 const RADAR_EDGE_GLOW = 'rgba(150, 255, 184, 0.35)';
-const RADAR_GLASS_SHINE = 'rgba(210, 255, 226, 0.10)';
 
 // ---------------------------------------------------------------------------
 // Edge Indicators (always active)
@@ -300,7 +299,7 @@ function drawRadarFrame(
   ctx.lineTo(0, radius);
   ctx.stroke();
 
-  const sweepAngle = time * 1.65;
+  const sweepAngle = -time * 1.65;
   const sweep = ctx.createConicGradient(sweepAngle, 0, 0);
   sweep.addColorStop(0, 'rgba(170, 255, 190, 0)');
   sweep.addColorStop(0.03, 'rgba(170, 255, 190, 0.18)');
@@ -312,18 +311,13 @@ function drawRadarFrame(
   ctx.arc(0, 0, radius, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.55);
+  ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.2);
   ctx.lineWidth = 1.2;
   ctx.beginPath();
   ctx.moveTo(0, 0);
   ctx.lineTo(Math.cos(sweepAngle) * radius, Math.sin(sweepAngle) * radius);
   ctx.stroke();
   ctx.restore();
-
-  ctx.fillStyle = RADAR_GLASS_SHINE;
-  ctx.beginPath();
-  ctx.ellipse(centerX - radius * 0.24, centerY - radius * 0.34, radius * 0.62, radius * 0.16, -0.36, 0, Math.PI * 2);
-  ctx.fill();
 
   ctx.fillStyle = 'rgba(190,255,205,0.035)';
   for (let y = 0; y < screenH; y += 4) {

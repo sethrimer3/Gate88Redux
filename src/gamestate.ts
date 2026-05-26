@@ -1039,7 +1039,13 @@ export class GameState {
       const first = ready[0];
       this.ringEffects.spawn('build_complete_wave', new Vec2((first.cx + 0.5) * GRID_CELL_SIZE, (first.cy + 0.5) * GRID_CELL_SIZE), 8, 70, 0.55, 0.55);
     }
-    Audio.playSound('build');
+    let nearestDist = Infinity;
+    for (const { cx, cy } of ready) {
+      const x = (cx + 0.5) * GRID_CELL_SIZE;
+      const y = (cy + 0.5) * GRID_CELL_SIZE;
+      nearestDist = Math.min(nearestDist, Math.hypot(this.player.position.x - x, this.player.position.y - y));
+    }
+    Audio.playSoundAt('build', nearestDist);
   }
 
   private tickAdvancedRegenConduitRepair(dt: number): void {
@@ -1049,6 +1055,7 @@ export class GameState {
     this.advancedRegenConduitRepairTimer = 0.5;
 
     let repaired = 0;
+    let nearestRepairDist = Infinity;
     for (const b of this.buildings) {
       if (!b.alive || b.team !== Team.Player || !(b instanceof TurretBase)) continue;
       if (b.type !== EntityType.RegenTurret || b.buildProgress < 1 || !b.powered) continue;
@@ -1058,6 +1065,7 @@ export class GameState {
       conduit.erased = true;
       repaired++;
       const pos = new Vec2((conduit.cx + 0.5) * GRID_CELL_SIZE, (conduit.cy + 0.5) * GRID_CELL_SIZE);
+      nearestRepairDist = Math.min(nearestRepairDist, this.player.position.distanceTo(pos));
       b.turretAngle = b.position.angleTo(pos);
       b.showBeam(pos);
       this.particles.emitHealing(pos);
@@ -1066,7 +1074,7 @@ export class GameState {
     if (repaired === 0) return;
     compactKeep(this.destroyedConduits, (c) => !c.erased);
     this.power.markDirty();
-    Audio.playSound('build');
+    Audio.playSoundAt('build', nearestRepairDist);
   }
 
   private findDestroyedConduitForRegenTurret(turret: TurretBase): DestroyedConduitRecord | null {

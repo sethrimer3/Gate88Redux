@@ -1393,6 +1393,7 @@ class QuickBuildMenu {
 
   private touchedThisDrag = new Set<string>();
   private buildingDragCells = new Set<string>();
+  private buildingDragStartCell: { cx: number; cy: number } | null = null;
   private dragMode: 'paint' | 'erase' | null = null;
   private lastDragCell: { cx: number; cy: number } | null = null;
   private shapeDrawing = false;
@@ -1408,6 +1409,30 @@ class QuickBuildMenu {
     ];
   }
 
+  private buildingDragLineCells(
+    from: { cx: number; cy: number },
+    to: { cx: number; cy: number },
+    def: BuildDef,
+  ): Array<{ cx: number; cy: number }> {
+    const dx = to.cx - from.cx;
+    const dy = to.cy - from.cy;
+    const horizontal = Math.abs(dx) >= Math.abs(dy);
+    const distance = horizontal ? dx : dy;
+    const dir = Math.sign(distance);
+    if (dir === 0) return [from];
+
+    const gapCells = def.key === 'wall' ? 0 : 1;
+    const stride = Math.max(1, def.footprintCells + gapCells);
+    const count = Math.floor(Math.abs(distance) / stride);
+    const cells: Array<{ cx: number; cy: number }> = [];
+    for (let i = 0; i <= count; i++) {
+      cells.push(horizontal
+        ? { cx: from.cx + dir * stride * i, cy: from.cy }
+        : { cx: from.cx, cy: from.cy + dir * stride * i });
+    }
+    return cells;
+  }
+
   update(state: GameState, camera: Camera): MenuResult {
     const keyDown = Input.isDown('q');
     if (keyDown && !this.open) {
@@ -1416,6 +1441,7 @@ class QuickBuildMenu {
       this.selectedIndex = 0;
       this.touchedThisDrag.clear();
       this.buildingDragCells.clear();
+      this.buildingDragStartCell = null;
       this.dragMode = null;
       this.lastDragCell = null;
       this.shapeDrawing = false;
@@ -1423,6 +1449,7 @@ class QuickBuildMenu {
       this.open = false;
       this.touchedThisDrag.clear();
       this.buildingDragCells.clear();
+      this.buildingDragStartCell = null;
       this.dragMode = null;
       this.lastDragCell = null;
       this.shapeDrawing = false;
@@ -1463,6 +1490,7 @@ class QuickBuildMenu {
     if (Input.mouse2Pressed && selected?.type !== 'shape') {
       this.touchedThisDrag.clear();
       this.buildingDragCells.clear();
+      this.buildingDragStartCell = null;
       this.dragMode = 'erase';
       this.lastDragCell = null;
     }
@@ -1500,12 +1528,14 @@ class QuickBuildMenu {
       this.touchedThisDrag.clear();
       if (!Input.mouseDown) {
         this.buildingDragCells.clear();
+        this.buildingDragStartCell = null;
         this.lastDragCell = null;
         return { action: 'none' };
       }
       const worldPos = camera.screenToWorld(Input.mousePos);
       const cell = worldToCell(worldPos);
-      const cells = this.lastDragCell ? gridLineCells(this.lastDragCell, cell) : [cell];
+      if (!this.buildingDragStartCell) this.buildingDragStartCell = cell;
+      const cells = this.buildingDragLineCells(this.buildingDragStartCell, cell, selected.def);
       this.lastDragCell = cell;
       for (const candidate of cells) {
         const origin = footprintOrigin(candidate.cx, candidate.cy, selected.def.footprintCells);

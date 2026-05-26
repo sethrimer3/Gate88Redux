@@ -43,6 +43,7 @@ class AudioManager {
   private musicElement: HTMLAudioElement | null = null;
   private musicGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
+  private activeSoundCounts = new Map<SoundName, number>();
 
   private currentTrackIndex = -1;
   private musicVolume = 0.5;
@@ -102,6 +103,39 @@ class AudioManager {
       gain.connect(this.sfxGain);
     }
     source.start(0);
+  }
+
+  playLimitedSound(name: SoundName, maxConcurrent: number, volumeScale: number = 1): void {
+    if (maxConcurrent <= 0) return;
+    const active = this.activeSoundCounts.get(name) ?? 0;
+    if (active >= maxConcurrent) return;
+
+    const ctx = this.ensureContext();
+    const buffer = this.soundBuffers.get(name);
+    if (!buffer || !this.sfxGain) return;
+
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    const finish = (): void => {
+      const next = Math.max(0, (this.activeSoundCounts.get(name) ?? 1) - 1);
+      if (next === 0) this.activeSoundCounts.delete(name);
+      else this.activeSoundCounts.set(name, next);
+    };
+    source.addEventListener('ended', finish, { once: true });
+    if (volumeScale === 1) {
+      source.connect(this.sfxGain);
+    } else {
+      const gain = ctx.createGain();
+      gain.gain.value = Math.max(0, volumeScale);
+      source.connect(gain);
+      gain.connect(this.sfxGain);
+    }
+    this.activeSoundCounts.set(name, active + 1);
+    try {
+      source.start(0);
+    } catch {
+      finish();
+    }
   }
 
   /** Start playing the in-game music playlist (shuffled order). */
@@ -229,6 +263,12 @@ class AudioManager {
   playSoundAt(name: SoundName, dist: number, maxDist: number = 800): void {
     if (dist <= maxDist) {
       this.playSound(name);
+    }
+  }
+
+  playLimitedSoundAt(name: SoundName, dist: number, maxConcurrent: number, maxDist: number = 800): void {
+    if (dist <= maxDist) {
+      this.playLimitedSound(name, maxConcurrent);
     }
   }
 }

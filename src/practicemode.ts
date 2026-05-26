@@ -27,6 +27,7 @@ import { isSynonymousFaction } from './confluence.js';
 import { aimAngle, aimAtEntity, isCombatTargetValid, recordCombatAimSample } from './targeting.js';
 
 const TURRET_FIRE_CHECK_INTERVAL = 0.1;
+const MAX_AUDIBLE_GATLING_TURRETS = 2;
 const AI_MAIN_SHIP_ORDER_RADIUS = 1000;
 /** Spawn-group rotation order: enemy fighters cycle Red→Green→Blue. */
 const SPAWN_GROUPS = [ShipGroup.Red, ShipGroup.Green, ShipGroup.Blue] as const;
@@ -562,7 +563,7 @@ export class PracticeMode {
         b.consumeShot();
         const spread = (Math.random() - 0.5) * WEAPON_STATS.gatlingturret.spread;
         state.addEntity(new GatlingTurretBullet(b.team, b.position.clone(), (angle ?? b.turretAngle) + spread, b));
-        Audio.playSoundAt('shortbullet', playerDist);
+        Audio.playLimitedSoundAt('shortbullet', playerDist, MAX_AUDIBLE_GATLING_TURRETS);
       } else if (b.type === EntityType.ExciterTurret) {
         const fireAngle = b.position.angleTo(target.position);
         b.turretAngle = fireAngle;

@@ -17,6 +17,8 @@ import { damageLaserLine } from './combatUtils.js';
 import { aimAngle, recordCombatAimSample } from './targeting.js';
 import { Vec2 } from './math.js';
 
+const MAX_AUDIBLE_GATLING_TURRETS = 2;
+
 /**
  * Acquire targets and fire for every fully-built turret that belongs to
  * `localTeam`.  Uses `state.player.position` for spatial audio distance.
@@ -53,7 +55,7 @@ export function fireTurretShots(state: GameState, localTeam: Team): void {
       const fireAngle = (angle ?? b.turretAngle) + spread;
       state.addEntity(new GatlingTurretBullet(b.team, b.position.clone(), fireAngle, b));
       if (Math.random() < 0.25) state.particles.emitMuzzleFlash(b.position, fireAngle);
-      Audio.playSoundAt('shortbullet', playerDist);
+      Audio.playLimitedSoundAt('shortbullet', playerDist, MAX_AUDIBLE_GATLING_TURRETS);
     } else if (b.type === EntityType.ExciterTurret) {
       const targetPos = target.position.clone();
       const fireAngle = b.position.angleTo(targetPos);

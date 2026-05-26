@@ -86,26 +86,75 @@ export function drawGhostSpectator(
   if (state.player.alive || !ghostSpectatorPos) return;
   const screen = camera.worldToScreen(ghostSpectatorPos);
   const pulse = 0.55 + 0.25 * Math.sin(state.gameTime * 5);
+  const drift = Math.sin(state.gameTime * 2.4);
+  const r = 18 * camera.zoom;
+  const facing = state.player.angle + Math.sin(state.gameTime * 1.7) * 0.06;
+
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
-  ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.35 + pulse * 0.35);
-  ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.08 + pulse * 0.08);
-  ctx.lineWidth = 2;
+  ctx.translate(screen.x, screen.y);
+  ctx.rotate(facing);
+
+  ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.10 + pulse * 0.07);
+  ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.28 + pulse * 0.26);
+  ctx.lineWidth = Math.max(1, 1.4 * camera.zoom);
   ctx.beginPath();
-  ctx.arc(screen.x, screen.y, 18, 0, Math.PI * 2);
+  ctx.moveTo(r * 1.45, 0);
+  ctx.lineTo(r * 0.2, -r * 0.42);
+  ctx.lineTo(-r * 0.9, -r * 0.9);
+  ctx.lineTo(-r * 0.56, -r * 0.18);
+  ctx.lineTo(-r * 1.12, 0);
+  ctx.lineTo(-r * 0.56, r * 0.18);
+  ctx.lineTo(-r * 0.9, r * 0.9);
+  ctx.lineTo(r * 0.2, r * 0.42);
+  ctx.closePath();
   ctx.fill();
   ctx.stroke();
-  ctx.strokeStyle = colorToCSS(TextColors.normal, 0.55);
-  ctx.lineWidth = 1;
+
+  ctx.strokeStyle = colorToCSS(TextColors.normal, 0.26 + pulse * 0.18);
+  ctx.lineWidth = Math.max(1, 0.9 * camera.zoom);
   ctx.beginPath();
-  ctx.moveTo(screen.x - 24, screen.y);
-  ctx.lineTo(screen.x - 8, screen.y);
-  ctx.moveTo(screen.x + 8, screen.y);
-  ctx.lineTo(screen.x + 24, screen.y);
-  ctx.moveTo(screen.x, screen.y - 24);
-  ctx.lineTo(screen.x, screen.y - 8);
-  ctx.moveTo(screen.x, screen.y + 8);
-  ctx.lineTo(screen.x, screen.y + 24);
+  ctx.moveTo(r * 1.0, 0);
+  ctx.lineTo(-r * 0.18, 0);
+  ctx.moveTo(-r * 0.18, 0);
+  ctx.lineTo(-r * 0.72, -r * 0.62);
+  ctx.moveTo(-r * 0.18, 0);
+  ctx.lineTo(-r * 0.72, r * 0.62);
+  ctx.moveTo(r * 0.16, -r * 0.33);
+  ctx.lineTo(r * 0.36, 0);
+  ctx.lineTo(r * 0.16, r * 0.33);
+  ctx.stroke();
+
+  ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.30 + pulse * 0.22);
+  ctx.beginPath();
+  ctx.ellipse(r * 0.06, 0, r * 0.24, r * 0.18, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = colorToCSS(Colors.particles_spark, 0.22 + pulse * 0.2);
+  ctx.lineWidth = Math.max(1, 1.2 * camera.zoom);
+  for (let i = -1; i <= 1; i++) {
+    const y = (i * 0.42 + drift * 0.05) * r;
+    ctx.beginPath();
+    ctx.moveTo(-r * 1.24, y);
+    ctx.lineTo(-r * 1.72, y + i * r * 0.16);
+    ctx.stroke();
+  }
+
+  ctx.rotate(-facing);
+  ctx.beginPath();
+  ctx.arc(0, 0, r * (1.08 + pulse * 0.14), 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = colorToCSS(TextColors.normal, 0.55);
+  ctx.lineWidth = Math.max(1, camera.zoom);
+  ctx.beginPath();
+  ctx.moveTo(-r * 1.45, 0);
+  ctx.lineTo(-r * 0.72, 0);
+  ctx.moveTo(r * 0.72, 0);
+  ctx.lineTo(r * 1.45, 0);
+  ctx.moveTo(0, -r * 1.45);
+  ctx.lineTo(0, -r * 0.72);
+  ctx.moveTo(0, r * 0.72);
+  ctx.lineTo(0, r * 1.45);
   ctx.stroke();
   ctx.restore();
 }
