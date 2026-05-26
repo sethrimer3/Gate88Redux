@@ -2203,7 +2203,7 @@ export class Game {
 
     // Full radar overlay (hold Tab)
     if (Input.isDown('Tab')) {
-      drawRadarOverlay(ctx, this.state, w, h);
+      drawRadarOverlay(ctx, this.state, w, h, this.waypointMarkers);
     }
 
     drawScreenOverlays(ctx, w, h, this.camera, this.visualPreset, this.damageFlashTimer, this.overlayCache);

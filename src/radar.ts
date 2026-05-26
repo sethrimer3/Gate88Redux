@@ -5,6 +5,7 @@ import { Camera } from './camera.js';
 import { Colors, colorToCSS, Color } from './colors.js';
 import { Entity, Team, EntityType, ShipGroup } from './entities.js';
 import { GameState } from './gamestate.js';
+import type { ShipCommandGroup, WaypointMarker } from './gameRender.js';
 
 const EDGE_MARGIN = 20;
 const INDICATOR_MIN_SIZE = 4;
@@ -325,6 +326,64 @@ function drawRadarFrame(
   }
 }
 
+export function radarScreenToWorld(
+  screenPos: Vec2,
+  playerPos: Vec2,
+  screenW: number,
+  screenH: number,
+): Vec2 | null {
+  const centerX = screenW * 0.5;
+  const centerY = screenH * 0.5;
+  const radarRadius = Math.min(screenW, screenH) * 0.45;
+  const dx = screenPos.x - centerX;
+  const dy = screenPos.y - centerY;
+  if (dx * dx + dy * dy > radarRadius * radarRadius) return null;
+  const scale = radarRadius / RADAR_RANGE;
+  return new Vec2(playerPos.x + dx / scale, playerPos.y + dy / scale);
+}
+
+function drawRadarWaypointMarker(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  group: ShipCommandGroup,
+  time: number,
+): void {
+  const color = group === 'all' ? Colors.alert2 : GROUP_COLORS[group];
+  const label = group === 'all' ? 'A' : `${group + 1}`;
+  const pulse = 0.5 + 0.5 * Math.sin(time * 4.4 + (group === 'all' ? 1.7 : group));
+  const radius = 9 + pulse * 3;
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.shadowColor = colorToCSS(color, 0.8);
+  ctx.shadowBlur = 12;
+  ctx.strokeStyle = colorToCSS(color, 0.82);
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(0, -radius);
+  ctx.lineTo(radius * 0.72, 0);
+  ctx.lineTo(0, radius);
+  ctx.lineTo(-radius * 0.72, 0);
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * 0.58, 0, Math.PI * 2);
+  ctx.strokeStyle = colorToCSS(color, 0.42);
+  ctx.stroke();
+
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.shadowBlur = 0;
+  ctx.font = 'bold 12px "Poiret One", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = colorToCSS(Colors.particles_switch, 0.95);
+  ctx.fillText(label, 0, 0);
+  ctx.restore();
+}
+
 export function drawEdgeIndicators(
   ctx: CanvasRenderingContext2D,
   camera: Camera,
@@ -477,6 +536,7 @@ export function drawRadarOverlay(
   state: GameState,
   screenW: number,
   screenH: number,
+  waypointMarkers?: Map<ShipCommandGroup, WaypointMarker>,
 ): void {
   const centerX = screenW * 0.5;
   const centerY = screenH * 0.5;
@@ -562,6 +622,18 @@ export function drawRadarOverlay(
       friendly ? RADAR_FRIENDLY_FILL : RADAR_ENEMY_FILL,
       friendly ? RADAR_FRIENDLY_STROKE : RADAR_ENEMY_STROKE,
     );
+  }
+
+  if (waypointMarkers) {
+    const drawOrder: ShipCommandGroup[] = [ShipGroup.Red, ShipGroup.Green, ShipGroup.Blue, 'all'];
+    for (const group of drawOrder) {
+      const marker = waypointMarkers.get(group);
+      if (!marker) continue;
+      const dx = (marker.pos.x - playerPos.x) * scale;
+      const dy = (marker.pos.y - playerPos.y) * scale;
+      if (dx * dx + dy * dy > radarRadius * radarRadius) continue;
+      drawRadarWaypointMarker(ctx, centerX + dx, centerY + dy, group, state.gameTime);
+    }
   }
 
   // Distance label

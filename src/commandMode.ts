@@ -14,6 +14,7 @@ import { TurretBase } from './turret.js';
 import { FighterShip } from './fighter.js';
 import type { ShipCommandGroup, WaypointMarker } from './gameRender.js';
 import { isHostile } from './teamutils.js';
+import { radarScreenToWorld } from './radar.js';
 
 const commandEntityScratch: Entity[] = [];
 
@@ -100,9 +101,14 @@ export function updateNumberGroupHotkeys(
   if (!Input.mousePressed) return;
   Input.consumeMouseButton(0);
 
-  const aimWorld = ctx.camera.screenToWorld(Input.mousePos);
+  const radarTarget = Input.isDown('Tab')
+    ? radarScreenToWorld(Input.mousePos, ctx.state.player.position, ctx.camera.screenW, ctx.camera.screenH)
+    : null;
+  if (Input.isDown('Tab') && !radarTarget) return;
+
+  const aimWorld = radarTarget ?? ctx.camera.screenToWorld(Input.mousePos);
   const yard = findPlayerShipyardAt(ctx.state, aimWorld);
-  if (yard && group !== 'all') {
+  if (!radarTarget && yard && group !== 'all') {
     yard.assignedGroup = group;
     for (const f of ctx.state.fighters) {
       if (f.alive && f.team === Team.Player && f.homeYard === yard) {
