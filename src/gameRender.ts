@@ -35,8 +35,11 @@ export function drawWaypointMarkers(
     const t = state.gameTime - marker.issuedAt;
     const phase = state.gameTime * 3.2 + (group === 'all' ? 1.8 : group);
     const pulse = 0.5 + 0.5 * Math.sin(phase);
-    const ring = (18 + pulse * 6) * camera.zoom;
+    const ring = (18 + pulse * 5) * camera.zoom;
     const lift = Math.sin(state.gameTime * 1.7 + t) * 3 * camera.zoom;
+    const core = Math.max(5, 7 * camera.zoom);
+    const tickInner = ring * 1.02;
+    const tickOuter = ring * 1.34;
 
     ctx.save();
     ctx.translate(screen.x, screen.y + lift);
@@ -51,16 +54,38 @@ export function drawWaypointMarkers(
     ctx.arc(0, 0, ring * 1.8, 0, Math.PI * 2);
     ctx.fill();
 
-    for (let i = 0; i < 3; i++) {
-      ctx.save();
-      ctx.rotate(state.gameTime * (0.9 + i * 0.23) + i * Math.PI * 0.66);
-      ctx.strokeStyle = colorToCSS(color, 0.45 - i * 0.08);
-      ctx.lineWidth = Math.max(1, 1.4 * camera.zoom);
+    ctx.strokeStyle = colorToCSS(color, 0.34);
+    ctx.lineWidth = Math.max(1, 1.1 * camera.zoom);
+    ctx.beginPath();
+    ctx.arc(0, 0, ring * 1.28, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = colorToCSS(color, 0.56);
+    ctx.lineWidth = Math.max(1, 1.6 * camera.zoom);
+    ctx.beginPath();
+    ctx.arc(0, 0, ring * 0.78, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.strokeStyle = colorToCSS(color, 0.68);
+    ctx.lineWidth = Math.max(1, 1.4 * camera.zoom);
+    for (let i = 0; i < 4; i++) {
+      const a = state.gameTime * 0.55 + i * Math.PI * 0.5;
+      const sx = Math.cos(a);
+      const sy = Math.sin(a);
       ctx.beginPath();
-      ctx.ellipse(0, 0, ring * (1 + i * 0.26), ring * (0.42 + i * 0.12), 0, 0.18, Math.PI * 1.72);
+      ctx.moveTo(sx * tickInner, sy * tickInner);
+      ctx.lineTo(sx * tickOuter, sy * tickOuter);
       ctx.stroke();
-      ctx.restore();
     }
+
+    ctx.fillStyle = colorToCSS(color, 0.16);
+    ctx.beginPath();
+    ctx.moveTo(0, -ring * 0.9);
+    ctx.lineTo(ring * 0.68, 0);
+    ctx.lineTo(0, ring * 0.9);
+    ctx.lineTo(-ring * 0.68, 0);
+    ctx.closePath();
+    ctx.fill();
 
     ctx.strokeStyle = colorToCSS(color, 0.76);
     ctx.lineWidth = Math.max(1, 1.2 * camera.zoom);
@@ -71,6 +96,18 @@ export function drawWaypointMarkers(
     ctx.lineTo(-ring * 0.7, 0);
     ctx.closePath();
     ctx.stroke();
+
+    ctx.strokeStyle = colorToCSS(color, 0.5);
+    ctx.lineWidth = Math.max(1, 1 * camera.zoom);
+    ctx.beginPath();
+    ctx.moveTo(0, ring * 0.9);
+    ctx.lineTo(0, ring * 1.58);
+    ctx.stroke();
+
+    ctx.fillStyle = colorToCSS(color, 0.82);
+    ctx.beginPath();
+    ctx.arc(0, 0, core, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.globalCompositeOperation = 'source-over';
     ctx.font = `bold ${Math.max(9, 12 * camera.zoom)}px "Poiret One", sans-serif`;

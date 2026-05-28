@@ -359,7 +359,13 @@ function drawRadarWaypointMarker(
   ctx.globalCompositeOperation = 'lighter';
   ctx.shadowColor = colorToCSS(color, 0.8);
   ctx.shadowBlur = 12;
-  ctx.strokeStyle = colorToCSS(color, 0.82);
+  ctx.strokeStyle = colorToCSS(color, 0.34);
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(0, 0, radius * 1.16, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = colorToCSS(color, 0.86);
   ctx.lineWidth = 1.4;
   ctx.beginPath();
   ctx.moveTo(0, -radius);
@@ -369,10 +375,24 @@ function drawRadarWaypointMarker(
   ctx.closePath();
   ctx.stroke();
 
+  ctx.fillStyle = colorToCSS(color, 0.2);
+  ctx.fill();
+
   ctx.beginPath();
-  ctx.arc(0, 0, radius * 0.58, 0, Math.PI * 2);
-  ctx.strokeStyle = colorToCSS(color, 0.42);
+  ctx.arc(0, 0, radius * 0.5, 0, Math.PI * 2);
+  ctx.strokeStyle = colorToCSS(color, 0.58);
   ctx.stroke();
+
+  ctx.strokeStyle = colorToCSS(color, 0.7);
+  for (let i = 0; i < 4; i++) {
+    const a = i * Math.PI * 0.5;
+    const sx = Math.cos(a);
+    const sy = Math.sin(a);
+    ctx.beginPath();
+    ctx.moveTo(sx * radius * 1.26, sy * radius * 1.26);
+    ctx.lineTo(sx * radius * 1.54, sy * radius * 1.54);
+    ctx.stroke();
+  }
 
   ctx.globalCompositeOperation = 'source-over';
   ctx.shadowBlur = 0;
