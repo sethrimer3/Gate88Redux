@@ -172,7 +172,9 @@ export abstract class ProjectileBase extends Entity {
 
     // Level 3: chromatic aberration fringe — red and blue ghost trails offset perpendicularly.
     if (cinematicLevel >= 3) {
+      ctx.save();
       const aberrationWidth = Math.max(0.5, width * 0.22 * 1.35 * camera.zoom);
+      ctx.lineWidth = aberrationWidth;
       for (let i = 1; i < this.trail.length; i++) {
         const a = this.trail[i - 1];
         const b = this.trail[i];
@@ -188,9 +190,7 @@ export abstract class ProjectileBase extends Entity {
         const py   = -tdx / tlen;
         const offset = aberrationWidth * 1.8;
         const headBias = i / Math.max(1, this.trail.length - 1);
-        const alpha = Math.min(1, 0.06 * fade * (0.45 + headBias * 0.55));
-        ctx.lineWidth  = aberrationWidth;
-        ctx.globalAlpha = alpha;
+        ctx.globalAlpha = Math.min(1, 0.06 * fade * (0.45 + headBias * 0.55));
 
         // Red fringe.
         ctx.strokeStyle = 'rgba(255,60,40,1)';
@@ -206,6 +206,7 @@ export abstract class ProjectileBase extends Entity {
         ctx.lineTo(to.x   - px * offset, to.y   - py * offset);
         ctx.stroke();
       }
+      ctx.restore();
     }
 
     ctx.restore();
