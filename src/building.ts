@@ -313,6 +313,23 @@ export abstract class BuildingBase extends Entity {
     glint.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = glint;
     ctx.fillRect(x, y, s, s);
+
+    // Level 3: animated holographic scan line sweeps across the building face.
+    if (getCinematicLevel() >= 3) {
+      const scanT   = (this.animationTime * 0.40 + this.id * 0.29) % 1;
+      const scanY   = y + scanT * s;
+      const lineH   = Math.max(1, s * 0.045);
+      const scanA   = 0.22 * Math.sin(scanT * Math.PI);  // fade at edges of sweep
+      const scanGrad = ctx.createLinearGradient(x, scanY, x + s, scanY);
+      scanGrad.addColorStop(0.00, `rgba(180,220,255,0)`);
+      scanGrad.addColorStop(0.18, `rgba(180,220,255,${scanA.toFixed(3)})`);
+      scanGrad.addColorStop(0.50, `rgba(210,240,255,${(scanA * 1.35).toFixed(3)})`);
+      scanGrad.addColorStop(0.82, `rgba(180,220,255,${scanA.toFixed(3)})`);
+      scanGrad.addColorStop(1.00, `rgba(180,220,255,0)`);
+      ctx.fillStyle = scanGrad;
+      ctx.fillRect(x, scanY, s, lineH);
+    }
+
     ctx.restore();
   }
   private drawUnpoweredWarning(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {

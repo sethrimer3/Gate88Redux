@@ -167,5 +167,69 @@ export class Nebula {
     ctx.imageSmoothingEnabled = true;
     ctx.drawImage(this.screenWisps, 0, 0, screenW, screenH);
     ctx.restore();
+
+    if (cinematicLevel >= 3) {
+      this.drawAuroraOverlay(ctx, screenW, screenH);
+    }
+  }
+
+  /**
+   * Animated aurora shimmer overlay — slowly drifting radial color washes that
+   * create organic background movement absent from levels 1 and 2.
+   * Drawn every frame (not baked) using performance.now() as a time source.
+   */
+  private drawAuroraOverlay(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
+    const t = performance.now() / 1000;
+    const radiusBase = Math.max(screenW, screenH);
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+
+    // Teal-green aurora — drifts slowly toward the top-left quadrant.
+    const ta = 0.028 + 0.012 * Math.sin(t * 0.23);
+    const tg = ctx.createRadialGradient(
+      screenW * (0.26 + 0.11 * Math.sin(t * 0.14)),
+      screenH * (0.28 + 0.09 * Math.sin(t * 0.17 + 1.1)),
+      0,
+      screenW * (0.26 + 0.11 * Math.sin(t * 0.14)),
+      screenH * (0.28 + 0.09 * Math.sin(t * 0.17 + 1.1)),
+      radiusBase * (0.52 + 0.06 * Math.sin(t * 0.09)),
+    );
+    tg.addColorStop(0, `rgba(0,255,175,${ta.toFixed(3)})`);
+    tg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = tg;
+    ctx.fillRect(0, 0, screenW, screenH);
+
+    // Magenta aurora — slowly wanders near the center.
+    const ma = 0.020 + 0.009 * Math.sin(t * 0.19 + 0.8);
+    const mg = ctx.createRadialGradient(
+      screenW * (0.56 + 0.09 * Math.sin(t * 0.11 + 2.3)),
+      screenH * (0.44 + 0.07 * Math.sin(t * 0.13 + 0.5)),
+      0,
+      screenW * (0.56 + 0.09 * Math.sin(t * 0.11 + 2.3)),
+      screenH * (0.44 + 0.07 * Math.sin(t * 0.13 + 0.5)),
+      radiusBase * (0.38 + 0.05 * Math.sin(t * 0.07 + 1.0)),
+    );
+    mg.addColorStop(0, `rgba(220,55,220,${ma.toFixed(3)})`);
+    mg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = mg;
+    ctx.fillRect(0, 0, screenW, screenH);
+
+    // Soft blue aurora — drifts in the lower-right region.
+    const ba = 0.026 + 0.011 * Math.sin(t * 0.21 + 1.5);
+    const bg = ctx.createRadialGradient(
+      screenW * (0.76 + 0.08 * Math.sin(t * 0.16 + 1.7)),
+      screenH * (0.70 + 0.06 * Math.sin(t * 0.12 + 3.1)),
+      0,
+      screenW * (0.76 + 0.08 * Math.sin(t * 0.16 + 1.7)),
+      screenH * (0.70 + 0.06 * Math.sin(t * 0.12 + 3.1)),
+      radiusBase * (0.44 + 0.04 * Math.sin(t * 0.10 + 2.0)),
+    );
+    bg.addColorStop(0, `rgba(35,140,255,${ba.toFixed(3)})`);
+    bg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, screenW, screenH);
+
+    ctx.restore();
   }
 }
