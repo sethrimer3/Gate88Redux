@@ -13,6 +13,7 @@
  */
 
 import { Camera } from './camera.js';
+import { getCinematicLevel } from './cinematic.js';
 
 interface ScreenCloudDef {
   x: number;
@@ -87,6 +88,7 @@ export class Nebula {
   private screenWisps: HTMLCanvasElement;
   private screenW = 0;
   private screenH = 0;
+  private cachedCinematicLevel = -1;
 
   constructor() {
     this.screenWisps = document.createElement('canvas');
@@ -106,9 +108,11 @@ export class Nebula {
   }
 
   private drawScreenWisps(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
-    if (this.screenW !== screenW || this.screenH !== screenH) {
+    const cinematicLevel = getCinematicLevel();
+    if (this.screenW !== screenW || this.screenH !== screenH || this.cachedCinematicLevel !== cinematicLevel) {
       this.screenW = screenW;
       this.screenH = screenH;
+      this.cachedCinematicLevel = cinematicLevel;
       const scale = 0.35;
       this.screenWisps.width = Math.max(1, Math.ceil(screenW * scale));
       this.screenWisps.height = Math.max(1, Math.ceil(screenH * scale));
@@ -136,6 +140,25 @@ export class Nebula {
         }
         wctx.fillStyle = grad;
         wctx.fillRect(0, 0, w, h);
+      }
+
+      if (cinematicLevel >= 2) {
+        const copper = wctx.createRadialGradient(w * 0.70, h * 0.42, 0, w * 0.70, h * 0.42, radiusBase * 0.78);
+        copper.addColorStop(0, 'rgba(227,138,74,0.16)');
+        copper.addColorStop(0.34, 'rgba(198,90,46,0.09)');
+        copper.addColorStop(0.72, 'rgba(107,58,34,0.045)');
+        copper.addColorStop(1, 'rgba(0,0,0,0)');
+        wctx.fillStyle = copper;
+        wctx.fillRect(0, 0, w, h);
+
+        wctx.globalCompositeOperation = 'multiply';
+        const contrast = wctx.createLinearGradient(0, 0, w, h);
+        contrast.addColorStop(0, 'rgba(24,15,12,0.05)');
+        contrast.addColorStop(0.55, 'rgba(255,255,255,0)');
+        contrast.addColorStop(1, 'rgba(24,15,12,0.10)');
+        wctx.fillStyle = contrast;
+        wctx.fillRect(0, 0, w, h);
+        wctx.globalCompositeOperation = 'screen';
       }
     }
 

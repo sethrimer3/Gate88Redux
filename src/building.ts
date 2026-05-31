@@ -15,6 +15,7 @@ import { footprintForBuildingType } from './buildingfootprint.js';
 import { teamColor } from './teamutils.js';
 import { getDistantSunScreenPosition } from './suns.js';
 import { Input } from './input.js';
+import { getCinematicLevel } from './cinematic.js';
 
 interface BaseVisual {
   side: number;
@@ -90,6 +91,7 @@ export abstract class BuildingBase extends Entity {
     this.drawPowerStrip(ctx, x, y, v.side);
     this.drawUnpoweredWarning(ctx, x, y, v.side);
     if (this.powered && this.buildProgress >= 1 && !v.simple) this.drawPoweredScanLine(ctx, x, y, v.side);
+    if (getCinematicLevel() >= 2 && this.buildProgress >= 1) this.drawCinematicBloom(ctx, x, y, v.side, camera);
     if (this.buildProgress < 1) this.drawConstructionOverlay(ctx, x, y, v.side);
     if (this.deleting) this.drawDeletionOverlay(ctx, x, y, v.side);
     ctx.restore();
@@ -284,6 +286,34 @@ export abstract class BuildingBase extends Entity {
     ctx.fillStyle = colorToCSS(col, a);
     ctx.fillRect(x + s * 0.06, y + s * 0.44, w, s * 0.12);
     ctx.fillRect(x + s * 0.44, y + s * 0.06, s * 0.12, w);
+  }
+
+  private drawCinematicBloom(ctx: CanvasRenderingContext2D, x: number, y: number, s: number, camera: Camera): void {
+    const sun = getDistantSunScreenPosition(camera, ctx.canvas.width, ctx.canvas.height);
+    const cx = x + s * 0.5;
+    const cy = y + s * 0.5;
+    const dx = sun.x - cx;
+    const dy = sun.y - cy;
+    const d = Math.max(1, Math.hypot(dx, dy));
+    const lx = dx / d;
+    const ly = dy / d;
+    const pulse = 0.55 + 0.45 * Math.sin(this.animationTime * 1.8 + this.position.x * 0.004);
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.shadowColor = 'rgba(227,138,74,0.42)';
+    ctx.shadowBlur = Math.max(5, s * 0.11);
+    ctx.strokeStyle = `rgba(227,138,74,${(0.18 + pulse * 0.16).toFixed(3)})`;
+    ctx.lineWidth = Math.max(1, s * 0.018);
+    ctx.strokeRect(x - s * 0.035, y - s * 0.035, s * 1.07, s * 1.07);
+
+    const glint = ctx.createLinearGradient(cx + lx * s * 0.65, cy + ly * s * 0.65, cx - lx * s * 0.35, cy - ly * s * 0.35);
+    glint.addColorStop(0, `rgba(227,138,74,${(0.16 + pulse * 0.08).toFixed(3)})`);
+    glint.addColorStop(0.22, `rgba(198,90,46,${(0.08 + pulse * 0.05).toFixed(3)})`);
+    glint.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = glint;
+    ctx.fillRect(x, y, s, s);
+    ctx.restore();
   }
   private drawUnpoweredWarning(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
     if (this.powered || this.buildProgress < 1 || this.deleting) return;

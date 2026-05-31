@@ -1,3 +1,5 @@
+import { getCinematicLevel } from './cinematic.js';
+
 /**
  * spacefluid.ts — Euler fluid background for Gate88 space.
  *
@@ -694,7 +696,8 @@ export function createSpaceFluid(): SpaceFluid {
     ctx.save();
     ctx.lineCap   = 'round';
     ctx.lineJoin  = 'round';
-    ctx.lineWidth = TRAIL_LINE_WIDTH;
+    const cinematicLevel = getCinematicLevel();
+    ctx.lineWidth = TRAIL_LINE_WIDTH * (cinematicLevel >= 2 ? 1.35 : 1);
 
     for (let h = 0; h < HUE_STEPS; h++) {
       const hueDeg = h * 30;
@@ -704,7 +707,7 @@ export function createSpaceFluid(): SpaceFluid {
 
         // Alpha for this bucket: linearly spaced from (1/ALPHA_BUCKETS) up to 1,
         // then scaled by TRAIL_PEAK_ALPHA.
-        const alpha = ((b + 1) / ALPHA_BUCKETS) * TRAIL_PEAK_ALPHA;
+        const alpha = Math.min(0.95, ((b + 1) / ALPHA_BUCKETS) * TRAIL_PEAK_ALPHA * (cinematicLevel >= 2 ? 1.45 : 1));
         ctx.strokeStyle = `hsla(${hueDeg},82%,66%,${alpha.toFixed(3)})`;
         ctx.beginPath();
         for (let k = 0; k < arr.length; k += 4) {

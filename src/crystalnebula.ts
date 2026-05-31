@@ -24,6 +24,7 @@ import { GlowLayer } from './glowlayer.js';
 import { WORLD_WIDTH, WORLD_HEIGHT } from './constants.js';
 import type { VisualQualityPreset } from './visualquality.js';
 import { renderBudget } from './renderBudget.js';
+import { getCinematicLevel } from './cinematic.js';
 
 // ---------------------------------------------------------------------------
 // Seeded PRNG — mulberry32 for stable, deterministic cloud layout
@@ -405,6 +406,8 @@ export class CrystalNebula {
 
     const useGlow = this.glowEnabled && glowLayer !== null && glowLayer.enabled;
     const glowCtx = useGlow ? glowLayer!.ctx : null;
+    const cinematicLevel = getCinematicLevel();
+    const cinematicBoost = cinematicLevel >= 2 ? 1.38 : 1;
 
     // Adaptive draw decimation: under load, draw every Nth mote to reduce fill cost.
     // renderLoadScale=1.0 → drawEveryN=1; renderLoadScale=0.35 → drawEveryN=3
@@ -442,7 +445,7 @@ export class CrystalNebula {
         // Disturbance proximity affects motion only, not brightness.
         const sparkle   = 0.68 + 0.32 * Math.sin(time * p.sparkleRate + p.sparklePhase);
         const actBoost  = 1 + velocityGlow * 2.35;
-        const alpha     = Math.min(0.96, p.brightness * sparkle * actBoost);
+        const alpha     = Math.min(0.98, p.brightness * sparkle * actBoost * cinematicBoost);
         if (alpha < 0.02) continue;
 
         const colorStr = p.colorPrefix + alpha.toFixed(3) + ')';
@@ -452,7 +455,7 @@ export class CrystalNebula {
 
         if (p.shape === 2) {
           // 4-point glint: two perpendicular line segments
-          const len = sr * 2.4;
+          const len = sr * (cinematicLevel >= 2 ? 3.2 : 2.4);
           ctx.strokeStyle = hotAlpha > 0.22 ? p.colorPrefix + Math.min(1, alpha + hotAlpha * 0.4).toFixed(3) + ')' : colorStr;
           ctx.lineWidth   = Math.max(0.4, sr * 0.55);
           ctx.beginPath();
@@ -464,9 +467,9 @@ export class CrystalNebula {
 
           // Route brightest glints into the glow layer
           if (glowCtx && (alpha > 0.50 || hotAlpha > 0.18 || velocityGlow > 0.16)) {
-            glowCtx.fillStyle = p.colorPrefix + Math.min(0.52, alpha * 0.18 + hotAlpha * 0.30 + velocityGlow * 0.18).toFixed(3) + ')';
+            glowCtx.fillStyle = p.colorPrefix + Math.min(cinematicLevel >= 2 ? 0.72 : 0.52, alpha * 0.18 + hotAlpha * 0.30 + velocityGlow * (cinematicLevel >= 2 ? 0.30 : 0.18)).toFixed(3) + ')';
             glowCtx.beginPath();
-            glowCtx.arc(sx, sy, sr * (3.0 + hotAlpha * 2.2 + velocityGlow * 3.2), 0, Math.PI * 2);
+            glowCtx.arc(sx, sy, sr * ((cinematicLevel >= 2 ? 4.4 : 3.0) + hotAlpha * 2.2 + velocityGlow * (cinematicLevel >= 2 ? 4.8 : 3.2)), 0, Math.PI * 2);
             glowCtx.fill();
           }
         } else {

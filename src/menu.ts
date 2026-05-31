@@ -60,6 +60,7 @@ import {
 import { OnlineLobbyManager } from './online/onlineLobby.js';
 import { SignalingClient } from './online/signalingClient.js';
 import { DEFAULT_VISUAL_QUALITY, type VisualQuality } from './visualquality.js';
+import { clampCinematicLevel, type CinematicLevel } from './cinematic.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -176,6 +177,7 @@ export class MainMenu {
    * Defaults to medium until game.ts overrides it from localStorage.
    */
   visualQuality: VisualQuality = DEFAULT_VISUAL_QUALITY;
+  cinematicLevel: CinematicLevel = 1;
   gameZoom: number = 1.0;
   uiZoom: number = 1.0;
 
@@ -772,7 +774,12 @@ export class MainMenu {
     });
 
     const opts = this.currentSimpleOptions()!;
-    this.drawClickableOptions(ctx, cx, h * 0.63, opts);
+    const menuStartY = h * 0.63;
+    this.drawClickableOptions(ctx, cx, menuStartY, opts.slice(0, 2), 0);
+    this.drawCinematicSliderRow(ctx, settingsX, menuStartY + 108, rowH, this.cinematicLevel, (v) => {
+      this.cinematicLevel = v;
+    });
+    this.drawClickableOptions(ctx, cx, menuStartY + 184, opts.slice(2), 2);
   }
 
   // -------------------------------------------------------------------
@@ -784,6 +791,7 @@ export class MainMenu {
     cx: number,
     startY: number,
     options: SimpleOption[],
+    indexOffset: number = 0,
   ): void {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -802,12 +810,13 @@ export class MainMenu {
         h: lineH * 0.84,
       };
       const hovered = pointInRect(mx, my, rect);
-      const selected = i === this.selectedIndex;
+      const actualIndex = indexOffset + i;
+      const selected = actualIndex === this.selectedIndex;
       const highlight = hovered || selected;
 
       // Sync keyboard cursor with hover so feedback is unified.
-      if (hovered && this.selectedIndex !== i) {
-        this.selectedIndex = i;
+      if (hovered && this.selectedIndex !== actualIndex) {
+        this.selectedIndex = actualIndex;
       }
 
       if (highlight) {
@@ -1310,6 +1319,7 @@ export class MainMenu {
     label: string, value: number, min: number, max: number, step: number,
     onChange: (v: number) => void,
     fmt: (v: number) => string,
+    showTicks: boolean = false,
   ): number {
     this.drawRowLabel(ctx, x, y, label);
 
@@ -1323,6 +1333,21 @@ export class MainMenu {
 
     const hovered = pointInRect(this.mouseX(), this.mouseY(), track);
     this.drawControlWell(ctx, { x: sx - 2, y: trackY - 8, w: sw + 4, h: 16 }, hovered, t);
+
+    if (showTicks) {
+      const tickCount = Math.max(1, Math.round((max - min) / step));
+      ctx.save();
+      ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.78);
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= tickCount; i++) {
+        const tx = sx + (i / tickCount) * sw;
+        ctx.beginPath();
+        ctx.moveTo(tx, trackY - 8);
+        ctx.lineTo(tx, trackY + 8);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
 
     // Filled portion
     const fill = ctx.createLinearGradient(sx, trackY, sx + sw, trackY);
@@ -1383,6 +1408,30 @@ export class MainMenu {
       5,
       (v) => onChange(v / 100),
       (v) => `${Math.round(v)}%`,
+    );
+  }
+
+  private drawCinematicSliderRow(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    h: number,
+    value: CinematicLevel,
+    onChange: (v: CinematicLevel) => void,
+  ): number {
+    return this.drawSliderRow(
+      ctx,
+      x,
+      y,
+      h,
+      'Cinematic Slider',
+      value,
+      0,
+      2,
+      1,
+      (v) => onChange(clampCinematicLevel(v)),
+      (v) => (v <= 0 ? 'off' : String(Math.round(v))),
+      true,
     );
   }
 

@@ -5,6 +5,7 @@ import { Camera } from './camera.js';
 import { Entity, EntityType, Team } from './entities.js';
 import { Colors, colorToCSS } from './colors.js';
 import { ENTITY_RADIUS, HP_VALUES, WEAPON_STATS, SWARM_MISSILE_DAMAGE_MULTIPLIER } from './constants.js';
+import { getCinematicLevel } from './cinematic.js';
 
 const BULLET_TRAIL_LIFETIME = 0.12;
 const BULLET_TRAIL_MIN_DISTANCE = 2;
@@ -106,7 +107,8 @@ export abstract class ProjectileBase extends Entity {
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.lineWidth = width;
+    const cinematicLevel = getCinematicLevel();
+    ctx.lineWidth = width * (cinematicLevel >= 2 ? 1.45 : 1);
     for (let i = 1; i < this.trail.length; i++) {
       const a = this.trail[i - 1];
       const b = this.trail[i];
@@ -114,7 +116,7 @@ export abstract class ProjectileBase extends Entity {
       if (fade <= 0) continue;
       const from = camera.worldToScreen(a.pos);
       const to = camera.worldToScreen(b.pos);
-      ctx.globalAlpha = 0.12 + fade * 0.38;
+      ctx.globalAlpha = Math.min(0.95, (0.12 + fade * 0.38) * (cinematicLevel >= 2 ? 1.45 : 1));
       ctx.strokeStyle = color;
       ctx.beginPath();
       ctx.moveTo(from.x, from.y);
@@ -146,9 +148,10 @@ export abstract class ProjectileBase extends Entity {
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+    const cinematicLevel = getCinematicLevel();
 
     for (let layer = 0; layer < 3; layer++) {
-      const layerWidth = width * (layer === 0 ? 1 : layer === 1 ? 0.48 : 0.18);
+      const layerWidth = width * (cinematicLevel >= 2 ? 1.35 : 1) * (layer === 0 ? 1 : layer === 1 ? 0.48 : 0.18);
       ctx.lineWidth = Math.max(1, layerWidth * camera.zoom);
       ctx.strokeStyle = layer === 2 ? coreColor : glowColor;
       for (let i = 1; i < this.trail.length; i++) {
@@ -159,7 +162,7 @@ export abstract class ProjectileBase extends Entity {
         const from = camera.worldToScreen(a.pos);
         const to = camera.worldToScreen(b.pos);
         const headBias = i / Math.max(1, this.trail.length - 1);
-        ctx.globalAlpha = (layer === 0 ? 0.18 : layer === 1 ? 0.34 : 0.62) * fade * (0.45 + headBias * 0.55);
+        ctx.globalAlpha = Math.min(1, (layer === 0 ? 0.18 : layer === 1 ? 0.34 : 0.62) * fade * (0.45 + headBias * 0.55) * (cinematicLevel >= 2 ? 1.35 : 1));
         ctx.beginPath();
         ctx.moveTo(from.x, from.y);
         ctx.lineTo(to.x, to.y);

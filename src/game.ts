@@ -46,6 +46,7 @@ import {
 } from './vsaiconfig.js';
 import { GlowLayer } from './glowlayer.js';
 import { DEFAULT_VISUAL_QUALITY, VISUAL_QUALITY_PRESETS, type VisualQuality, type VisualQualityPreset, loadVisualQuality, saveVisualQuality } from './visualquality.js';
+import { loadCinematicLevel, saveCinematicLevel, setCinematicLevel, type CinematicLevel } from './cinematic.js';
 import {
   drawCombatTargetingDebug, drawConfluenceTerritory, drawDebugOverlay, drawWaypointMarkers, drawBaseTerritoryGlow, type ShipCommandGroup, type WaypointMarker,
 } from './gameRender.js';
@@ -151,6 +152,7 @@ export class Game {
   private asteroidField: AsteroidField;
   private starNest: StarNestBackground;
   private visualQuality: VisualQuality = DEFAULT_VISUAL_QUALITY;
+  private cinematicLevel: CinematicLevel = 1;
   private visualPreset: VisualQualityPreset = VISUAL_QUALITY_PRESETS[DEFAULT_VISUAL_QUALITY];
   private gameZoom: number = 1.0;
   private uiZoom: number = 1.0;
@@ -285,6 +287,7 @@ export class Game {
     this.starNest = new StarNestBackground();
     this.spaceFluid.resize(window.innerWidth, window.innerHeight);
     this.applyVisualQuality(loadVisualQuality());
+    this.applyCinematicLevel(loadCinematicLevel());
     this.applyZoomSettings(loadZoomSetting(GAME_ZOOM_KEY), loadZoomSetting(UI_ZOOM_KEY));
 
     this.resizeCanvas();
@@ -320,6 +323,12 @@ export class Game {
     this.starfield.setShootingStarsEnabled(this.visualPreset.shootingStarsEnabled);
     this.mainMenu.visualQuality = quality;
     saveVisualQuality(quality);
+  }
+
+  private applyCinematicLevel(level: CinematicLevel): void {
+    this.cinematicLevel = setCinematicLevel(level);
+    this.mainMenu.cinematicLevel = this.cinematicLevel;
+    saveCinematicLevel(this.cinematicLevel);
   }
 
   private applyZoomSettings(gameZoom: number, uiZoom: number): void {
@@ -419,6 +428,7 @@ export class Game {
     if (this.mainMenu.visualQuality !== this.visualQuality) {
       this.applyVisualQuality(this.mainMenu.visualQuality);
     }
+    this.syncCinematicLevelFromMenu();
     this.syncZoomSettingsFromMenu();
     this.handleMenuAction(action);
   }
@@ -428,6 +438,7 @@ export class Game {
     if (this.mainMenu.visualQuality !== this.visualQuality) {
       this.applyVisualQuality(this.mainMenu.visualQuality);
     }
+    this.syncCinematicLevelFromMenu();
     this.syncZoomSettingsFromMenu();
     this.handleMenuAction(action);
   }
@@ -435,6 +446,17 @@ export class Game {
   private syncZoomSettingsFromMenu(): void {
     if (this.mainMenu.gameZoom !== this.gameZoom || this.mainMenu.uiZoom !== this.uiZoom) {
       this.applyZoomSettings(this.mainMenu.gameZoom, this.mainMenu.uiZoom);
+    }
+  }
+
+  private syncCinematicLevelFromMenu(): void {
+    if (this.mainMenu.cinematicLevel !== this.cinematicLevel) {
+      this.applyCinematicLevel(this.mainMenu.cinematicLevel);
+      this.hud.showMessage(
+        this.cinematicLevel === 0 ? 'Cinematic effects: OFF' : `Cinematic effects: ${this.cinematicLevel}`,
+        Colors.general_building,
+        2,
+      );
     }
   }
 

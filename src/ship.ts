@@ -11,6 +11,7 @@ import type { FactionType } from './confluence.js';
 import { SynonymousShipRenderer } from './synonymousShipRenderer.js';
 import { teamColor } from './teamutils.js';
 import { getDistantSunScreenPosition } from './suns.js';
+import { getCinematicLevel } from './cinematic.js';
 
 const BATTERY_MAX = 100;
 const BATTERY_REGEN_RATE = 16;
@@ -579,11 +580,12 @@ export class PlayerShip extends Entity {
     const speedCap = this.maxSpeed * (this.isBoosting ? BOOST_SPEED_MULT : 1);
     const speedFraction = Math.max(0, Math.min(1, this.velocity.length() / Math.max(1, speedCap)));
     const sizeScale = 0.2 + speedFraction * 0.8;
+    const cinematicScale = getCinematicLevel() >= 2 ? 1.35 : 1;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.lineWidth = 7 * sizeScale * camera.zoom;
+    ctx.lineWidth = 7 * sizeScale * camera.zoom * cinematicScale;
     for (let i = 1; i < this.trail.length; i++) {
       const a = this.trail[i - 1];
       const b = this.trail[i];
@@ -591,7 +593,7 @@ export class PlayerShip extends Entity {
       if (fade <= 0) continue;
       const from = camera.worldToScreen(a.pos);
       const to = camera.worldToScreen(b.pos);
-      ctx.strokeStyle = colorToCSS(color, 0.08 + fade * 0.28);
+      ctx.strokeStyle = colorToCSS(color, Math.min(0.75, (0.08 + fade * 0.28) * cinematicScale));
       ctx.beginPath();
       ctx.moveTo(from.x, from.y);
       ctx.lineTo(to.x, to.y);
@@ -602,6 +604,7 @@ export class PlayerShip extends Entity {
 
   private drawDashTrail(ctx: CanvasRenderingContext2D, camera: Camera, color: Color): void {
     if (this.dashTrail.length < 2) return;
+    const cinematicScale = getCinematicLevel() >= 2 ? 1.28 : 1;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     ctx.lineCap = 'round';
@@ -614,8 +617,8 @@ export class PlayerShip extends Entity {
       const from = camera.worldToScreen(a.pos);
       const to = camera.worldToScreen(b.pos);
       const headBias = i / Math.max(1, this.dashTrail.length - 1);
-      ctx.strokeStyle = colorToCSS(color, 0.10 + fade * 0.48);
-      ctx.lineWidth = (4 + fade * 10 + headBias * 4) * camera.zoom;
+      ctx.strokeStyle = colorToCSS(color, Math.min(0.9, (0.10 + fade * 0.48) * cinematicScale));
+      ctx.lineWidth = (4 + fade * 10 + headBias * 4) * camera.zoom * cinematicScale;
       ctx.beginPath();
       ctx.moveTo(from.x, from.y);
       ctx.lineTo(to.x, to.y);
@@ -693,14 +696,15 @@ export class PlayerShip extends Entity {
 
     const corePulse = 0.5 + 0.5 * Math.sin(this.drawTime * 3.4);
     const coreGlint = 0.5 + 0.5 * Math.sin(this.drawTime * 6.1 + 0.8);
+    const cinematicShipBoost = getCinematicLevel() >= 2 ? 1.35 : 1;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    ctx.fillStyle = colorToCSS(coreColor, 0.10 + corePulse * 0.12);
+    ctx.fillStyle = colorToCSS(coreColor, Math.min(0.42, (0.10 + corePulse * 0.12) * cinematicShipBoost));
     ctx.beginPath();
-    ctx.arc(screen.x, screen.y, r * 1.05, 0, Math.PI * 2);
+    ctx.arc(screen.x, screen.y, r * (getCinematicLevel() >= 2 ? 1.32 : 1.05), 0, Math.PI * 2);
     ctx.fill();
-    ctx.strokeStyle = colorToCSS(coreColor, 0.22 + corePulse * 0.16);
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = colorToCSS(coreColor, Math.min(0.62, (0.22 + corePulse * 0.16) * cinematicShipBoost));
+    ctx.lineWidth = getCinematicLevel() >= 2 ? 1.5 : 1;
     ctx.beginPath();
     ctx.arc(
       screen.x,
