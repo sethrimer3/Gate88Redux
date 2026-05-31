@@ -465,6 +465,20 @@ export class CrystalNebula {
           ctx.lineTo(sx - sa * len, sy + ca * len);
           ctx.stroke();
 
+          // Level 3: expanding pulse ring on high-velocity glints.
+          if (cinematicLevel >= 3 && velocityGlow > 0.35) {
+            const ringPhase = (performance.now() / 1000 * 1.2 + p.sparklePhase) % 1;
+            const ringR     = sr * (2.5 + ringPhase * 3.5);
+            const ringAlpha = velocityGlow * 0.18 * (1 - ringPhase);
+            if (ringAlpha > 0.005) {
+              ctx.strokeStyle = p.colorPrefix + ringAlpha.toFixed(3) + ')';
+              ctx.lineWidth   = Math.max(0.3, sr * 0.35);
+              ctx.beginPath();
+              ctx.arc(sx, sy, ringR, 0, Math.PI * 2);
+              ctx.stroke();
+            }
+          }
+
           // Route brightest glints into the glow layer
           if (glowCtx && (alpha > 0.50 || hotAlpha > 0.18 || velocityGlow > 0.16)) {
             glowCtx.fillStyle = p.colorPrefix + Math.min(cinematicLevel >= 2 ? 0.72 : 0.52, alpha * 0.18 + hotAlpha * 0.30 + velocityGlow * (cinematicLevel >= 2 ? 0.30 : 0.18)).toFixed(3) + ')';

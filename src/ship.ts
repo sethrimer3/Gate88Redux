@@ -714,6 +714,22 @@ export class PlayerShip extends Entity {
       this.drawTime * 1.6 + Math.PI * 1.45,
     );
     ctx.stroke();
+
+    // Level 3: second outer orbit arc spinning in the opposite direction.
+    if (getCinematicLevel() >= 3) {
+      ctx.strokeStyle = colorToCSS(coreColor, Math.min(0.44, (0.14 + coreGlint * 0.10) * cinematicShipBoost));
+      ctx.lineWidth = 0.85;
+      ctx.beginPath();
+      ctx.arc(
+        screen.x,
+        screen.y,
+        r * (1.05 + coreGlint * 0.06),
+        -this.drawTime * 1.1,
+        -this.drawTime * 1.1 + Math.PI * 0.85,
+      );
+      ctx.stroke();
+    }
+
     ctx.restore();
 
     ctx.fillStyle = colorToCSS(coreColor, 0.72 + 0.28 * this.healthFraction);

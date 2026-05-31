@@ -169,6 +169,45 @@ export abstract class ProjectileBase extends Entity {
         ctx.stroke();
       }
     }
+
+    // Level 3: chromatic aberration fringe — red and blue ghost trails offset perpendicularly.
+    if (cinematicLevel >= 3) {
+      const aberrationWidth = Math.max(0.5, width * 0.22 * 1.35 * camera.zoom);
+      for (let i = 1; i < this.trail.length; i++) {
+        const a = this.trail[i - 1];
+        const b = this.trail[i];
+        const fade = 1 - Math.max(a.age, b.age) / this.trailLifetime;
+        if (fade <= 0) continue;
+        const from = camera.worldToScreen(a.pos);
+        const to   = camera.worldToScreen(b.pos);
+        const tdx  = to.x - from.x;
+        const tdy  = to.y - from.y;
+        const tlen = Math.hypot(tdx, tdy) || 1;
+        // Perpendicular unit vector.
+        const px   =  tdy / tlen;
+        const py   = -tdx / tlen;
+        const offset = aberrationWidth * 1.8;
+        const headBias = i / Math.max(1, this.trail.length - 1);
+        const alpha = Math.min(1, 0.06 * fade * (0.45 + headBias * 0.55));
+        ctx.lineWidth  = aberrationWidth;
+        ctx.globalAlpha = alpha;
+
+        // Red fringe.
+        ctx.strokeStyle = 'rgba(255,60,40,1)';
+        ctx.beginPath();
+        ctx.moveTo(from.x + px * offset, from.y + py * offset);
+        ctx.lineTo(to.x   + px * offset, to.y   + py * offset);
+        ctx.stroke();
+
+        // Blue fringe.
+        ctx.strokeStyle = 'rgba(40,140,255,1)';
+        ctx.beginPath();
+        ctx.moveTo(from.x - px * offset, from.y - py * offset);
+        ctx.lineTo(to.x   - px * offset, to.y   - py * offset);
+        ctx.stroke();
+      }
+    }
+
     ctx.restore();
   }
 }
