@@ -57,11 +57,20 @@ const SUN_PLACEMENT = createSunPlacement();
 
 /**
  * Secondary (cool, blue-white) star in the opposite corner from the primary.
- * Visible only at cinematic level 3 — adds a second light source and richness.
+ * Visible only at cinematic level 3+ — adds a second light source and richness.
  */
 const SEC_STAR_PLACEMENT: SunPlacement = {
   cx: 1 - SUN_PLACEMENT.cx,
   cy: 1 - SUN_PLACEMENT.cy,
+};
+
+/**
+ * Tertiary (deep red/amber ember) star in an adjacent corner from the primary.
+ * Visible only at cinematic level 4 — adds a third warm-toned light source.
+ */
+const THIRD_STAR_PLACEMENT: SunPlacement = {
+  cx: 1 - SUN_PLACEMENT.cx,
+  cy: SUN_PLACEMENT.cy,
 };
 
 /**
@@ -124,10 +133,16 @@ export class DistantSuns {
   private lightH = 0;
 
   /**
-   * Baked glow for the secondary cool star (level 3 only).
+   * Baked glow for the secondary cool star (level 3+).
    * Rebuilt alongside the primary glow canvas when level/screen changes.
    */
   private secGlowCanvas: HTMLCanvasElement;
+
+  /**
+   * Baked glow for the tertiary ember star (level 4 only).
+   * Deep red/amber warm accent in an adjacent corner.
+   */
+  private thirdGlowCanvas: HTMLCanvasElement;
 
   /** Accumulated time for shimmer / ray / corona animation. */
   private time = 0;
@@ -152,6 +167,9 @@ export class DistantSuns {
     this.secGlowCanvas = document.createElement('canvas');
     this.secGlowCanvas.width  = 1;
     this.secGlowCanvas.height = 1;
+    this.thirdGlowCanvas = document.createElement('canvas');
+    this.thirdGlowCanvas.width  = 1;
+    this.thirdGlowCanvas.height = 1;
   }
 
   // -------------------------------------------------------------------------
@@ -245,9 +263,14 @@ export class DistantSuns {
     ctx.drawImage(this.glowCanvas, 0, 0, screenW, screenH);
     ctx.restore();
 
-    // 1b — Secondary cool star (level 3 only).
+    // 1b — Secondary cool star (level 3+).
     if (getCinematicLevel() >= 3) {
       this.drawSecondaryStarLayer(ctx, camera, screenW, screenH);
+    }
+
+    // 1c — Tertiary ember star (level 4 only).
+    if (getCinematicLevel() >= 4) {
+      this.drawThirdStarLayer(ctx, camera, screenW, screenH);
     }
 
     // 2 — Warm directional screen fill (all quality levels).
@@ -269,7 +292,9 @@ export class DistantSuns {
           ? (this.coronaEnabled ? RAY_COUNT_HIGH : RAY_COUNT_MEDIUM)
           : level === 2
             ? (this.coronaEnabled ? 18 : 10)
-            : (this.coronaEnabled ? 22 : 14);
+            : level === 3
+              ? (this.coronaEnabled ? 22 : 14)
+              : (this.coronaEnabled ? 28 : 18);
       const lc = this.lightCtx;
       lc.clearRect(0, 0, this.lightW, this.lightH);
       // Scale sun position to half-res buffer coordinates.
@@ -326,7 +351,7 @@ export class DistantSuns {
     const cy = h * SUN_PLACEMENT.cy;
     const level = getCinematicLevel();
     // Radius generous enough to bathe the whole screen in warmth.
-    const r  = Math.hypot(w, h) * (level === 0 ? 1.18 : level === 1 ? 1.28 : level === 2 ? 1.38 : 1.48);
+    const r  = Math.hypot(w, h) * (level === 0 ? 1.18 : level === 1 ? 1.28 : level === 2 ? 1.38 : level === 3 ? 1.48 : 1.58);
 
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
     if (level === 0) {
@@ -339,7 +364,7 @@ export class DistantSuns {
       grad.addColorStop(0.460, 'rgba(88,14,88,0.07)');
       grad.addColorStop(0.720, 'rgba(42,7,62,0.03)');
     } else {
-      const boost = level >= 3 ? 1.28 : level === 2 ? 1.18 : 1;
+      const boost = level >= 4 ? 1.38 : level >= 3 ? 1.28 : level === 2 ? 1.18 : 1;
       grad.addColorStop(0.000, `rgba(255,218,166,${Math.min(1, 0.98 * boost).toFixed(3)})`);
       grad.addColorStop(0.014, `rgba(227,138,74,${Math.min(1, 0.96 * boost).toFixed(3)})`);
       grad.addColorStop(0.040, `rgba(198,90,46,${Math.min(1, 0.92 * boost).toFixed(3)})`);
@@ -354,9 +379,13 @@ export class DistantSuns {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, h);
 
-    // At level 3, also bake the secondary (cool) star glow.
+    // At level 3+, also bake the secondary (cool) star glow.
     if (level >= 3) {
       this.bakeSecondaryStarGlow();
+    }
+    // At level 4, also bake the tertiary (ember) star glow.
+    if (level >= 4) {
+      this.bakeThirdStarGlow();
     }
   }
 
@@ -380,14 +409,14 @@ export class DistantSuns {
     ctx.globalCompositeOperation = 'screen';
 
     const level = getCinematicLevel();
-    const r = Math.hypot(w, h) * (level === 0 ? 0.98 : level === 1 ? 1.08 : level === 2 ? 1.22 : 1.36);
+    const r = Math.hypot(w, h) * (level === 0 ? 0.98 : level === 1 ? 1.08 : level === 2 ? 1.22 : level === 3 ? 1.36 : 1.50);
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
     if (level === 0) {
       grad.addColorStop(0.00, 'rgba(255,182,62,0.065)');
       grad.addColorStop(0.30, 'rgba(220,122,40,0.042)');
       grad.addColorStop(0.65, 'rgba(160,58,18,0.022)');
     } else {
-      const boost = level >= 3 ? 1.50 : level === 2 ? 1.34 : 1;
+      const boost = level >= 4 ? 1.65 : level >= 3 ? 1.50 : level === 2 ? 1.34 : 1;
       grad.addColorStop(0.00, `rgba(227,138,74,${(0.165 * boost).toFixed(3)})`);
       grad.addColorStop(0.24, `rgba(198,90,46,${(0.112 * boost).toFixed(3)})`);
       grad.addColorStop(0.56, `rgba(163,71,40,${(0.066 * boost).toFixed(3)})`);
@@ -488,7 +517,7 @@ export class DistantSuns {
     count: number,
   ): void {
     const level = getCinematicLevel();
-    const len = Math.hypot(w, h) * (level === 0 ? 0.82 : level === 1 ? 1.14 : level === 2 ? 1.30 : 1.42);
+    const len = Math.hypot(w, h) * (level === 0 ? 0.82 : level === 1 ? 1.14 : level === 2 ? 1.30 : level === 3 ? 1.42 : 1.54);
     const rot = this.time * 0.007;   // very slow global rotation
 
     ctx.save();
@@ -497,7 +526,7 @@ export class DistantSuns {
     for (let i = 0; i < count; i++) {
       // Slightly irregular spacing with a slow wobble per ray.
       const baseAngle  = (i / count) * Math.PI * 2 + rot;
-      const wobble     = Math.sin(this.time * 0.22 + i * 1.13) * (level === 0 ? 0.04 : level === 1 ? 0.065 : level === 2 ? 0.085 : 0.105);
+      const wobble     = Math.sin(this.time * 0.22 + i * 1.13) * (level === 0 ? 0.04 : level === 1 ? 0.065 : level === 2 ? 0.085 : level === 3 ? 0.105 : 0.125);
       const angle      = baseAngle + wobble;
 
       const tipX = cx + Math.cos(angle) * len;
@@ -510,8 +539,8 @@ export class DistantSuns {
       // Per-ray flicker (subtle).  Alpha reduced slightly — the blur on composite
       // spreads each beam wider, so lower per-pass alpha keeps overall brightness
       // balanced while reducing visible overlap seams.
-      const flicker = (level === 0 ? 0.036 : level === 1 ? 0.080 : level === 2 ? 0.110 : 0.130)
-        + (level === 0 ? 0.016 : level === 1 ? 0.034 : level === 2 ? 0.046 : 0.056) * Math.sin(this.time * 0.72 + i * 0.88);
+      const flicker = (level === 0 ? 0.036 : level === 1 ? 0.080 : level === 2 ? 0.110 : level === 3 ? 0.130 : 0.150)
+        + (level === 0 ? 0.016 : level === 1 ? 0.034 : level === 2 ? 0.046 : level === 3 ? 0.056 : 0.068) * Math.sin(this.time * 0.72 + i * 0.88);
 
       // Build a gradient that fades from bright at base to transparent at tip.
       const makeGrad = (alpha: number): CanvasGradient => {
