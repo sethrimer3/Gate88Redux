@@ -186,6 +186,9 @@ export class Nebula {
     if (cinematicLevel >= 8) {
       this.drawPulsarSweep(ctx, screenW, screenH);
     }
+    if (cinematicLevel >= 9) {
+      this.drawSupernovaRemnant(ctx, screenW, screenH);
+    }
   }
 
   /**
@@ -504,6 +507,59 @@ export class Nebula {
       ctx.closePath();
       ctx.fill();
     }
+
+    ctx.restore();
+  }
+
+  // Level 9: supernova remnant — concentric rings expanding outward from a
+  // fixed point in the nebula field, suggesting a stellar explosion whose
+  // shockwave is still propagating through the surrounding gas.  Distinct
+  // from the level-8 pulsar sweep fans; these are static, circular, and
+  // layered like tree rings growing outward from a single source.
+  private drawSupernovaRemnant(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
+    const t = performance.now() / 1000;
+
+    // Remnant centroid — upper-right quadrant, stationary.
+    const ox = screenW * 0.72;
+    const oy = screenH * 0.28;
+    const maxR = Math.min(screenW, screenH) * 0.20;
+
+    const ringCount = 6;
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+
+    for (let i = 0; i < ringCount; i++) {
+      // Rings expand at a slow rate; each ring is staggered by 1/ringCount of the period.
+      const period = 22.0;  // seconds for one ring to fully expand and vanish.
+      const phase = (t / period + i / ringCount) % 1;
+      const ringR = phase * maxR;
+      const alpha = (1 - phase) * (1 - phase) * 0.040;
+      if (alpha < 0.003) continue;
+
+      // Color gradient: warm red at centre → cool cyan at edge.
+      const hue = phase < 0.25
+        ? `255,${Math.round(140 + 60 * phase / 0.25)},80`
+        : phase < 0.55
+          ? `${Math.round(255 - 175 * (phase - 0.25) / 0.30)},180,${Math.round(80 + 100 * (phase - 0.25) / 0.30)}`
+          : `${Math.round(80 - 20 * (phase - 0.55) / 0.45)},${Math.round(180 + 75 * (phase - 0.55) / 0.45)},${Math.round(180 + 75 * (phase - 0.55) / 0.45)}`;
+
+      ctx.strokeStyle = `rgba(${hue},${alpha.toFixed(3)})`;
+      ctx.lineWidth = Math.max(0.4, maxR * 0.022 * (1 - phase * 0.65));
+      ctx.beginPath();
+      ctx.arc(ox, oy, Math.max(0.5, ringR), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Faint persistent core glow at the explosion point.
+    const coreA = 0.016 + 0.006 * Math.sin(t * 0.62);
+    const coreGrad = ctx.createRadialGradient(ox, oy, 0, ox, oy, maxR * 0.07);
+    coreGrad.addColorStop(0, `rgba(255,240,200,${coreA.toFixed(3)})`);
+    coreGrad.addColorStop(0.5, `rgba(255,160,80,${(coreA * 0.40).toFixed(3)})`);
+    coreGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = coreGrad;
+    ctx.beginPath();
+    ctx.arc(ox, oy, maxR * 0.07, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.restore();
   }

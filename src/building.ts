@@ -513,6 +513,32 @@ export abstract class BuildingBase extends Entity {
       ctx.restore();
     }
 
+    // Level 9: data burst pulse rings — a diamond-shaped ring erupts from the
+    // building centre every ~2.6 s and rapidly expands outward while fading,
+    // like a data packet being broadcast.  The 45° rotation of the square
+    // creates a diamond outline that harmonises with the building's geometry.
+    if (getCinematicLevel() >= 9) {
+      const burstPeriod = 2.6;
+      const burstDur    = 0.85;
+      const rawFrac = ((this.animationTime + this.id * 0.83) % burstPeriod) / burstPeriod;
+      const burstFrac = rawFrac * burstPeriod / burstDur;
+      if (burstFrac < 1.0) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'screen';
+        const ringHalf = (s * 0.50 + s * 2.80 * burstFrac) * 0.707; // half-side → half-diagonal
+        const alpha9 = (1 - burstFrac) * (1 - burstFrac) * 0.52;
+        const r9 = Math.round(100 + 155 * burstFrac);
+        const g9 = Math.round(210 - 60 * burstFrac);
+        ctx.strokeStyle = `rgba(${r9},${g9},255,${alpha9.toFixed(3)})`;
+        ctx.lineWidth = Math.max(0.4, s * 0.026 * (1 - burstFrac * 0.55));
+        ctx.lineJoin = 'miter';
+        ctx.translate(x + s * 0.5, y + s * 0.5);
+        ctx.rotate(Math.PI / 4);
+        ctx.strokeRect(-ringHalf, -ringHalf, ringHalf * 2, ringHalf * 2);
+        ctx.restore();
+      }
+    }
+
     ctx.restore();
   }
   private drawUnpoweredWarning(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {

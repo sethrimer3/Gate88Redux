@@ -885,6 +885,42 @@ export class PlayerShip extends Entity {
       ctx.restore();
     }
 
+    // Level 9: bow shock plasma arc — a forward-facing compressed arc ahead of
+    // the ship in the direction of travel, suggesting the vessel is ploughing
+    // through the interstellar medium.  Scales in brightness with ship speed,
+    // and pulses gently to give a living, breathing energy presence.
+    if (getCinematicLevel() >= 9) {
+      const vLen9 = Math.hypot(this.velocity.x, this.velocity.y);
+      if (vLen9 > 0.05) {
+        const bowAngle = Math.atan2(this.velocity.y, this.velocity.x);
+        const compression = Math.min(1.0, vLen9 / 8.0);
+        const bowR = r * (2.4 + compression * 0.8);
+        const arcAlpha = (0.16 + compression * 0.14) * (0.7 + 0.3 * (0.5 + 0.5 * Math.sin(this.drawTime * 4.2)));
+        const arcHalf = Math.PI * 0.40;
+
+        ctx.save();
+        ctx.translate(screen.x, screen.y);
+        ctx.rotate(bowAngle);
+        ctx.globalCompositeOperation = 'screen';
+
+        const bowGrad = ctx.createRadialGradient(0, 0, bowR * 0.75, 0, 0, bowR * 1.25);
+        bowGrad.addColorStop(0, `rgba(60,200,255,0)`);
+        bowGrad.addColorStop(0.35, `rgba(100,230,255,${(arcAlpha * 0.65).toFixed(3)})`);
+        bowGrad.addColorStop(0.58, `rgba(190,250,255,${arcAlpha.toFixed(3)})`);
+        bowGrad.addColorStop(0.80, `rgba(100,210,255,${(arcAlpha * 0.50).toFixed(3)})`);
+        bowGrad.addColorStop(1.0, `rgba(60,160,255,0)`);
+
+        ctx.strokeStyle = bowGrad;
+        ctx.lineWidth = Math.max(0.5, r * 0.062);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(0, 0, bowR, -arcHalf, arcHalf);
+        ctx.stroke();
+
+        ctx.restore();
+      }
+    }
+
     ctx.restore();
 
     ctx.fillStyle = colorToCSS(coreColor, 0.72 + 0.28 * this.healthFraction);

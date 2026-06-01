@@ -358,6 +358,52 @@ export abstract class ProjectileBase extends Entity {
       ctx.restore();
     }
 
+    // Level 9: quantum fluctuation sparks — tiny cross-shaped sparks that
+    // appear and vanish at random positions along the comet trail, simulating
+    // vacuum energy fluctuations in the high-energy wake.  Each spark is a
+    // short ×-shaped cross with a brief lifetime, distinct from the level-8
+    // concentric ripple rings which expand outward from the trail head.
+    if (cinematicLevel >= 9 && this.trail.length >= 3) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      ctx.lineCap = 'round';
+      const now9 = performance.now();
+      const sparkSlots = Math.min(6, Math.floor(this.trail.length * 0.7));
+
+      for (let i = 0; i < sparkSlots; i++) {
+        // Use a time-quantised seed so each slot has a stable location within
+        // its half-second window before it jumps to a new random position.
+        const windowMs  = 480;
+        const windowIdx = Math.floor(now9 / windowMs + i * 3.71);
+        const localPhase = (now9 % windowMs) / windowMs;
+        if (localPhase > 0.55) continue;  // spark only active for first 55% of window
+
+        // Deterministic trail index from the window seed.
+        const trailIdx = ((windowIdx * 7 + i * 13) >>> 0) % this.trail.length;
+        const tPos = camera.worldToScreen(this.trail[trailIdx].pos);
+
+        const sparkAlpha = (1 - localPhase / 0.55) * (1 - localPhase / 0.55) * 0.60;
+        const sparkLen   = Math.max(1.2, width * camera.zoom * 2.0);
+        // Rotate the cross by a pseudo-random angle per window.
+        const sparkAngle = (windowIdx * 2.414 + i * 1.618) % Math.PI;
+        const ca = Math.cos(sparkAngle);
+        const sa = Math.sin(sparkAngle);
+
+        ctx.strokeStyle = `rgba(210,245,255,${sparkAlpha.toFixed(3)})`;
+        ctx.lineWidth   = Math.max(0.3, width * camera.zoom * 0.28);
+        ctx.beginPath();
+        // Arm 1
+        ctx.moveTo(tPos.x - ca * sparkLen, tPos.y - sa * sparkLen);
+        ctx.lineTo(tPos.x + ca * sparkLen, tPos.y + sa * sparkLen);
+        // Arm 2 (perpendicular)
+        ctx.moveTo(tPos.x + sa * sparkLen * 0.65, tPos.y - ca * sparkLen * 0.65);
+        ctx.lineTo(tPos.x - sa * sparkLen * 0.65, tPos.y + ca * sparkLen * 0.65);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
     ctx.restore();
   }
 }

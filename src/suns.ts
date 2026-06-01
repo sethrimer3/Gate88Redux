@@ -284,6 +284,9 @@ export class DistantSuns {
     if (getCinematicLevel() >= 8) {
       this.drawSolarProminences(ctx, cx, cy, screenW, screenH);
     }
+    if (getCinematicLevel() >= 9) {
+      this.drawMagneticFieldArcs(ctx, cx, cy, screenW, screenH);
+    }
 
     // 2 — Warm directional screen fill (all quality levels).
     this.drawScreenWarmth(ctx, cx, cy, screenW, screenH);
@@ -312,7 +315,9 @@ export class DistantSuns {
                     ? (this.coronaEnabled ? 32 : 20)
                     : level === 6
                       ? (this.coronaEnabled ? 36 : 24)
-                      : (this.coronaEnabled ? 42 : 28);
+                      : level < 9
+                        ? (this.coronaEnabled ? 42 : 28)
+                        : (this.coronaEnabled ? 48 : 32);
       const lc = this.lightCtx;
       lc.clearRect(0, 0, this.lightW, this.lightH);
       // Scale sun position to half-res buffer coordinates.
@@ -369,7 +374,7 @@ export class DistantSuns {
     const cy = h * SUN_PLACEMENT.cy;
     const level = getCinematicLevel();
     // Radius generous enough to bathe the whole screen in warmth.
-    const r  = Math.hypot(w, h) * (level === 0 ? 1.18 : level === 1 ? 1.28 : level === 2 ? 1.38 : level === 3 ? 1.48 : level === 4 ? 1.55 : level === 5 ? 1.62 : level === 6 ? 1.68 : level === 7 ? 1.74 : 1.80);
+    const r  = Math.hypot(w, h) * (level === 0 ? 1.18 : level === 1 ? 1.28 : level === 2 ? 1.38 : level === 3 ? 1.48 : level === 4 ? 1.55 : level === 5 ? 1.62 : level === 6 ? 1.68 : level === 7 ? 1.74 : level === 8 ? 1.80 : 1.86);
 
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
     if (level === 0) {
@@ -382,7 +387,7 @@ export class DistantSuns {
       grad.addColorStop(0.460, 'rgba(88,14,88,0.07)');
       grad.addColorStop(0.720, 'rgba(42,7,62,0.03)');
     } else {
-      const boost = level >= 8 ? 1.72 : level >= 7 ? 1.62 : level >= 6 ? 1.52 : level >= 5 ? 1.44 : level >= 4 ? 1.38 : level >= 3 ? 1.28 : level === 2 ? 1.18 : 1;
+      const boost = level >= 9 ? 1.84 : level >= 8 ? 1.72 : level >= 7 ? 1.62 : level >= 6 ? 1.52 : level >= 5 ? 1.44 : level >= 4 ? 1.38 : level >= 3 ? 1.28 : level === 2 ? 1.18 : 1;
       grad.addColorStop(0.000, `rgba(255,218,166,${Math.min(1, 0.98 * boost).toFixed(3)})`);
       grad.addColorStop(0.014, `rgba(227,138,74,${Math.min(1, 0.96 * boost).toFixed(3)})`);
       grad.addColorStop(0.040, `rgba(198,90,46,${Math.min(1, 0.92 * boost).toFixed(3)})`);
@@ -434,7 +439,7 @@ export class DistantSuns {
       grad.addColorStop(0.30, 'rgba(220,122,40,0.042)');
       grad.addColorStop(0.65, 'rgba(160,58,18,0.022)');
     } else {
-      const boost = level >= 8 ? 2.20 : level >= 7 ? 2.04 : level >= 6 ? 1.88 : level >= 5 ? 1.74 : level >= 4 ? 1.65 : level >= 3 ? 1.50 : level === 2 ? 1.34 : 1;
+      const boost = level >= 9 ? 2.38 : level >= 8 ? 2.20 : level >= 7 ? 2.04 : level >= 6 ? 1.88 : level >= 5 ? 1.74 : level >= 4 ? 1.65 : level >= 3 ? 1.50 : level === 2 ? 1.34 : 1;
       grad.addColorStop(0.00, `rgba(227,138,74,${(0.165 * boost).toFixed(3)})`);
       grad.addColorStop(0.24, `rgba(198,90,46,${(0.112 * boost).toFixed(3)})`);
       grad.addColorStop(0.56, `rgba(163,71,40,${(0.066 * boost).toFixed(3)})`);
@@ -569,7 +574,7 @@ export class DistantSuns {
           g.addColorStop(0.50, `rgba(240,108,32,${(alpha * 0.30).toFixed(3)})`);
           g.addColorStop(0.80, `rgba(200,70,18,${(alpha * 0.08).toFixed(3)})`);
         } else {
-          const boost = level >= 8 ? 1.68 : level >= 7 ? 1.56 : level >= 6 ? 1.42 : level >= 5 ? 1.34 : level >= 3 ? 1.26 : level === 2 ? 1.16 : 1;
+          const boost = level >= 9 ? 1.82 : level >= 8 ? 1.68 : level >= 7 ? 1.56 : level >= 6 ? 1.42 : level >= 5 ? 1.34 : level >= 3 ? 1.26 : level === 2 ? 1.16 : 1;
           g.addColorStop(0.00, `rgba(227,138,74,${Math.min(1, alpha * boost).toFixed(3)})`);
           g.addColorStop(0.18, `rgba(198,90,46,${Math.min(1, alpha * 0.80 * boost).toFixed(3)})`);
           g.addColorStop(0.50, `rgba(163,71,40,${Math.min(1, alpha * 0.42 * boost).toFixed(3)})`);
@@ -593,10 +598,10 @@ export class DistantSuns {
       // Five passes with quadratic-style falloff from core to edges.
       // Combined with the 8 px blur on composite, these produce soft atmospheric
       // light shafts rather than hard transparent polygons.
-      drawPass(level === 0 ? 6.0 : level === 1 ? 7.4 : level === 2 ? 9.0 : level === 3 ? 10.5 : level === 4 ? 11.2 : level === 5 ? 12.0 : level === 6 ? 12.8 : level === 7 ? 13.8 : 14.8, level === 0 ? 0.15 : level >= 8 ? 0.22 : level >= 7 ? 0.20 : level >= 6 ? 0.18 : 0.16);
-      drawPass(level === 0 ? 4.0 : level === 1 ? 5.0 : level === 2 ? 6.0 : level === 3 ? 7.0 : level === 4 ? 7.8 : level === 5 ? 8.6 : level === 6 ? 9.4 : level === 7 ? 10.2 : 11.0,  level === 0 ? 0.28 : level >= 8 ? 0.40 : level >= 7 ? 0.37 : level >= 6 ? 0.33 : 0.30);
-      drawPass(level === 0 ? 2.5 : level === 1 ? 3.0 : level === 2 ? 3.8 : level === 3 ? 4.4 : level === 4 ? 4.8 : level === 5 ? 5.2 : level === 6 ? 5.8 : level === 7 ? 6.4 : 7.0,  level === 0 ? 0.46 : level >= 8 ? 0.65 : level >= 7 ? 0.60 : level >= 6 ? 0.54 : 0.50);
-      drawPass(level === 0 ? 1.6 : level === 1 ? 1.8 : level === 2 ? 2.2 : level === 3 ? 2.6 : level === 4 ? 2.9 : level === 5 ? 3.2 : level === 6 ? 3.5 : level === 7 ? 3.8 : 4.2,  level === 0 ? 0.68 : level >= 8 ? 0.92 : level >= 7 ? 0.86 : level >= 6 ? 0.78 : 0.72);
+      drawPass(level === 0 ? 6.0 : level === 1 ? 7.4 : level === 2 ? 9.0 : level === 3 ? 10.5 : level === 4 ? 11.2 : level === 5 ? 12.0 : level === 6 ? 12.8 : level === 7 ? 13.8 : level === 8 ? 14.8 : 16.0, level === 0 ? 0.15 : level >= 9 ? 0.25 : level >= 8 ? 0.22 : level >= 7 ? 0.20 : level >= 6 ? 0.18 : 0.16);
+      drawPass(level === 0 ? 4.0 : level === 1 ? 5.0 : level === 2 ? 6.0 : level === 3 ? 7.0 : level === 4 ? 7.8 : level === 5 ? 8.6 : level === 6 ? 9.4 : level === 7 ? 10.2 : level === 8 ? 11.0 : 12.2,  level === 0 ? 0.28 : level >= 9 ? 0.44 : level >= 8 ? 0.40 : level >= 7 ? 0.37 : level >= 6 ? 0.33 : 0.30);
+      drawPass(level === 0 ? 2.5 : level === 1 ? 3.0 : level === 2 ? 3.8 : level === 3 ? 4.4 : level === 4 ? 4.8 : level === 5 ? 5.2 : level === 6 ? 5.8 : level === 7 ? 6.4 : level === 8 ? 7.0 : 7.8,  level === 0 ? 0.46 : level >= 9 ? 0.72 : level >= 8 ? 0.65 : level >= 7 ? 0.60 : level >= 6 ? 0.54 : 0.50);
+      drawPass(level === 0 ? 1.6 : level === 1 ? 1.8 : level === 2 ? 2.2 : level === 3 ? 2.6 : level === 4 ? 2.9 : level === 5 ? 3.2 : level === 6 ? 3.5 : level === 7 ? 3.8 : level === 8 ? 4.2 : 4.8,  level === 0 ? 0.68 : level >= 9 ? 1.00 : level >= 8 ? 0.92 : level >= 7 ? 0.86 : level >= 6 ? 0.78 : 0.72);
       drawPass(1.0, 1.00);  // core spine — narrowest, brightest
     }
 
@@ -1266,6 +1271,77 @@ export class DistantSuns {
       ctx.beginPath();
       ctx.arc(apexX, apexY, haloR, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  // Level 9: magnetic field coronal loops — 5 small cool-hued arcs that arch
+  // out from the solar limb and close back, tracing the sun's magnetic flux
+  // tubes.  Rendered in blue/violet to visually complement the warm-amber
+  // prominences from level 8; each loop breathes slowly in brightness.
+  private drawMagneticFieldArcs(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    screenW: number,
+    screenH: number,
+  ): void {
+    const t = this.time;
+    const baseR = Math.max(screenW, screenH) * 0.09;
+
+    // Five compact loops anchored on the solar limb, spread around the disk.
+    const loops = [
+      { angle: -1.10, span: 0.30, speed: 0.041, phase: 0.00 },
+      { angle:  0.20, span: 0.24, speed: 0.055, phase: 1.26 },
+      { angle:  0.90, span: 0.36, speed: 0.034, phase: 2.51 },
+      { angle:  1.85, span: 0.28, speed: 0.048, phase: 3.77 },
+      { angle: -0.55, span: 0.20, speed: 0.062, phase: 5.03 },
+    ];
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+
+    for (const lp of loops) {
+      const swell = 0.60 + 0.40 * Math.abs(Math.sin(t * lp.speed + lp.phase));
+      const alpha = (0.030 + 0.012 * Math.sin(t * lp.speed * 1.8 + lp.phase)) * swell;
+      const a = lp.angle + t * lp.speed * 0.15;
+      const half = lp.span * 0.5;
+
+      // Feet of the loop on the solar limb (slightly flattened on the y axis).
+      const foot1X = cx + Math.cos(a - half) * baseR;
+      const foot1Y = cy + Math.sin(a - half) * baseR * 0.62;
+      const foot2X = cx + Math.cos(a + half) * baseR;
+      const foot2Y = cy + Math.sin(a + half) * baseR * 0.62;
+
+      // Apex rises radially outward, less than level-8 prominences.
+      const apexDist = baseR * (1.22 + 0.32 * lp.span) * swell;
+      const apexX = cx + Math.cos(a) * apexDist;
+      const apexY = cy + Math.sin(a) * apexDist * 0.62;
+
+      // Bezier control points lean outward for a smooth arch silhouette.
+      const cp1X = cx + Math.cos(a - half * 0.55) * apexDist * 0.80;
+      const cp1Y = cy + Math.sin(a - half * 0.55) * apexDist * 0.62 * 0.80;
+      const cp2X = cx + Math.cos(a + half * 0.55) * apexDist * 0.80;
+      const cp2Y = cy + Math.sin(a + half * 0.55) * apexDist * 0.62 * 0.80;
+
+      // Cool blue→violet gradient up the arch — complementary to warm prominences.
+      const grad = ctx.createLinearGradient(
+        (foot1X + foot2X) * 0.5, (foot1Y + foot2Y) * 0.5,
+        apexX, apexY,
+      );
+      grad.addColorStop(0.00, `rgba(80,200,255,${(alpha * 0.55).toFixed(3)})`);
+      grad.addColorStop(0.35, `rgba(60,140,255,${alpha.toFixed(3)})`);
+      grad.addColorStop(0.70, `rgba(160,80,255,${(alpha * 0.62).toFixed(3)})`);
+      grad.addColorStop(1.00, 'rgba(0,0,0,0)');
+
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = Math.max(0.4, baseR * 0.032 * lp.span * swell);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(foot1X, foot1Y);
+      ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, foot2X, foot2Y);
+      ctx.stroke();
     }
 
     ctx.restore();

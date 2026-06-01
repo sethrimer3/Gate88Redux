@@ -612,6 +612,44 @@ export class CrystalNebula {
             }
           }
 
+          // Level 9: Cherenkov radiation cone — very high-velocity crystal motes
+          // emit a narrow blue light cone pointing forward in their direction of
+          // travel, like Cherenkov radiation from a particle exceeding the local
+          // phase velocity of light in the nebula medium.  Distinct from the
+          // level-8 spectral corona ring; this cone is directional and trail-facing.
+          if (cinematicLevel >= 9 && velocityGlow > 0.70) {
+            const vx9 = p.vx;
+            const vy9 = p.vy;
+            const vmag9 = Math.hypot(vx9, vy9);
+            if (vmag9 > 0.01) {
+              const coneAngle = Math.atan2(vy9, vx9);
+              const halfCone  = 0.30;  // ~17° half-angle
+              const coneLen   = sr * (4.0 + velocityGlow * 3.2);
+              const coneAlpha = (velocityGlow - 0.70) / 0.30 * 0.16;
+
+              ctx.save();
+              ctx.globalCompositeOperation = 'screen';
+              ctx.translate(sx, sy);
+              ctx.rotate(coneAngle);
+
+              const cGrad = ctx.createLinearGradient(0, 0, coneLen, 0);
+              cGrad.addColorStop(0.00, `rgba(190,245,255,${(coneAlpha * 0.75).toFixed(3)})`);
+              cGrad.addColorStop(0.38, `rgba(130,210,255,${coneAlpha.toFixed(3)})`);
+              cGrad.addColorStop(0.72, `rgba(80,170,255,${(coneAlpha * 0.55).toFixed(3)})`);
+              cGrad.addColorStop(1.00, 'rgba(0,0,0,0)');
+
+              ctx.fillStyle = cGrad;
+              ctx.beginPath();
+              ctx.moveTo(0, 0);
+              ctx.lineTo(coneLen * Math.cos(halfCone), coneLen * Math.sin(halfCone));
+              ctx.lineTo(coneLen * Math.cos(-halfCone), coneLen * Math.sin(-halfCone));
+              ctx.closePath();
+              ctx.fill();
+
+              ctx.restore();
+            }
+          }
+
           // Route brightest glints into the glow layer
           if (glowCtx && (alpha > 0.50 || hotAlpha > 0.18 || velocityGlow > 0.16)) {
             glowCtx.fillStyle = p.colorPrefix + Math.min(cinematicLevel >= 2 ? 0.72 : 0.52, alpha * 0.18 + hotAlpha * 0.30 + velocityGlow * (cinematicLevel >= 2 ? 0.30 : 0.18)).toFixed(3) + ')';
