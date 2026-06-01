@@ -174,6 +174,12 @@ export class Nebula {
     if (cinematicLevel >= 4) {
       this.drawNebulaStreamer(ctx, screenW, screenH);
     }
+    if (cinematicLevel >= 5) {
+      this.drawAuroraCurtains(ctx, screenW, screenH);
+    }
+    if (cinematicLevel >= 6) {
+      this.drawIonVeil(ctx, screenW, screenH);
+    }
   }
 
   /**
@@ -292,6 +298,78 @@ export class Nebula {
     ctx.globalCompositeOperation = 'screen';
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, screenW, screenH);
+    ctx.restore();
+  }
+
+  /**
+   * Level 5 only: faint flowing aurora curtains made of multiple soft ribbons.
+   * This adds layered structure and motion detail without increasing brightness.
+   */
+  private drawAuroraCurtains(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
+    const t = performance.now() / 1000;
+    const ribbons = [
+      { x: 0.20, y: 0.18, dx: 0.10, speed: 0.12, hue: '90,180,255', alpha: 0.018 },
+      { x: 0.52, y: 0.14, dx: 0.12, speed: 0.10, hue: '120,255,180', alpha: 0.014 },
+      { x: 0.78, y: 0.22, dx: 0.08, speed: 0.14, hue: '255,155,90', alpha: 0.013 },
+    ];
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    for (const r of ribbons) {
+      const sx = screenW * (r.x + Math.sin(t * r.speed + r.x * 8) * r.dx);
+      const sy = screenH * r.y;
+      const ex = sx + screenW * (0.06 + 0.03 * Math.sin(t * (r.speed * 0.7) + r.y * 5));
+      const grad = ctx.createLinearGradient(sx, sy, ex, screenH * 1.08);
+      const a = r.alpha + 0.004 * Math.sin(t * (r.speed * 2.6) + r.x * 11);
+      grad.addColorStop(0.00, `rgba(${r.hue},${(a * 0.25).toFixed(3)})`);
+      grad.addColorStop(0.26, `rgba(${r.hue},${a.toFixed(3)})`);
+      grad.addColorStop(0.68, `rgba(${r.hue},${(a * 0.55).toFixed(3)})`);
+      grad.addColorStop(1.00, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, screenW, screenH);
+    }
+    ctx.restore();
+  }
+
+  /**
+   * Level 6: ion veil lattice made of soft crossing stream-lines.
+   * Adds long-form structure depth beyond the level-5 curtain ribbons.
+   */
+  private drawIonVeil(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
+    const t = performance.now() / 1000;
+    const lines = 4;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+
+    for (let i = 0; i < lines; i++) {
+      const phase = i * 1.2 + t * 0.07;
+      const x0 = screenW * (0.10 + i * 0.22 + 0.08 * Math.sin(phase));
+      const y0 = screenH * (-0.15 + 0.05 * Math.sin(phase * 1.6 + i));
+      const x1 = screenW * (0.92 - i * 0.16 + 0.06 * Math.sin(phase * 0.7 + 1.3));
+      const y1 = screenH * (1.10 + 0.07 * Math.sin(phase * 1.1 + 2.1));
+      const a = 0.010 + 0.004 * Math.sin(t * 0.19 + i * 1.7);
+      const grad = ctx.createLinearGradient(x0, y0, x1, y1);
+      grad.addColorStop(0.00, 'rgba(0,0,0,0)');
+      grad.addColorStop(0.22, `rgba(90,160,255,${(a * 0.85).toFixed(3)})`);
+      grad.addColorStop(0.50, `rgba(175,120,255,${(a * 1.40).toFixed(3)})`);
+      grad.addColorStop(0.76, `rgba(120,255,205,${(a * 0.95).toFixed(3)})`);
+      grad.addColorStop(1.00, 'rgba(0,0,0,0)');
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = Math.max(1.2, screenW * 0.0016);
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.bezierCurveTo(
+        screenW * (0.30 + 0.07 * Math.sin(phase * 1.4)),
+        screenH * (0.26 + 0.05 * Math.sin(phase * 1.8)),
+        screenW * (0.66 + 0.08 * Math.sin(phase * 1.2 + 2.4)),
+        screenH * (0.74 + 0.05 * Math.sin(phase * 1.5 + 1.1)),
+        x1,
+        y1,
+      );
+      ctx.stroke();
+    }
+
     ctx.restore();
   }
 }

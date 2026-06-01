@@ -467,7 +467,7 @@ export class CrystalNebula {
 
           // Level 3: expanding pulse ring on high-velocity glints.
           if (cinematicLevel >= 3 && velocityGlow > 0.35) {
-            const ringPhase = (performance.now() / 1000 * 1.2 + p.sparklePhase) % 1;
+            const ringPhase = (time * 1.2 + p.sparklePhase) % 1;
             const ringR     = sr * (2.5 + ringPhase * 3.5);
             const ringAlpha = velocityGlow * 0.18 * (1 - ringPhase);
             if (ringAlpha > 0.005) {
@@ -483,7 +483,7 @@ export class CrystalNebula {
           // spikes that flare out then fade, adding a new shape vocabulary absent
           // from the level-3 ring.
           if (cinematicLevel >= 4 && velocityGlow > 0.55) {
-            const burstPhase = (performance.now() / 1000 * 0.9 + p.sparklePhase * 1.7) % 1;
+            const burstPhase = (time * 0.9 + p.sparklePhase * 1.7) % 1;
             const burstLen   = sr * (3.0 + burstPhase * 5.0);
             const burstAlpha = velocityGlow * 0.26 * (1 - burstPhase * burstPhase);
             if (burstAlpha > 0.008) {
@@ -495,6 +495,51 @@ export class CrystalNebula {
                 const spikeAngle = p.angle + (sp / spikeCount) * Math.PI * 2;
                 ctx.moveTo(sx, sy);
                 ctx.lineTo(sx + Math.cos(spikeAngle) * burstLen, sy + Math.sin(spikeAngle) * burstLen);
+              }
+              ctx.stroke();
+            }
+          }
+
+          // Level 5: rotating diamond halo around the brightest glints.
+          if (cinematicLevel >= 5 && velocityGlow > 0.60) {
+            const haloPhase = (time * 0.8 + p.sparklePhase * 2.2) % 1;
+            const haloR = sr * (3.8 + haloPhase * 2.4);
+            const haloAlpha = velocityGlow * 0.12 * (1 - haloPhase);
+            if (haloAlpha > 0.006) {
+              ctx.save();
+              ctx.translate(sx, sy);
+              ctx.rotate(p.angle + haloPhase * Math.PI * 2);
+              ctx.strokeStyle = p.colorPrefix + haloAlpha.toFixed(3) + ')';
+              ctx.lineWidth = Math.max(0.25, sr * 0.22);
+              ctx.beginPath();
+              ctx.moveTo(0, -haloR);
+              ctx.lineTo(haloR, 0);
+              ctx.lineTo(0, haloR);
+              ctx.lineTo(-haloR, 0);
+              ctx.closePath();
+              ctx.stroke();
+              ctx.restore();
+            }
+          }
+
+          // Level 6: faint six-spoke caustic crown around the diamond halo.
+          if (cinematicLevel >= 6 && velocityGlow > 0.64) {
+            const crownPhase = (time * 0.7 + p.sparklePhase * 1.4) % 1;
+            const crownLen = sr * (4.8 + crownPhase * 2.0);
+            const crownAlpha = velocityGlow * 0.10 * (1 - crownPhase * 0.6);
+            if (crownAlpha > 0.005) {
+              const spokeCount = 6;
+              ctx.strokeStyle = p.colorPrefix + crownAlpha.toFixed(3) + ')';
+              ctx.lineWidth = Math.max(0.2, sr * 0.18);
+              ctx.beginPath();
+              for (let sp = 0; sp < spokeCount; sp++) {
+                const angle = p.angle + crownPhase * Math.PI + (sp / spokeCount) * Math.PI * 2;
+                const ix = sx + Math.cos(angle) * crownLen * 0.32;
+                const iy = sy + Math.sin(angle) * crownLen * 0.32;
+                const ox = sx + Math.cos(angle) * crownLen;
+                const oy = sy + Math.sin(angle) * crownLen;
+                ctx.moveTo(ix, iy);
+                ctx.lineTo(ox, oy);
               }
               ctx.stroke();
             }
@@ -644,5 +689,3 @@ export class CrystalNebula {
     }
   }
 }
-
-

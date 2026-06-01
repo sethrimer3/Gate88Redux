@@ -272,6 +272,12 @@ export class DistantSuns {
     if (getCinematicLevel() >= 4) {
       this.drawThirdStarLayer(ctx, camera, screenW, screenH);
     }
+    if (getCinematicLevel() >= 5) {
+      this.drawQuaternaryDustBand(ctx, camera, screenW, screenH);
+    }
+    if (getCinematicLevel() >= 6) {
+      this.drawSolarFilamentHalo(ctx, cx, cy, screenW, screenH);
+    }
 
     // 2 — Warm directional screen fill (all quality levels).
     this.drawScreenWarmth(ctx, cx, cy, screenW, screenH);
@@ -294,7 +300,11 @@ export class DistantSuns {
             ? (this.coronaEnabled ? 18 : 10)
             : level === 3
               ? (this.coronaEnabled ? 22 : 14)
-              : (this.coronaEnabled ? 28 : 18);
+                : level === 4
+                  ? (this.coronaEnabled ? 28 : 18)
+                  : level === 5
+                    ? (this.coronaEnabled ? 32 : 20)
+                    : (this.coronaEnabled ? 36 : 24);
       const lc = this.lightCtx;
       lc.clearRect(0, 0, this.lightW, this.lightH);
       // Scale sun position to half-res buffer coordinates.
@@ -364,7 +374,7 @@ export class DistantSuns {
       grad.addColorStop(0.460, 'rgba(88,14,88,0.07)');
       grad.addColorStop(0.720, 'rgba(42,7,62,0.03)');
     } else {
-      const boost = level >= 4 ? 1.38 : level >= 3 ? 1.28 : level === 2 ? 1.18 : 1;
+      const boost = level >= 6 ? 1.52 : level >= 5 ? 1.44 : level >= 4 ? 1.38 : level >= 3 ? 1.28 : level === 2 ? 1.18 : 1;
       grad.addColorStop(0.000, `rgba(255,218,166,${Math.min(1, 0.98 * boost).toFixed(3)})`);
       grad.addColorStop(0.014, `rgba(227,138,74,${Math.min(1, 0.96 * boost).toFixed(3)})`);
       grad.addColorStop(0.040, `rgba(198,90,46,${Math.min(1, 0.92 * boost).toFixed(3)})`);
@@ -416,7 +426,7 @@ export class DistantSuns {
       grad.addColorStop(0.30, 'rgba(220,122,40,0.042)');
       grad.addColorStop(0.65, 'rgba(160,58,18,0.022)');
     } else {
-      const boost = level >= 4 ? 1.65 : level >= 3 ? 1.50 : level === 2 ? 1.34 : 1;
+      const boost = level >= 6 ? 1.88 : level >= 5 ? 1.74 : level >= 4 ? 1.65 : level >= 3 ? 1.50 : level === 2 ? 1.34 : 1;
       grad.addColorStop(0.00, `rgba(227,138,74,${(0.165 * boost).toFixed(3)})`);
       grad.addColorStop(0.24, `rgba(198,90,46,${(0.112 * boost).toFixed(3)})`);
       grad.addColorStop(0.56, `rgba(163,71,40,${(0.066 * boost).toFixed(3)})`);
@@ -517,7 +527,7 @@ export class DistantSuns {
     count: number,
   ): void {
     const level = getCinematicLevel();
-    const len = Math.hypot(w, h) * (level === 0 ? 0.82 : level === 1 ? 1.14 : level === 2 ? 1.30 : level === 3 ? 1.42 : 1.54);
+    const len = Math.hypot(w, h) * (level === 0 ? 0.82 : level === 1 ? 1.14 : level === 2 ? 1.30 : level === 3 ? 1.42 : level === 4 ? 1.54 : level === 5 ? 1.62 : 1.70);
     const rot = this.time * 0.007;   // very slow global rotation
 
     ctx.save();
@@ -526,7 +536,7 @@ export class DistantSuns {
     for (let i = 0; i < count; i++) {
       // Slightly irregular spacing with a slow wobble per ray.
       const baseAngle  = (i / count) * Math.PI * 2 + rot;
-      const wobble     = Math.sin(this.time * 0.22 + i * 1.13) * (level === 0 ? 0.04 : level === 1 ? 0.065 : level === 2 ? 0.085 : level === 3 ? 0.105 : 0.125);
+      const wobble     = Math.sin(this.time * 0.22 + i * 1.13) * (level === 0 ? 0.04 : level === 1 ? 0.065 : level === 2 ? 0.085 : level === 3 ? 0.105 : level === 4 ? 0.125 : level === 5 ? 0.136 : 0.148);
       const angle      = baseAngle + wobble;
 
       const tipX = cx + Math.cos(angle) * len;
@@ -539,8 +549,8 @@ export class DistantSuns {
       // Per-ray flicker (subtle).  Alpha reduced slightly — the blur on composite
       // spreads each beam wider, so lower per-pass alpha keeps overall brightness
       // balanced while reducing visible overlap seams.
-      const flicker = (level === 0 ? 0.036 : level === 1 ? 0.080 : level === 2 ? 0.110 : level === 3 ? 0.130 : 0.150)
-        + (level === 0 ? 0.016 : level === 1 ? 0.034 : level === 2 ? 0.046 : level === 3 ? 0.056 : 0.068) * Math.sin(this.time * 0.72 + i * 0.88);
+      const flicker = (level === 0 ? 0.036 : level === 1 ? 0.080 : level === 2 ? 0.110 : level === 3 ? 0.130 : level === 4 ? 0.150 : level === 5 ? 0.162 : 0.174)
+        + (level === 0 ? 0.016 : level === 1 ? 0.034 : level === 2 ? 0.046 : level === 3 ? 0.056 : level === 4 ? 0.068 : level === 5 ? 0.076 : 0.084) * Math.sin(this.time * 0.72 + i * 0.88);
 
       // Build a gradient that fades from bright at base to transparent at tip.
       const makeGrad = (alpha: number): CanvasGradient => {
@@ -551,7 +561,7 @@ export class DistantSuns {
           g.addColorStop(0.50, `rgba(240,108,32,${(alpha * 0.30).toFixed(3)})`);
           g.addColorStop(0.80, `rgba(200,70,18,${(alpha * 0.08).toFixed(3)})`);
         } else {
-          const boost = level >= 3 ? 1.26 : level === 2 ? 1.16 : 1;
+          const boost = level >= 6 ? 1.42 : level >= 5 ? 1.34 : level >= 3 ? 1.26 : level === 2 ? 1.16 : 1;
           g.addColorStop(0.00, `rgba(227,138,74,${Math.min(1, alpha * boost).toFixed(3)})`);
           g.addColorStop(0.18, `rgba(198,90,46,${Math.min(1, alpha * 0.80 * boost).toFixed(3)})`);
           g.addColorStop(0.50, `rgba(163,71,40,${Math.min(1, alpha * 0.42 * boost).toFixed(3)})`);
@@ -562,7 +572,7 @@ export class DistantSuns {
       };
 
       const drawPass = (halfWidthMult: number, alphaScale: number): void => {
-        const hw = len * (level === 0 ? 0.022 : level === 1 ? 0.036 : level === 2 ? 0.045 : 0.052) * halfWidthMult;
+        const hw = len * (level === 0 ? 0.022 : level === 1 ? 0.036 : level === 2 ? 0.045 : level === 3 ? 0.052 : level === 4 ? 0.055 : level === 5 ? 0.059 : 0.063) * halfWidthMult;
         ctx.fillStyle = makeGrad(flicker * alphaScale);
         ctx.beginPath();
         ctx.moveTo(cx + px * hw, cy + py * hw);
@@ -575,10 +585,10 @@ export class DistantSuns {
       // Five passes with quadratic-style falloff from core to edges.
       // Combined with the 8 px blur on composite, these produce soft atmospheric
       // light shafts rather than hard transparent polygons.
-      drawPass(level === 0 ? 6.0 : level === 1 ? 7.4 : level === 2 ? 9.0 : 10.5, level === 0 ? 0.15 : 0.16);
-      drawPass(level === 0 ? 4.0 : level === 1 ? 5.0 : level === 2 ? 6.0 : 7.0,  level === 0 ? 0.28 : 0.30);
-      drawPass(level === 0 ? 2.5 : level === 1 ? 3.0 : level === 2 ? 3.8 : 4.4,  level === 0 ? 0.46 : 0.50);
-      drawPass(level === 0 ? 1.6 : level === 1 ? 1.8 : level === 2 ? 2.2 : 2.6,  level === 0 ? 0.68 : 0.72);
+      drawPass(level === 0 ? 6.0 : level === 1 ? 7.4 : level === 2 ? 9.0 : level === 3 ? 10.5 : level === 4 ? 11.2 : level === 5 ? 12.0 : 12.8, level === 0 ? 0.15 : level >= 6 ? 0.18 : 0.16);
+      drawPass(level === 0 ? 4.0 : level === 1 ? 5.0 : level === 2 ? 6.0 : level === 3 ? 7.0 : level === 4 ? 7.8 : level === 5 ? 8.6 : 9.4,  level === 0 ? 0.28 : level >= 6 ? 0.33 : 0.30);
+      drawPass(level === 0 ? 2.5 : level === 1 ? 3.0 : level === 2 ? 3.8 : level === 3 ? 4.4 : level === 4 ? 4.8 : level === 5 ? 5.2 : 5.8,  level === 0 ? 0.46 : level >= 6 ? 0.54 : 0.50);
+      drawPass(level === 0 ? 1.6 : level === 1 ? 1.8 : level === 2 ? 2.2 : level === 3 ? 2.6 : level === 4 ? 2.9 : level === 5 ? 3.2 : 3.5,  level === 0 ? 0.68 : level >= 6 ? 0.78 : 0.72);
       drawPass(1.0, 1.00);  // core spine — narrowest, brightest
     }
 
@@ -1022,6 +1032,91 @@ export class DistantSuns {
         ctx.closePath();
         ctx.fill();
       }
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Level 5 only: faint quaternary dust band near the tertiary star.
+   * This adds layered color separation and motion detail without raising glow gain.
+   */
+  private drawQuaternaryDustBand(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    screenW: number,
+    screenH: number,
+  ): void {
+    const dx = (camera.position.x - WORLD_WIDTH * 0.5) * PARALLAX_X * 0.64;
+    const dy = (camera.position.y - WORLD_HEIGHT * 0.5) * PARALLAX_Y * 0.64;
+    const cx = screenW * THIRD_STAR_PLACEMENT.cx - dx;
+    const cy = screenH * THIRD_STAR_PLACEMENT.cy - dy;
+    const arcR = Math.max(screenW, screenH) * 0.16;
+    const drift = this.time * 0.013;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.translate(cx, cy);
+    ctx.rotate(0.35 + Math.sin(drift) * 0.14);
+
+    const ring = ctx.createRadialGradient(0, 0, arcR * 0.42, 0, 0, arcR * 1.18);
+    ring.addColorStop(0.00, 'rgba(255,185,115,0.016)');
+    ring.addColorStop(0.34, 'rgba(220,130,80,0.020)');
+    ring.addColorStop(0.66, 'rgba(110,75,120,0.015)');
+    ring.addColorStop(1.00, 'rgba(0,0,0,0)');
+    ctx.fillStyle = ring;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, arcR * 1.45, arcR * 0.58, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = `rgba(175,125,255,${(0.045 + 0.015 * Math.sin(drift * 6.2)).toFixed(3)})`;
+    ctx.lineWidth = Math.max(0.5, arcR * 0.008);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, arcR * 1.18, arcR * 0.42, 0, drift * 2.1, drift * 2.1 + Math.PI * 1.25);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * Level 6: layered filament halo around the primary sun.
+   * Adds fine curved plasma structure and counter-rotating ribbon detail.
+   */
+  private drawSolarFilamentHalo(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    screenW: number,
+    screenH: number,
+  ): void {
+    const baseR = Math.max(screenW, screenH) * 0.16;
+    const t = this.time;
+    const filaments = 5;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.translate(cx, cy);
+
+    for (let i = 0; i < filaments; i++) {
+      const phase = t * (0.18 + i * 0.04) + i * 0.9;
+      const ringR = baseR * (0.78 + i * 0.18 + 0.05 * Math.sin(phase * 1.8));
+      const arcLen = Math.PI * (0.44 + 0.14 * Math.sin(phase * 1.2 + i));
+      const startA = phase * (i % 2 === 0 ? 1 : -1) + Math.sin(phase * 0.7) * 0.42;
+      const alpha = 0.05 + 0.025 * Math.sin(phase * 2.2 + i * 1.3);
+      const grad = ctx.createLinearGradient(
+        Math.cos(startA) * ringR,
+        Math.sin(startA) * ringR,
+        Math.cos(startA + arcLen) * ringR,
+        Math.sin(startA + arcLen) * ringR,
+      );
+      grad.addColorStop(0.00, `rgba(255,210,155,${(alpha * 0.30).toFixed(3)})`);
+      grad.addColorStop(0.40, `rgba(255,160,90,${alpha.toFixed(3)})`);
+      grad.addColorStop(0.72, `rgba(205,95,58,${(alpha * 0.88).toFixed(3)})`);
+      grad.addColorStop(1.00, `rgba(92,45,72,${(alpha * 0.34).toFixed(3)})`);
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = Math.max(0.7, baseR * (0.012 - i * 0.0014));
+      ctx.beginPath();
+      ctx.ellipse(0, 0, ringR, ringR * (0.40 + (i % 3) * 0.07), i * 0.36, startA, startA + arcLen);
+      ctx.stroke();
     }
 
     ctx.restore();
