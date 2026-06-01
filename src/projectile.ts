@@ -261,6 +261,36 @@ export abstract class ProjectileBase extends Entity {
       ctx.restore();
     }
 
+    // Level 6: ion knot sparks zig-zagging through the centerline.
+    if (cinematicLevel >= 6 && this.trail.length >= 6) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.lineWidth = Math.max(0.45, width * camera.zoom * 0.10);
+      for (let i = 2; i < this.trail.length; i += 3) {
+        const a = this.trail[i - 1];
+        const b = this.trail[i];
+        const fade = 1 - ((a.age + b.age) * 0.5) / this.trailLifetime;
+        if (fade <= 0) continue;
+        const from = camera.worldToScreen(a.pos);
+        const to = camera.worldToScreen(b.pos);
+        const mx = (from.x + to.x) * 0.5;
+        const my = (from.y + to.y) * 0.5;
+        const tdx = to.x - from.x;
+        const tdy = to.y - from.y;
+        const tlen = Math.hypot(tdx, tdy) || 1;
+        const px = tdy / tlen;
+        const py = -tdx / tlen;
+        const sparkLen = Math.max(0.9, width * camera.zoom * 0.30);
+        const sparkAlpha = Math.min(0.26, fade * 0.22);
+        ctx.strokeStyle = `rgba(215,245,255,${sparkAlpha.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.moveTo(mx - px * sparkLen, my - py * sparkLen);
+        ctx.lineTo(mx + px * sparkLen, my + py * sparkLen);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     ctx.restore();
   }
 }

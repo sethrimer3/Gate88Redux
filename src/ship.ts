@@ -770,6 +770,38 @@ export class PlayerShip extends Entity {
       }
     }
 
+    // Level 6: tri-axis ion spokes and a breathing outer phase ring.
+    if (getCinematicLevel() >= 6) {
+      const spokeCount = 3;
+      const spokeR = r * (1.18 + corePulse * 0.09);
+      ctx.strokeStyle = colorToCSS(coreColor, Math.min(0.44, 0.20 + coreGlint * 0.18));
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      for (let i = 0; i < spokeCount; i++) {
+        const a = this.drawTime * 1.35 + (i / spokeCount) * Math.PI * 2;
+        const ex = screen.x + Math.cos(a) * spokeR;
+        const ey = screen.y + Math.sin(a) * spokeR * 0.72;
+        ctx.moveTo(screen.x, screen.y);
+        ctx.lineTo(ex, ey);
+      }
+      ctx.stroke();
+
+      const phaseRingAlpha = Math.min(0.42, 0.18 + corePulse * 0.16);
+      ctx.strokeStyle = `rgba(190,230,255,${phaseRingAlpha.toFixed(3)})`;
+      ctx.lineWidth = 0.85;
+      ctx.beginPath();
+      ctx.ellipse(
+        screen.x,
+        screen.y,
+        r * (1.30 + corePulse * 0.08),
+        r * (0.90 + coreGlint * 0.05),
+        this.drawTime * 0.55,
+        0,
+        Math.PI * 2,
+      );
+      ctx.stroke();
+    }
+
     ctx.restore();
 
     ctx.fillStyle = colorToCSS(coreColor, 0.72 + 0.28 * this.healthFraction);

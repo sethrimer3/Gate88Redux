@@ -177,6 +177,9 @@ export class Nebula {
     if (cinematicLevel >= 5) {
       this.drawAuroraCurtains(ctx, screenW, screenH);
     }
+    if (cinematicLevel >= 6) {
+      this.drawIonVeil(ctx, screenW, screenH);
+    }
   }
 
   /**
@@ -325,6 +328,48 @@ export class Nebula {
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, screenW, screenH);
     }
+    ctx.restore();
+  }
+
+  /**
+   * Level 6: ion veil lattice made of soft crossing stream-lines.
+   * Adds long-form structure depth beyond the level-5 curtain ribbons.
+   */
+  private drawIonVeil(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
+    const t = performance.now() / 1000;
+    const lines = 4;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+
+    for (let i = 0; i < lines; i++) {
+      const phase = i * 1.2 + t * 0.07;
+      const x0 = screenW * (0.10 + i * 0.22 + 0.08 * Math.sin(phase));
+      const y0 = screenH * (-0.15 + 0.05 * Math.sin(phase * 1.6 + i));
+      const x1 = screenW * (0.92 - i * 0.16 + 0.06 * Math.sin(phase * 0.7 + 1.3));
+      const y1 = screenH * (1.10 + 0.07 * Math.sin(phase * 1.1 + 2.1));
+      const a = 0.010 + 0.004 * Math.sin(t * 0.19 + i * 1.7);
+      const grad = ctx.createLinearGradient(x0, y0, x1, y1);
+      grad.addColorStop(0.00, 'rgba(0,0,0,0)');
+      grad.addColorStop(0.22, `rgba(90,160,255,${(a * 0.85).toFixed(3)})`);
+      grad.addColorStop(0.50, `rgba(175,120,255,${(a * 1.40).toFixed(3)})`);
+      grad.addColorStop(0.76, `rgba(120,255,205,${(a * 0.95).toFixed(3)})`);
+      grad.addColorStop(1.00, 'rgba(0,0,0,0)');
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = Math.max(1.2, screenW * 0.0016);
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.bezierCurveTo(
+        screenW * (0.30 + 0.07 * Math.sin(phase * 1.4)),
+        screenH * (0.26 + 0.05 * Math.sin(phase * 1.8)),
+        screenW * (0.66 + 0.08 * Math.sin(phase * 1.2 + 2.4)),
+        screenH * (0.74 + 0.05 * Math.sin(phase * 1.5 + 1.1)),
+        x1,
+        y1,
+      );
+      ctx.stroke();
+    }
+
     ctx.restore();
   }
 }

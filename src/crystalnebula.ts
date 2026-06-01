@@ -522,6 +522,29 @@ export class CrystalNebula {
             }
           }
 
+          // Level 6: faint six-spoke caustic crown around the diamond halo.
+          if (cinematicLevel >= 6 && velocityGlow > 0.64) {
+            const crownPhase = (time * 0.7 + p.sparklePhase * 1.4) % 1;
+            const crownLen = sr * (4.8 + crownPhase * 2.0);
+            const crownAlpha = velocityGlow * 0.10 * (1 - crownPhase * 0.6);
+            if (crownAlpha > 0.005) {
+              const spokeCount = 6;
+              ctx.strokeStyle = p.colorPrefix + crownAlpha.toFixed(3) + ')';
+              ctx.lineWidth = Math.max(0.2, sr * 0.18);
+              ctx.beginPath();
+              for (let sp = 0; sp < spokeCount; sp++) {
+                const angle = p.angle + crownPhase * Math.PI + (sp / spokeCount) * Math.PI * 2;
+                const ix = sx + Math.cos(angle) * crownLen * 0.32;
+                const iy = sy + Math.sin(angle) * crownLen * 0.32;
+                const ox = sx + Math.cos(angle) * crownLen;
+                const oy = sy + Math.sin(angle) * crownLen;
+                ctx.moveTo(ix, iy);
+                ctx.lineTo(ox, oy);
+              }
+              ctx.stroke();
+            }
+          }
+
           // Route brightest glints into the glow layer
           if (glowCtx && (alpha > 0.50 || hotAlpha > 0.18 || velocityGlow > 0.16)) {
             glowCtx.fillStyle = p.colorPrefix + Math.min(cinematicLevel >= 2 ? 0.72 : 0.52, alpha * 0.18 + hotAlpha * 0.30 + velocityGlow * (cinematicLevel >= 2 ? 0.30 : 0.18)).toFixed(3) + ')';

@@ -392,6 +392,45 @@ export abstract class BuildingBase extends Entity {
       ctx.restore();
     }
 
+    // Level 6: inner edge prismatic conduit lines with traveling charge nodes.
+    if (getCinematicLevel() >= 6) {
+      const pulse = (this.animationTime * 0.52 + this.id * 0.21) % 1;
+      const pad = s * 0.14;
+      const left = x + pad;
+      const right = x + s - pad;
+      const top = y + pad;
+      const bottom = y + s - pad;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.lineWidth = Math.max(0.8, s * 0.010);
+      ctx.strokeStyle = 'rgba(170,220,255,0.20)';
+      ctx.beginPath();
+      ctx.moveTo(left, top);
+      ctx.lineTo(right, top);
+      ctx.lineTo(right, bottom);
+      ctx.lineTo(left, bottom);
+      ctx.closePath();
+      ctx.stroke();
+
+      const nodeT = pulse * 4;
+      const edge = Math.floor(nodeT) % 4;
+      const edgeFrac = nodeT % 1;
+      const px = edge === 0 ? left + (right - left) * edgeFrac
+        : edge === 1 ? right
+          : edge === 2 ? right - (right - left) * edgeFrac
+            : left;
+      const py = edge === 0 ? top
+        : edge === 1 ? top + (bottom - top) * edgeFrac
+          : edge === 2 ? bottom
+            : bottom - (bottom - top) * edgeFrac;
+      const nodeAlpha = 0.22 + 0.12 * Math.sin(this.animationTime * 3.8 + this.id);
+      ctx.fillStyle = `rgba(255,240,200,${nodeAlpha.toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(px, py, Math.max(0.9, s * 0.020), 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+
     ctx.restore();
   }
   private drawUnpoweredWarning(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
