@@ -241,7 +241,7 @@ export class Nebula {
     // Level 4 only: fourth golden-amber aurora that drifts across the upper-center,
     // adding a warm accent absent from all lower cinematic levels.
     if (level >= 4) {
-      const ga = 0.022 + 0.010 * Math.sin(t * 0.16 + 3.4);
+      const ga = (0.022 + 0.010 * Math.sin(t * 0.16 + 3.4)) * am;
       const gg = ctx.createRadialGradient(
         screenW * (0.48 + 0.12 * Math.sin(t * 0.09 + 0.7)),
         screenH * (0.18 + 0.08 * Math.sin(t * 0.13 + 2.1)),
