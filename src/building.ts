@@ -431,6 +431,38 @@ export abstract class BuildingBase extends Entity {
       ctx.restore();
     }
 
+    // Level 7: spectral resonance pulses — concentric expanding square rings
+    // that periodically emanate outward from the building, like sonar pings.
+    // Distinct from level-6 conduit lines in both shape (expanding outward beyond
+    // the building border) and color (violet-white rather than blue).
+    if (getCinematicLevel() >= 7) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.lineWidth = Math.max(0.5, s * 0.007);
+      const ringPeriod = 2.4;
+      for (let ring = 0; ring < 2; ring++) {
+        const tRaw = (this.animationTime * (1 / ringPeriod) + this.id * 0.17 + ring * 0.5) % 1;
+        const expand = tRaw;
+        // Ring starts at building edges and expands to ~1.9× building size, fading out.
+        const pad = s * (-0.02 + expand * 0.95);
+        const alpha = (1 - expand) * (1 - expand) * 0.32;
+        if (alpha < 0.008) continue;
+        const rl = x - pad;
+        const rt = y - pad;
+        const rr = x + s + pad;
+        const rb = y + s + pad;
+        ctx.strokeStyle = `rgba(220,185,255,${alpha.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.moveTo(rl, rt);
+        ctx.lineTo(rr, rt);
+        ctx.lineTo(rr, rb);
+        ctx.lineTo(rl, rb);
+        ctx.closePath();
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     ctx.restore();
   }
   private drawUnpoweredWarning(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {

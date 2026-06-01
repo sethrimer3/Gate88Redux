@@ -180,6 +180,9 @@ export class Nebula {
     if (cinematicLevel >= 6) {
       this.drawIonVeil(ctx, screenW, screenH);
     }
+    if (cinematicLevel >= 7) {
+      this.drawGalaxySmear(ctx, screenW, screenH);
+    }
   }
 
   /**
@@ -368,6 +371,71 @@ export class Nebula {
         y1,
       );
       ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Level 7: deep-field galaxy smear — a scattering of faint, tiny elliptical
+   * brushstrokes distributed across the background at very low alpha.  Each
+   * smear represents a distant galaxy glimpsed through the nebula.  They drift
+   * imperceptibly slowly and vary in color from warm amber to cool blue-violet,
+   * adding sublime depth without competing with gameplay elements.
+   */
+  private drawGalaxySmear(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
+    const t = performance.now() / 1000;
+
+    // Seeded layout — deterministic positions so galaxies don't jump on resize.
+    // Using simple hash-like offsets based on index rather than a real PRNG.
+    const galaxies: Array<{
+      x: number; y: number; rx: number; ry: number;
+      tilt: number; hue: string; driftX: number; driftY: number;
+    }> = [
+      { x: 0.08, y: 0.12, rx: 0.014, ry: 0.006, tilt: 0.42, hue: '255,195,120', driftX: 0.010, driftY: 0.007 },
+      { x: 0.28, y: 0.78, rx: 0.011, ry: 0.004, tilt: 1.18, hue: '150,195,255', driftX: 0.008, driftY: 0.012 },
+      { x: 0.55, y: 0.09, rx: 0.018, ry: 0.007, tilt: 0.75, hue: '200,170,255', driftX: 0.013, driftY: 0.006 },
+      { x: 0.72, y: 0.88, rx: 0.012, ry: 0.005, tilt: 2.10, hue: '120,230,210', driftX: 0.009, driftY: 0.011 },
+      { x: 0.88, y: 0.22, rx: 0.016, ry: 0.006, tilt: 0.30, hue: '255,175,140', driftX: 0.007, driftY: 0.009 },
+      { x: 0.15, y: 0.50, rx: 0.010, ry: 0.004, tilt: 1.65, hue: '180,210,255', driftX: 0.011, driftY: 0.008 },
+      { x: 0.42, y: 0.38, rx: 0.013, ry: 0.005, tilt: 0.95, hue: '230,200,140', driftX: 0.006, driftY: 0.010 },
+      { x: 0.64, y: 0.62, rx: 0.009, ry: 0.003, tilt: 1.40, hue: '160,220,255', driftX: 0.012, driftY: 0.007 },
+    ];
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+
+    for (let i = 0; i < galaxies.length; i++) {
+      const g = galaxies[i];
+      const phase = i * 2.37;
+      // Extremely slow drift — barely perceptible over minutes.
+      const ox = Math.sin(t * g.driftX + phase) * 0.012 * screenW;
+      const oy = Math.cos(t * g.driftY + phase + 1.1) * 0.010 * screenH;
+      const gx = g.x * screenW + ox;
+      const gy = g.y * screenH + oy;
+      const alpha = 0.022 + 0.008 * Math.sin(t * (g.driftX * 0.6) + phase);
+
+      ctx.save();
+      ctx.translate(gx, gy);
+      ctx.rotate(g.tilt + t * 0.003);
+
+      // Outer soft halo.
+      const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, g.rx * screenW * 1.8);
+      halo.addColorStop(0.00, `rgba(${g.hue},${(alpha * 0.90).toFixed(3)})`);
+      halo.addColorStop(0.45, `rgba(${g.hue},${(alpha * 0.45).toFixed(3)})`);
+      halo.addColorStop(1.00, 'rgba(0,0,0,0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, g.rx * screenW * 1.8, g.ry * screenH * 1.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Bright core streak.
+      ctx.fillStyle = `rgba(${g.hue},${Math.min(1, alpha * 2.2).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, g.rx * screenW, g.ry * screenH, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
     }
 
     ctx.restore();

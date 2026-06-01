@@ -545,6 +545,44 @@ export class CrystalNebula {
             }
           }
 
+          // Level 7: prismatic micro-tail — a short arc of faint color-decomposed
+          // ghost images trailing behind high-velocity motes, simulating chromatic
+          // dispersion as the crystal fragment tears through the nebula medium.
+          if (cinematicLevel >= 7 && velocityGlow > 0.45) {
+            const tailSteps = 4;
+            const tailLen = sr * (6.0 + velocityGlow * 4.0);
+            const trailAlpha = velocityGlow * 0.12;
+            const vx = p.vx;
+            const vy = p.vy;
+            const vlen = Math.hypot(vx, vy) || 1;
+            const tnx = -vx / vlen;
+            const tny = -vy / vlen;
+            // Slight perpendicular dispersion offsets for R/G/B channels.
+            const dispMult = sr * 0.55;
+            const pnx = -tny;
+            const pny =  tnx;
+            ctx.lineWidth = Math.max(0.3, sr * 0.28);
+            for (let step = 1; step <= tailSteps; step++) {
+              const frac = step / tailSteps;
+              const tx = sx + tnx * tailLen * frac;
+              const ty = sy + tny * tailLen * frac;
+              const stepAlpha = trailAlpha * (1 - frac) * (1 - frac);
+              if (stepAlpha < 0.004) continue;
+              // Red ghost — offset in +perpendicular.
+              ctx.strokeStyle = `rgba(255,80,60,${stepAlpha.toFixed(3)})`;
+              ctx.beginPath();
+              ctx.moveTo(sx + pnx * dispMult * frac, sy + pny * dispMult * frac);
+              ctx.lineTo(tx + pnx * dispMult * frac, ty + pny * dispMult * frac);
+              ctx.stroke();
+              // Blue-violet ghost — offset in −perpendicular.
+              ctx.strokeStyle = `rgba(120,80,255,${stepAlpha.toFixed(3)})`;
+              ctx.beginPath();
+              ctx.moveTo(sx - pnx * dispMult * frac, sy - pny * dispMult * frac);
+              ctx.lineTo(tx - pnx * dispMult * frac, ty - pny * dispMult * frac);
+              ctx.stroke();
+            }
+          }
+
           // Route brightest glints into the glow layer
           if (glowCtx && (alpha > 0.50 || hotAlpha > 0.18 || velocityGlow > 0.16)) {
             glowCtx.fillStyle = p.colorPrefix + Math.min(cinematicLevel >= 2 ? 0.72 : 0.52, alpha * 0.18 + hotAlpha * 0.30 + velocityGlow * (cinematicLevel >= 2 ? 0.30 : 0.18)).toFixed(3) + ')';

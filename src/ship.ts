@@ -802,6 +802,47 @@ export class PlayerShip extends Entity {
       ctx.stroke();
     }
 
+    // Level 7: hexagonal quantum lattice — six nodes at equal angles connected
+    // by edges, slowly rotating around the ship core.  The nodes pulse in alpha
+    // individually, creating a living web signature distinct from all prior rings.
+    if (getCinematicLevel() >= 7) {
+      const nodeCount = 6;
+      const latticeR = r * (1.55 + corePulse * 0.07);
+      const latticeRot = this.drawTime * 0.62;
+      const nodeAlphaBase = Math.min(0.52, 0.22 + coreGlint * 0.20);
+      const nodes: Array<{ x: number; y: number }> = [];
+      for (let i = 0; i < nodeCount; i++) {
+        const a = latticeRot + (i / nodeCount) * Math.PI * 2;
+        nodes.push({
+          x: screen.x + Math.cos(a) * latticeR,
+          y: screen.y + Math.sin(a) * latticeR * 0.80,
+        });
+      }
+
+      // Draw connecting edges between adjacent nodes.
+      ctx.lineWidth = 0.7;
+      for (let i = 0; i < nodeCount; i++) {
+        const na = nodes[i];
+        const nb = nodes[(i + 1) % nodeCount];
+        const edgeAlpha = nodeAlphaBase * (0.55 + 0.45 * Math.sin(this.drawTime * 2.1 + i * 1.05));
+        ctx.strokeStyle = colorToCSS(coreColor, Math.min(0.38, edgeAlpha));
+        ctx.beginPath();
+        ctx.moveTo(na.x, na.y);
+        ctx.lineTo(nb.x, nb.y);
+        ctx.stroke();
+      }
+
+      // Draw glowing node dots.
+      for (let i = 0; i < nodeCount; i++) {
+        const n = nodes[i];
+        const na = nodeAlphaBase * (0.6 + 0.4 * Math.sin(this.drawTime * 3.3 + i * 1.57));
+        ctx.fillStyle = `rgba(215,248,255,${Math.min(0.62, na).toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, Math.max(0.5, r * 0.040), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
     ctx.restore();
 
     ctx.fillStyle = colorToCSS(coreColor, 0.72 + 0.28 * this.healthFraction);

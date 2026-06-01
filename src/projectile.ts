@@ -291,6 +291,44 @@ export abstract class ProjectileBase extends Entity {
       ctx.restore();
     }
 
+    // Level 7: chromatic dispersion wake — red and blue ghost trails offset
+    // perpendicularly from the main trail, simulating prismatic light separation
+    // as the comet punches through the nebula medium.
+    if (cinematicLevel >= 7 && this.trail.length >= 4) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const dispOffset = Math.max(0.8, width * camera.zoom * 0.32);
+      ctx.lineWidth = Math.max(0.35, width * camera.zoom * 0.50);
+      for (let i = 1; i < this.trail.length; i++) {
+        const a = this.trail[i - 1];
+        const b = this.trail[i];
+        const fade = 1 - ((a.age + b.age) * 0.5) / this.trailLifetime;
+        if (fade <= 0.06) continue;
+        const from = camera.worldToScreen(a.pos);
+        const to = camera.worldToScreen(b.pos);
+        const tdx = to.x - from.x;
+        const tdy = to.y - from.y;
+        const tlen = Math.hypot(tdx, tdy) || 1;
+        const px = tdy / tlen;
+        const py = -tdx / tlen;
+        const ra = Math.min(0.14, fade * 0.11);
+        const ba = Math.min(0.14, fade * 0.11);
+        // Red channel shifted one side.
+        ctx.strokeStyle = `rgba(255,60,40,${ra.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.moveTo(from.x + px * dispOffset, from.y + py * dispOffset);
+        ctx.lineTo(to.x   + px * dispOffset, to.y   + py * dispOffset);
+        ctx.stroke();
+        // Blue channel shifted the other side.
+        ctx.strokeStyle = `rgba(40,140,255,${ba.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.moveTo(from.x - px * dispOffset, from.y - py * dispOffset);
+        ctx.lineTo(to.x   - px * dispOffset, to.y   - py * dispOffset);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     ctx.restore();
   }
 }
