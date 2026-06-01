@@ -467,7 +467,7 @@ export class CrystalNebula {
 
           // Level 3: expanding pulse ring on high-velocity glints.
           if (cinematicLevel >= 3 && velocityGlow > 0.35) {
-            const ringPhase = (performance.now() / 1000 * 1.2 + p.sparklePhase) % 1;
+            const ringPhase = (time * 1.2 + p.sparklePhase) % 1;
             const ringR     = sr * (2.5 + ringPhase * 3.5);
             const ringAlpha = velocityGlow * 0.18 * (1 - ringPhase);
             if (ringAlpha > 0.005) {
@@ -483,7 +483,7 @@ export class CrystalNebula {
           // spikes that flare out then fade, adding a new shape vocabulary absent
           // from the level-3 ring.
           if (cinematicLevel >= 4 && velocityGlow > 0.55) {
-            const burstPhase = (performance.now() / 1000 * 0.9 + p.sparklePhase * 1.7) % 1;
+            const burstPhase = (time * 0.9 + p.sparklePhase * 1.7) % 1;
             const burstLen   = sr * (3.0 + burstPhase * 5.0);
             const burstAlpha = velocityGlow * 0.26 * (1 - burstPhase * burstPhase);
             if (burstAlpha > 0.008) {
@@ -502,7 +502,7 @@ export class CrystalNebula {
 
           // Level 5: rotating diamond halo around the brightest glints.
           if (cinematicLevel >= 5 && velocityGlow > 0.60) {
-            const haloPhase = (performance.now() / 1000 * 0.8 + p.sparklePhase * 2.2) % 1;
+            const haloPhase = (time * 0.8 + p.sparklePhase * 2.2) % 1;
             const haloR = sr * (3.8 + haloPhase * 2.4);
             const haloAlpha = velocityGlow * 0.12 * (1 - haloPhase);
             if (haloAlpha > 0.006) {
@@ -666,4 +666,3 @@ export class CrystalNebula {
     }
   }
 }
-
