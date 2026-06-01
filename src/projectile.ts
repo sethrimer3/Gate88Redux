@@ -209,6 +209,30 @@ export abstract class ProjectileBase extends Entity {
       ctx.restore();
     }
 
+    // Level 4: plasma compression rings — periodic expanding halos that eject
+    // from the projectile head, giving the comet a "shockwave pulse" quality
+    // not present at level 3.  Rings are spaced every ~4th trail segment and
+    // expand outward as they age.
+    if (cinematicLevel >= 4 && this.trail.length >= 4) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const step = Math.max(1, Math.floor(this.trail.length / 4));
+      for (let i = step; i < this.trail.length; i += step) {
+        const pt  = this.trail[i];
+        const age = pt.age / this.trailLifetime;
+        if (age <= 0 || age >= 1) continue;
+        const scr      = camera.worldToScreen(pt.pos);
+        const ringR    = Math.max(1, width * camera.zoom * (1.2 + age * 3.5));
+        const ringAlpha = (1 - age) * 0.22;
+        ctx.strokeStyle = glowColor.replace(/[\d.]+\)$/, `${ringAlpha.toFixed(3)})`);
+        ctx.lineWidth   = Math.max(0.4, width * camera.zoom * 0.18 * (1 - age));
+        ctx.beginPath();
+        ctx.arc(scr.x, scr.y, ringR, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     ctx.restore();
   }
 }

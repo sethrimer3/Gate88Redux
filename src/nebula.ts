@@ -171,22 +171,30 @@ export class Nebula {
     if (cinematicLevel >= 3) {
       this.drawAuroraOverlay(ctx, screenW, screenH);
     }
+    if (cinematicLevel >= 4) {
+      this.drawNebulaStreamer(ctx, screenW, screenH);
+    }
   }
 
   /**
    * Animated aurora shimmer overlay — slowly drifting radial color washes that
    * create organic background movement absent from levels 1 and 2.
    * Drawn every frame (not baked) using performance.now() as a time source.
+   * At level 4 the auroras are denser and a fourth golden wash is added.
    */
   private drawAuroraOverlay(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
     const t = performance.now() / 1000;
     const radiusBase = Math.max(screenW, screenH);
+    const level = getCinematicLevel();
 
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
 
+    // Alpha multiplier: level 4 auroras are stronger.
+    const am = level >= 4 ? 1.45 : 1.0;
+
     // Teal-green aurora — drifts slowly toward the top-left quadrant.
-    const ta = 0.028 + 0.012 * Math.sin(t * 0.23);
+    const ta = (0.028 + 0.012 * Math.sin(t * 0.23)) * am;
     const tg = ctx.createRadialGradient(
       screenW * (0.26 + 0.11 * Math.sin(t * 0.14)),
       screenH * (0.28 + 0.09 * Math.sin(t * 0.17 + 1.1)),
@@ -201,7 +209,7 @@ export class Nebula {
     ctx.fillRect(0, 0, screenW, screenH);
 
     // Magenta aurora — slowly wanders near the center.
-    const ma = 0.020 + 0.009 * Math.sin(t * 0.19 + 0.8);
+    const ma = (0.020 + 0.009 * Math.sin(t * 0.19 + 0.8)) * am;
     const mg = ctx.createRadialGradient(
       screenW * (0.56 + 0.09 * Math.sin(t * 0.11 + 2.3)),
       screenH * (0.44 + 0.07 * Math.sin(t * 0.13 + 0.5)),
@@ -216,7 +224,7 @@ export class Nebula {
     ctx.fillRect(0, 0, screenW, screenH);
 
     // Soft blue aurora — drifts in the lower-right region.
-    const ba = 0.026 + 0.011 * Math.sin(t * 0.21 + 1.5);
+    const ba = (0.026 + 0.011 * Math.sin(t * 0.21 + 1.5)) * am;
     const bg = ctx.createRadialGradient(
       screenW * (0.76 + 0.08 * Math.sin(t * 0.16 + 1.7)),
       screenH * (0.70 + 0.06 * Math.sin(t * 0.12 + 3.1)),
@@ -230,6 +238,60 @@ export class Nebula {
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, screenW, screenH);
 
+    // Level 4 only: fourth golden-amber aurora that drifts across the upper-center,
+    // adding a warm accent absent from all lower cinematic levels.
+    if (level >= 4) {
+      const ga = 0.022 + 0.010 * Math.sin(t * 0.16 + 3.4);
+      const gg = ctx.createRadialGradient(
+        screenW * (0.48 + 0.12 * Math.sin(t * 0.09 + 0.7)),
+        screenH * (0.18 + 0.08 * Math.sin(t * 0.13 + 2.1)),
+        0,
+        screenW * (0.48 + 0.12 * Math.sin(t * 0.09 + 0.7)),
+        screenH * (0.18 + 0.08 * Math.sin(t * 0.13 + 2.1)),
+        radiusBase * (0.46 + 0.06 * Math.sin(t * 0.11 + 1.3)),
+      );
+      gg.addColorStop(0, `rgba(255,185,40,${ga.toFixed(3)})`);
+      gg.addColorStop(0.55, `rgba(200,120,20,${(ga * 0.38).toFixed(3)})`);
+      gg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gg;
+      ctx.fillRect(0, 0, screenW, screenH);
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Level 4 only: a slow diagonal nebula streamer — a faint luminous ribbon
+   * that drifts across the screen using a tilted linear gradient.  This adds
+   * a structural, directional quality to the background not present at level 3,
+   * making the space feel like light is propagating from a distant source.
+   */
+  private drawNebulaStreamer(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
+    const t = performance.now() / 1000;
+
+    // The streamer shifts very slowly diagonally.
+    const drift = (t * 0.018) % 1;
+    const ox = screenW * drift * 0.3;
+    const oy = screenH * drift * 0.15;
+
+    // Tilt the gradient across the screen (top-right → bottom-left axis).
+    const x0 = screenW * 0.65 + ox;
+    const y0 = -screenH * 0.10 + oy;
+    const x1 = screenW * 0.25 + ox;
+    const y1 = screenH * 1.10 + oy;
+
+    const alpha = 0.028 + 0.010 * Math.sin(t * 0.07 + 1.8);
+    const grad = ctx.createLinearGradient(x0, y0, x1, y1);
+    grad.addColorStop(0.00, 'rgba(0,0,0,0)');
+    grad.addColorStop(0.35, `rgba(140,80,200,${alpha.toFixed(3)})`);
+    grad.addColorStop(0.50, `rgba(180,120,255,${(alpha * 1.6).toFixed(3)})`);
+    grad.addColorStop(0.65, `rgba(140,80,200,${alpha.toFixed(3)})`);
+    grad.addColorStop(1.00, 'rgba(0,0,0,0)');
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, screenW, screenH);
     ctx.restore();
   }
 }

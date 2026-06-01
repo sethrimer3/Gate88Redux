@@ -730,6 +730,30 @@ export class PlayerShip extends Entity {
       ctx.stroke();
     }
 
+    // Level 4: tight inner energy ring — three short arc segments spinning fast
+    // at the core radius.  Unlike the outer arcs this sits *inside* the ship
+    // body, creating a luminous engine-core signature not visible at level 3.
+    if (getCinematicLevel() >= 4) {
+      const innerR = r * (0.34 + corePulse * 0.04);
+      const segCount = 3;
+      for (let seg = 0; seg < segCount; seg++) {
+        const segOffset = (seg / segCount) * Math.PI * 2;
+        const segStart  = this.drawTime * 2.8 + segOffset;
+        const segAlpha  = Math.min(0.68, (0.28 + corePulse * 0.22) * cinematicShipBoost);
+        ctx.strokeStyle = colorToCSS(coreColor, segAlpha);
+        ctx.lineWidth = 1.1;
+        ctx.beginPath();
+        ctx.arc(screen.x, screen.y, innerR, segStart, segStart + Math.PI * 0.52);
+        ctx.stroke();
+      }
+      // Central pinpoint glow — a bright white hot spot at the very core.
+      const hotA = Math.min(0.90, (0.50 + coreGlint * 0.40) * cinematicShipBoost);
+      ctx.fillStyle = `rgba(255,245,220,${hotA.toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(screen.x, screen.y, r * 0.09, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     ctx.restore();
 
     ctx.fillStyle = colorToCSS(coreColor, 0.72 + 0.28 * this.healthFraction);

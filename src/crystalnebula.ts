@@ -479,6 +479,27 @@ export class CrystalNebula {
             }
           }
 
+          // Level 4: starburst flash on very high-velocity glints — eight radial
+          // spikes that flare out then fade, adding a new shape vocabulary absent
+          // from the level-3 ring.
+          if (cinematicLevel >= 4 && velocityGlow > 0.55) {
+            const burstPhase = (performance.now() / 1000 * 0.9 + p.sparklePhase * 1.7) % 1;
+            const burstLen   = sr * (3.0 + burstPhase * 5.0);
+            const burstAlpha = velocityGlow * 0.26 * (1 - burstPhase * burstPhase);
+            if (burstAlpha > 0.008) {
+              const spikeCount = 8;
+              ctx.strokeStyle = p.colorPrefix + burstAlpha.toFixed(3) + ')';
+              ctx.lineWidth   = Math.max(0.3, sr * 0.28);
+              ctx.beginPath();
+              for (let sp = 0; sp < spikeCount; sp++) {
+                const spikeAngle = p.angle + (sp / spikeCount) * Math.PI * 2;
+                ctx.moveTo(sx, sy);
+                ctx.lineTo(sx + Math.cos(spikeAngle) * burstLen, sy + Math.sin(spikeAngle) * burstLen);
+              }
+              ctx.stroke();
+            }
+          }
+
           // Route brightest glints into the glow layer
           if (glowCtx && (alpha > 0.50 || hotAlpha > 0.18 || velocityGlow > 0.16)) {
             glowCtx.fillStyle = p.colorPrefix + Math.min(cinematicLevel >= 2 ? 0.72 : 0.52, alpha * 0.18 + hotAlpha * 0.30 + velocityGlow * (cinematicLevel >= 2 ? 0.30 : 0.18)).toFixed(3) + ')';
