@@ -178,7 +178,7 @@ export abstract class ProjectileBase extends Entity {
       for (let i = 1; i < this.trail.length; i++) {
         const a = this.trail[i - 1];
         const b = this.trail[i];
-        const fade = 1 - Math.max(a.age, b.age) / this.trailLifetime;
+        const fade = 1 - ((a.age + b.age) * 0.5) / this.trailLifetime;
         if (fade <= 0) continue;
         const from = camera.worldToScreen(a.pos);
         const to   = camera.worldToScreen(b.pos);
@@ -241,7 +241,7 @@ export abstract class ProjectileBase extends Entity {
       for (let i = 2; i < this.trail.length; i += 2) {
         const a = this.trail[i - 1];
         const b = this.trail[i];
-        const fade = 1 - Math.max(a.age, b.age) / this.trailLifetime;
+        const fade = 1 - ((a.age + b.age) * 0.5) / this.trailLifetime;
         if (fade <= 0) continue;
         const from = camera.worldToScreen(a.pos);
         const to = camera.worldToScreen(b.pos);
