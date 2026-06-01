@@ -174,6 +174,9 @@ export class Nebula {
     if (cinematicLevel >= 4) {
       this.drawNebulaStreamer(ctx, screenW, screenH);
     }
+    if (cinematicLevel >= 5) {
+      this.drawAuroraCurtains(ctx, screenW, screenH);
+    }
   }
 
   /**
@@ -292,6 +295,36 @@ export class Nebula {
     ctx.globalCompositeOperation = 'screen';
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, screenW, screenH);
+    ctx.restore();
+  }
+
+  /**
+   * Level 5 only: faint flowing aurora curtains made of multiple soft ribbons.
+   * This adds layered structure and motion detail without increasing brightness.
+   */
+  private drawAuroraCurtains(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
+    const t = performance.now() / 1000;
+    const ribbons = [
+      { x: 0.20, y: 0.18, dx: 0.10, speed: 0.12, hue: '90,180,255', alpha: 0.018 },
+      { x: 0.52, y: 0.14, dx: 0.12, speed: 0.10, hue: '120,255,180', alpha: 0.014 },
+      { x: 0.78, y: 0.22, dx: 0.08, speed: 0.14, hue: '255,155,90', alpha: 0.013 },
+    ];
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    for (const r of ribbons) {
+      const sx = screenW * (r.x + Math.sin(t * r.speed + r.x * 8) * r.dx);
+      const sy = screenH * r.y;
+      const ex = sx + screenW * (0.06 + 0.03 * Math.sin(t * (r.speed * 0.7) + r.y * 5));
+      const grad = ctx.createLinearGradient(sx, sy, ex, screenH * 1.08);
+      const a = r.alpha + 0.004 * Math.sin(t * (r.speed * 2.6) + r.x * 11);
+      grad.addColorStop(0.00, `rgba(${r.hue},${(a * 0.25).toFixed(3)})`);
+      grad.addColorStop(0.26, `rgba(${r.hue},${a.toFixed(3)})`);
+      grad.addColorStop(0.68, `rgba(${r.hue},${(a * 0.55).toFixed(3)})`);
+      grad.addColorStop(1.00, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, screenW, screenH);
+    }
     ctx.restore();
   }
 }

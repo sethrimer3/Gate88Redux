@@ -272,6 +272,9 @@ export class DistantSuns {
     if (getCinematicLevel() >= 4) {
       this.drawThirdStarLayer(ctx, camera, screenW, screenH);
     }
+    if (getCinematicLevel() >= 5) {
+      this.drawQuaternaryDustBand(ctx, camera, screenW, screenH);
+    }
 
     // 2 — Warm directional screen fill (all quality levels).
     this.drawScreenWarmth(ctx, cx, cy, screenW, screenH);
@@ -1024,6 +1027,46 @@ export class DistantSuns {
       }
     }
 
+    ctx.restore();
+  }
+
+  /**
+   * Level 5 only: faint quaternary dust band near the tertiary star.
+   * This adds layered color separation and motion detail without raising glow gain.
+   */
+  private drawQuaternaryDustBand(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    screenW: number,
+    screenH: number,
+  ): void {
+    const dx = (camera.position.x - WORLD_WIDTH * 0.5) * PARALLAX_X * 0.64;
+    const dy = (camera.position.y - WORLD_HEIGHT * 0.5) * PARALLAX_Y * 0.64;
+    const cx = screenW * THIRD_STAR_PLACEMENT.cx - dx;
+    const cy = screenH * THIRD_STAR_PLACEMENT.cy - dy;
+    const arcR = Math.max(screenW, screenH) * 0.16;
+    const drift = this.time * 0.013;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.translate(cx, cy);
+    ctx.rotate(0.35 + Math.sin(drift) * 0.14);
+
+    const ring = ctx.createRadialGradient(0, 0, arcR * 0.42, 0, 0, arcR * 1.18);
+    ring.addColorStop(0.00, 'rgba(255,185,115,0.016)');
+    ring.addColorStop(0.34, 'rgba(220,130,80,0.020)');
+    ring.addColorStop(0.66, 'rgba(110,75,120,0.015)');
+    ring.addColorStop(1.00, 'rgba(0,0,0,0)');
+    ctx.fillStyle = ring;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, arcR * 1.45, arcR * 0.58, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = `rgba(175,125,255,${(0.045 + 0.015 * Math.sin(drift * 6.2)).toFixed(3)})`;
+    ctx.lineWidth = Math.max(0.5, arcR * 0.008);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, arcR * 1.18, arcR * 0.42, 0, drift * 2.1, drift * 2.1 + Math.PI * 1.25);
+    ctx.stroke();
     ctx.restore();
   }
 }

@@ -364,6 +364,34 @@ export abstract class BuildingBase extends Entity {
       }
     }
 
+    // Level 5: corner beacon tracers that orbit the frame.
+    if (getCinematicLevel() >= 5) {
+      const orbit = (this.animationTime * 0.26 + this.id * 0.17) % 1;
+      const corners = [
+        { cx: x, cy: y },
+        { cx: x + s, cy: y },
+        { cx: x + s, cy: y + s },
+        { cx: x, cy: y + s },
+      ];
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = 0; i < corners.length; i++) {
+        const phase = (orbit + i * 0.25) % 1;
+        const edge = Math.floor(phase * 4);
+        const t = (phase * 4) % 1;
+        const a = corners[edge];
+        const b = corners[(edge + 1) % 4];
+        const px = a.cx + (b.cx - a.cx) * t;
+        const py = a.cy + (b.cy - a.cy) * t;
+        const beaconA = 0.14 + 0.10 * Math.sin(this.animationTime * 2.2 + i * 1.5);
+        ctx.fillStyle = `rgba(190,232,255,${beaconA.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(px, py, Math.max(0.9, s * 0.016), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
     ctx.restore();
   }
   private drawUnpoweredWarning(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {

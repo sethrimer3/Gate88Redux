@@ -1427,7 +1427,7 @@ export class MainMenu {
       'Cinematic Slider',
       value,
       0,
-      4,
+      5,
       1,
       (v) => onChange(clampCinematicLevel(v)),
       (v) => (v <= 0 ? 'off' : String(Math.round(v))),
@@ -2662,5 +2662,4 @@ function defeatLabel(v: DefeatCondition): string {
     case 'disabled':       return 'Disabled';
   }
 }
-
 

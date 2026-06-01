@@ -500,6 +500,28 @@ export class CrystalNebula {
             }
           }
 
+          // Level 5: rotating diamond halo around the brightest glints.
+          if (cinematicLevel >= 5 && velocityGlow > 0.60) {
+            const haloPhase = (performance.now() / 1000 * 0.8 + p.sparklePhase * 2.2) % 1;
+            const haloR = sr * (3.8 + haloPhase * 2.4);
+            const haloAlpha = velocityGlow * 0.12 * (1 - haloPhase);
+            if (haloAlpha > 0.006) {
+              ctx.save();
+              ctx.translate(sx, sy);
+              ctx.rotate(p.angle + haloPhase * Math.PI * 2);
+              ctx.strokeStyle = p.colorPrefix + haloAlpha.toFixed(3) + ')';
+              ctx.lineWidth = Math.max(0.25, sr * 0.22);
+              ctx.beginPath();
+              ctx.moveTo(0, -haloR);
+              ctx.lineTo(haloR, 0);
+              ctx.lineTo(0, haloR);
+              ctx.lineTo(-haloR, 0);
+              ctx.closePath();
+              ctx.stroke();
+              ctx.restore();
+            }
+          }
+
           // Route brightest glints into the glow layer
           if (glowCtx && (alpha > 0.50 || hotAlpha > 0.18 || velocityGlow > 0.16)) {
             glowCtx.fillStyle = p.colorPrefix + Math.min(cinematicLevel >= 2 ? 0.72 : 0.52, alpha * 0.18 + hotAlpha * 0.30 + velocityGlow * (cinematicLevel >= 2 ? 0.30 : 0.18)).toFixed(3) + ')';
@@ -644,5 +666,4 @@ export class CrystalNebula {
     }
   }
 }
-
 

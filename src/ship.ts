@@ -754,6 +754,22 @@ export class PlayerShip extends Entity {
       ctx.fill();
     }
 
+    // Level 5: micro-constellation motes orbiting the core ring.
+    if (getCinematicLevel() >= 5) {
+      const moteCount = 3;
+      const orbitR = r * (0.82 + corePulse * 0.10);
+      for (let i = 0; i < moteCount; i++) {
+        const a = this.drawTime * 0.95 + (i / moteCount) * Math.PI * 2;
+        const mx = screen.x + Math.cos(a) * orbitR;
+        const my = screen.y + Math.sin(a) * orbitR * 0.76;
+        const moteAlpha = Math.min(0.52, 0.22 + coreGlint * 0.20);
+        ctx.fillStyle = `rgba(200,240,255,${moteAlpha.toFixed(3)})`;
+        ctx.beginPath();
+        ctx.arc(mx, my, Math.max(0.6, r * 0.055), 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
     ctx.restore();
 
     ctx.fillStyle = colorToCSS(coreColor, 0.72 + 0.28 * this.healthFraction);
@@ -953,4 +969,3 @@ export class PlayerShip extends Entity {
     ctx.restore();
   }
 }
-
