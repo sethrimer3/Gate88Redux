@@ -369,7 +369,7 @@ export class DistantSuns {
     const cy = h * SUN_PLACEMENT.cy;
     const level = getCinematicLevel();
     // Radius generous enough to bathe the whole screen in warmth.
-    const r  = Math.hypot(w, h) * (level === 0 ? 1.18 : level === 1 ? 1.28 : level === 2 ? 1.38 : level === 3 ? 1.48 : level === 7 ? 1.74 : 1.58);
+    const r  = Math.hypot(w, h) * (level === 0 ? 1.18 : level === 1 ? 1.28 : level === 2 ? 1.38 : level === 3 ? 1.48 : level === 4 ? 1.55 : level === 5 ? 1.62 : level === 6 ? 1.68 : level === 7 ? 1.74 : 1.80);
 
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
     if (level === 0) {
