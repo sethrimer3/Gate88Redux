@@ -875,4 +875,155 @@ export class DistantSuns {
 
     ctx.restore();
   }
+
+  // -------------------------------------------------------------------------
+  // Tertiary ember star (level 4 only)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Bake the tertiary (deep red/amber ember) star's radial glow into an offscreen
+   * canvas.  Called from bakeSunGlow() when cinematic level >= 4.
+   * Smaller and dimmer than the primary; its deep crimson hue adds a third
+   * light source temperature unique to level 4.
+   */
+  private bakeThirdStarGlow(): void {
+    const w = this.screenW;
+    const h = this.screenH;
+    this.thirdGlowCanvas.width  = w;
+    this.thirdGlowCanvas.height = h;
+    const ctx = this.thirdGlowCanvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, w, h);
+    const cx = w * THIRD_STAR_PLACEMENT.cx;
+    const cy = h * THIRD_STAR_PLACEMENT.cy;
+    const r = Math.hypot(w, h) * 0.72;
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    grad.addColorStop(0.000, 'rgba(255,160,60,0.44)');
+    grad.addColorStop(0.022, 'rgba(220,90,30,0.30)');
+    grad.addColorStop(0.062, 'rgba(180,40,12,0.16)');
+    grad.addColorStop(0.140, 'rgba(120,20,8,0.082)');
+    grad.addColorStop(0.300, 'rgba(72,10,6,0.038)');
+    grad.addColorStop(0.560, 'rgba(30,4,2,0.012)');
+    grad.addColorStop(1.000, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  /**
+   * Draw the tertiary star: baked ember glow + compact deep-red core + faint
+   * crimson rays.  Parallax factor slightly different from both other stars so
+   * the three bodies move independently when panning.
+   */
+  private drawThirdStarLayer(
+    ctx: CanvasRenderingContext2D,
+    camera: Camera,
+    screenW: number,
+    screenH: number,
+  ): void {
+    const dx = (camera.position.x - WORLD_WIDTH  * 0.5) * PARALLAX_X * 0.72;
+    const dy = (camera.position.y - WORLD_HEIGHT * 0.5) * PARALLAX_Y * 0.72;
+    const tcx = screenW  * THIRD_STAR_PLACEMENT.cx - dx;
+    const tcy = screenH * THIRD_STAR_PLACEMENT.cy - dy;
+
+    // Baked ember glow at reduced opacity — subordinate to both other stars.
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    ctx.globalAlpha = 0.48;
+    ctx.drawImage(this.thirdGlowCanvas, 0, 0, screenW, screenH);
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    // Compact ember core disc.
+    this.drawThirdStarCore(ctx, tcx, tcy, screenW, screenH);
+    // Short crimson diffraction rays.
+    this.drawThirdStarRays(ctx, tcx, tcy, screenW, screenH);
+  }
+
+  /** Compact deep-red/amber core disc for the tertiary ember star. */
+  private drawThirdStarCore(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    w: number,
+    h: number,
+  ): void {
+    const size = Math.max(w, h);
+    const coreR   = size * 0.014;
+    const coronaR = size * 0.054;
+    const pulse   = 0.90 + 0.10 * Math.sin(this.time * 0.48 + 2.7);
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+
+    const corona = ctx.createRadialGradient(cx, cy, coreR * 0.12, cx, cy, coronaR * pulse);
+    corona.addColorStop(0.00, 'rgba(255,150,50,0.44)');
+    corona.addColorStop(0.30, 'rgba(210,60,15,0.18)');
+    corona.addColorStop(0.66, 'rgba(140,20,6,0.06)');
+    corona.addColorStop(1.00, 'rgba(0,0,0,0)');
+    ctx.fillStyle = corona;
+    ctx.beginPath();
+    ctx.arc(cx, cy, coronaR * pulse, 0, Math.PI * 2);
+    ctx.fill();
+
+    const core = ctx.createRadialGradient(cx - coreR * 0.18, cy - coreR * 0.14, 0, cx, cy, coreR);
+    core.addColorStop(0.00, 'rgba(255,220,140,0.96)');
+    core.addColorStop(0.28, 'rgba(255,130,40,0.88)');
+    core.addColorStop(0.62, 'rgba(200,50,12,0.60)');
+    core.addColorStop(1.00, 'rgba(100,10,4,0.10)');
+    ctx.fillStyle = core;
+    ctx.beginPath();
+    ctx.arc(cx, cy, coreR * pulse, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  /**
+   * Four short crimson diffraction spikes — fewer than the secondary star's six
+   * so each body has a distinct visual signature.
+   */
+  private drawThirdStarRays(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    w: number,
+    h: number,
+  ): void {
+    const count = 4;
+    const len   = Math.hypot(w, h) * 0.50;
+    // Counter-rotate relative to the secondary star for visual variety.
+    const rot   = -this.time * 0.012 + 1.9;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+
+    for (let i = 0; i < count; i++) {
+      const angle   = (i / count) * Math.PI * 2 + rot + Math.sin(this.time * 0.22 + i * 1.61) * 0.06;
+      const tipX    = cx + Math.cos(angle) * len;
+      const tipY    = cy + Math.sin(angle) * len;
+      const px      = -Math.sin(angle);
+      const py      =  Math.cos(angle);
+      const flicker = 0.044 + 0.022 * Math.sin(this.time * 0.55 + i * 1.09);
+      const hw      = len * 0.020;
+
+      const g = ctx.createLinearGradient(cx, cy, tipX, tipY);
+      g.addColorStop(0.00, `rgba(255,110,35,${(flicker).toFixed(3)})`);
+      g.addColorStop(0.24, `rgba(210,60,15,${(flicker * 0.62).toFixed(3)})`);
+      g.addColorStop(0.60, `rgba(150,20,6,${(flicker * 0.24).toFixed(3)})`);
+      g.addColorStop(1.00, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+
+      // Two-pass soft ray (wide feather + narrow spine).
+      for (const mult of [4.8, 1.0]) {
+        ctx.beginPath();
+        ctx.moveTo(cx + px * hw * mult, cy + py * hw * mult);
+        ctx.lineTo(tipX, tipY);
+        ctx.lineTo(cx - px * hw * mult, cy - py * hw * mult);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
+  }
 }

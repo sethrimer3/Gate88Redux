@@ -330,6 +330,40 @@ export abstract class BuildingBase extends Entity {
       ctx.fillRect(x, scanY, s, lineH);
     }
 
+    // Level 4: second scan line sweeps upward (counter-phase), creating a
+    // bi-directional sweep unique to this level.  Also adds a brief amber
+    // energy pulse that travels along the building border when the two lines
+    // are close to crossing.
+    if (getCinematicLevel() >= 4) {
+      // Counter-direction sweep — starts at a 0.5 phase offset.
+      const scanT2  = (this.animationTime * 0.40 + this.id * 0.29 + 0.5) % 1;
+      const scanY2  = y + (1 - scanT2) * s;   // travels bottom-to-top
+      const lineH2  = Math.max(1, s * 0.035);
+      const scanA2  = 0.18 * Math.sin(scanT2 * Math.PI);
+      const scanGrad2 = ctx.createLinearGradient(x, scanY2, x + s, scanY2);
+      scanGrad2.addColorStop(0.00, `rgba(255,200,100,0)`);
+      scanGrad2.addColorStop(0.22, `rgba(255,200,100,${scanA2.toFixed(3)})`);
+      scanGrad2.addColorStop(0.50, `rgba(255,220,140,${(scanA2 * 1.30).toFixed(3)})`);
+      scanGrad2.addColorStop(0.78, `rgba(255,200,100,${scanA2.toFixed(3)})`);
+      scanGrad2.addColorStop(1.00, `rgba(255,200,100,0)`);
+      ctx.fillStyle = scanGrad2;
+      ctx.fillRect(x, scanY2, s, lineH2);
+
+      // Energy border flash: when the two scan lines are within 20% of crossing,
+      // an amber glow traces the building outline — a new effect type not in level 3.
+      const scanT1  = (this.animationTime * 0.40 + this.id * 0.29) % 1;
+      const proximity = 1 - Math.abs(scanT1 - (1 - scanT2));
+      if (proximity > 0.80) {
+        const flashA = (proximity - 0.80) / 0.20 * 0.30;
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = `rgba(255,190,60,${flashA.toFixed(3)})`;
+        ctx.lineWidth = Math.max(1, s * 0.025);
+        ctx.strokeRect(x, y, s, s);
+        ctx.restore();
+      }
+    }
+
     ctx.restore();
   }
   private drawUnpoweredWarning(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
