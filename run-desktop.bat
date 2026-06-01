@@ -21,9 +21,14 @@ if not exist "node_modules\.bin\electron.cmd" (
 )
 
 echo Starting Gate88Redux desktop build...
-call npm run desktop
+call npm run build
 if errorlevel 1 goto error
 
+echo Launching Gate88Redux desktop...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%CD%\node_modules\.bin\electron.cmd' -ArgumentList @('electron\main.cjs') -WorkingDirectory '%CD%' -WindowStyle Hidden"
+if errorlevel 1 goto error
+
+timeout /t 1 /nobreak >nul
 popd
 exit /b 0
 
