@@ -183,6 +183,9 @@ export class Nebula {
     if (cinematicLevel >= 7) {
       this.drawGalaxySmear(ctx, screenW, screenH);
     }
+    if (cinematicLevel >= 8) {
+      this.drawPulsarSweep(ctx, screenW, screenH);
+    }
   }
 
   /**
@@ -436,6 +439,70 @@ export class Nebula {
       ctx.fill();
 
       ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Level 8: pulsar sweep beams — two fan-shaped light beams that rotate very
+   * slowly from the upper-left corner of the screen, sweeping across the nebula
+   * like lighthouse beams from a distant neutron star.  Each beam is a wedge
+   * gradient that fades from an off-screen source point to transparent,
+   * distinct from the ion veil (level 6) crossing line-segments.  The beams
+   * counter-rotate so they occasionally cross, producing brief interference
+   * flares where their alpha values stack under screen blend.
+   */
+  private drawPulsarSweep(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
+    const t = performance.now() / 1000;
+
+    // Pulsar origin — fixed off the upper-left corner.
+    const ox = screenW * -0.08;
+    const oy = screenH * -0.12;
+
+    const beams = [
+      { speed: 0.022, phase: 0.00, hue: '160,220,255', halfAngle: 0.09, alpha: 0.016 },
+      { speed: -0.016, phase: 1.57, hue: '220,170,255', halfAngle: 0.12, alpha: 0.013 },
+    ];
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+
+    for (const b of beams) {
+      const angle = t * b.speed + b.phase;
+      const a = b.alpha + 0.005 * Math.sin(t * (b.speed * 3.1) + b.phase * 2.3);
+
+      // Beam length must reach diagonally across the whole screen.
+      const beamLen = Math.hypot(screenW, screenH) * 1.3;
+
+      // Centre direction and perpendicular half-width at tip.
+      const cx = Math.cos(angle);
+      const cy = Math.sin(angle);
+      const px = -Math.sin(angle);
+      const py =  Math.cos(angle);
+      const halfTip = beamLen * Math.tan(b.halfAngle);
+
+      const tipCx = ox + cx * beamLen;
+      const tipCy = oy + cy * beamLen;
+      const tip1X = tipCx + px * halfTip;
+      const tip1Y = tipCy + py * halfTip;
+      const tip2X = tipCx - px * halfTip;
+      const tip2Y = tipCy - py * halfTip;
+
+      const grad = ctx.createLinearGradient(ox, oy, tipCx, tipCy);
+      grad.addColorStop(0.00, `rgba(${b.hue},0)`);
+      grad.addColorStop(0.18, `rgba(${b.hue},${(a * 0.60).toFixed(3)})`);
+      grad.addColorStop(0.50, `rgba(${b.hue},${a.toFixed(3)})`);
+      grad.addColorStop(0.82, `rgba(${b.hue},${(a * 0.55).toFixed(3)})`);
+      grad.addColorStop(1.00, 'rgba(0,0,0,0)');
+
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(ox, oy);
+      ctx.lineTo(tip1X, tip1Y);
+      ctx.lineTo(tip2X, tip2Y);
+      ctx.closePath();
+      ctx.fill();
     }
 
     ctx.restore();

@@ -463,6 +463,56 @@ export abstract class BuildingBase extends Entity {
       ctx.restore();
     }
 
+    // Level 8: energy circuit trace — an animated glowing spark that travels
+    // clockwise around the building perimeter, leaving a short bright tail.
+    // Distinct from level-7's expanding square rings: this trace stays tight
+    // to the building border and moves continuously rather than expanding outward.
+    if (getCinematicLevel() >= 8) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const perimeter = (s + s) * 2;
+      const traceSpeed = 0.55 + 0.12 * Math.sin(this.animationTime * 0.8 + this.id * 0.44);
+      const traceFrac = ((this.animationTime * traceSpeed + this.id * 0.29) % 1);
+      const traceDist = traceFrac * perimeter;
+      const tailLen = perimeter * 0.18;
+
+      // Helper: world pos at distance d along CW perimeter (starting top-left corner).
+      const perimPos = (d: number): { px: number; py: number } => {
+        const pd = ((d % perimeter) + perimeter) % perimeter;
+        if (pd < s)         return { px: x + pd,     py: y };
+        if (pd < s + s)     return { px: x + s,       py: y + (pd - s) };
+        if (pd < s + s + s) return { px: x + s - (pd - s - s), py: y + s };
+        return              { px: x,                  py: y + s - (pd - s - s - s) };
+      };
+
+      const steps = 12;
+      for (let i = 0; i <= steps; i++) {
+        const frac = i / steps;
+        const d = traceDist - tailLen * frac;
+        const dp = traceDist - tailLen * (frac + 1 / steps);
+        const { px: ax, py: ay } = perimPos(d);
+        const { px: bx, py: by } = perimPos(dp);
+        const headAlpha = (1 - frac) * (1 - frac) * 0.72;
+        if (headAlpha < 0.008) continue;
+        ctx.strokeStyle = `rgba(140,255,220,${headAlpha.toFixed(3)})`;
+        ctx.lineWidth = Math.max(0.6, s * (0.025 + 0.015 * (1 - frac)));
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+      }
+      // Bright head spark.
+      const { px: hx, py: hy } = perimPos(traceDist);
+      const sparkSize = Math.max(1.0, s * 0.045);
+      ctx.fillStyle = 'rgba(200,255,245,0.90)';
+      ctx.beginPath();
+      ctx.arc(hx, hy, sparkSize, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
     ctx.restore();
   }
   private drawUnpoweredWarning(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {

@@ -843,6 +843,48 @@ export class PlayerShip extends Entity {
       }
     }
 
+    // Level 8: warp field compression rings — two concentric ellipses whose
+    // aspect ratio is squeezed along the ship's heading, suggesting that space
+    // itself is being compressed in front of the vessel.  The rings counter-pulse
+    // in phase so one swells while the other contracts, creating a heartbeat-like
+    // energy field distinct from the level-7 hexagonal lattice.
+    if (getCinematicLevel() >= 8) {
+      // Ship heading from velocity; fall back to angle property if stationary.
+      const vLen = Math.hypot(this.velocity.x, this.velocity.y);
+      const headAngle = vLen > 0.1 ? Math.atan2(this.velocity.y, this.velocity.x) : this.angle;
+
+      const pulse1 = 0.5 + 0.5 * Math.sin(this.drawTime * 2.8);
+      const pulse2 = 0.5 + 0.5 * Math.sin(this.drawTime * 2.8 + Math.PI);
+
+      const rings8 = [
+        { scale: 1.85 + pulse1 * 0.15, yScale: 0.42 - pulse1 * 0.06, alpha: 0.28 + pulse1 * 0.10 },
+        { scale: 2.20 + pulse2 * 0.18, yScale: 0.36 - pulse2 * 0.05, alpha: 0.18 + pulse2 * 0.08 },
+      ];
+
+      ctx.save();
+      ctx.translate(screen.x, screen.y);
+      ctx.rotate(headAngle);
+      ctx.globalCompositeOperation = 'screen';
+
+      for (const ring of rings8) {
+        const rx = r * ring.scale;
+        const ry = rx * ring.yScale;
+        const grad = ctx.createLinearGradient(-rx, 0, rx, 0);
+        grad.addColorStop(0.00, `rgba(80,200,255,0)`);
+        grad.addColorStop(0.25, `rgba(100,220,255,${(ring.alpha * 0.70).toFixed(3)})`);
+        grad.addColorStop(0.50, `rgba(180,240,255,${ring.alpha.toFixed(3)})`);
+        grad.addColorStop(0.75, `rgba(100,220,255,${(ring.alpha * 0.70).toFixed(3)})`);
+        grad.addColorStop(1.00, `rgba(80,200,255,0)`);
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = Math.max(0.5, r * 0.035);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      ctx.restore();
+    }
+
     ctx.restore();
 
     ctx.fillStyle = colorToCSS(coreColor, 0.72 + 0.28 * this.healthFraction);

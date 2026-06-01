@@ -583,6 +583,35 @@ export class CrystalNebula {
             }
           }
 
+          // Level 8: spectral corona — a rainbow arc halo that encircles high-
+          // velocity crystal motes, banding ROYGBIV around the glint like light
+          // through a prism.  Distinct from level-7's prismatic micro-tail which
+          // trails behind; this corona is a static ring around the mote itself.
+          if (cinematicLevel >= 8 && velocityGlow > 0.55) {
+            const coronaR = sr * (2.2 + velocityGlow * 1.8);
+            const coronaAlpha = velocityGlow * 0.10;
+            // Draw six thin arcs in ROYGBV hue order.
+            const hues = [
+              'rgba(255,80,60,',    // R
+              'rgba(255,165,30,',   // O
+              'rgba(255,235,50,',   // Y
+              'rgba(60,220,80,',    // G
+              'rgba(60,140,255,',   // B
+              'rgba(140,60,255,',   // V
+            ];
+            const arcSpan = (Math.PI * 2) / hues.length;
+            ctx.lineWidth = Math.max(0.3, sr * 0.30);
+            ctx.lineCap = 'butt';
+            for (let h = 0; h < hues.length; h++) {
+              const a0 = h * arcSpan + p.angle;
+              const a1 = a0 + arcSpan * 0.82;
+              ctx.strokeStyle = hues[h] + (coronaAlpha * (0.70 + 0.30 * Math.sin(p.angle * 3 + h))).toFixed(3) + ')';
+              ctx.beginPath();
+              ctx.arc(sx, sy, coronaR, a0, a1);
+              ctx.stroke();
+            }
+          }
+
           // Route brightest glints into the glow layer
           if (glowCtx && (alpha > 0.50 || hotAlpha > 0.18 || velocityGlow > 0.16)) {
             glowCtx.fillStyle = p.colorPrefix + Math.min(cinematicLevel >= 2 ? 0.72 : 0.52, alpha * 0.18 + hotAlpha * 0.30 + velocityGlow * (cinematicLevel >= 2 ? 0.30 : 0.18)).toFixed(3) + ')';

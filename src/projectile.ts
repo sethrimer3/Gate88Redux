@@ -329,12 +329,38 @@ export abstract class ProjectileBase extends Entity {
       ctx.restore();
     }
 
+    // Level 8: spacetime micro-ripples — concentric expanding rings that radiate
+    // outward from the head of the comet trail, simulating gravitational waves
+    // left in the wake as the projectile displaces the local spacetime fabric.
+    // Distinct from level-7's chromatic dispersion wake which follows the trail
+    // path; these rings propagate perpendicularly outward from a fixed emission
+    // point near the comet head.
+    if (cinematicLevel >= 8 && this.trail.length >= 2) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'screen';
+      const head = camera.worldToScreen(this.trail[0].pos);
+      const rippleCount = 3;
+      const ripplePeriod = 0.55;  // seconds per ring cycle
+      const maxRippleR = width * camera.zoom * 9.0;
+
+      for (let ring = 0; ring < rippleCount; ring++) {
+        // Stagger each ring by 1/3 of the period.
+        const phase = (performance.now() / 1000 / ripplePeriod + ring / rippleCount) % 1;
+        const ringR = phase * maxRippleR;
+        const alpha = (1 - phase) * (1 - phase) * 0.18;
+        if (alpha < 0.005) continue;
+        ctx.strokeStyle = `rgba(180,240,255,${alpha.toFixed(3)})`;
+        ctx.lineWidth = Math.max(0.4, width * camera.zoom * 0.55 * (1 - phase));
+        ctx.beginPath();
+        ctx.arc(head.x, head.y, Math.max(0.5, ringR), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     ctx.restore();
   }
 }
-
-// ---------------------------------------------------------------------------
-// Bullet – small, fast, straight line
 // ---------------------------------------------------------------------------
 
 const NORMAL_CANNON_RANGE_MULTIPLIER = 0.75;

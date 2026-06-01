@@ -281,6 +281,9 @@ export class DistantSuns {
     if (getCinematicLevel() >= 7) {
       this.drawGravitationalLensRing(ctx, cx, cy, screenW, screenH);
     }
+    if (getCinematicLevel() >= 8) {
+      this.drawSolarProminences(ctx, cx, cy, screenW, screenH);
+    }
 
     // 2 — Warm directional screen fill (all quality levels).
     this.drawScreenWarmth(ctx, cx, cy, screenW, screenH);
@@ -379,7 +382,7 @@ export class DistantSuns {
       grad.addColorStop(0.460, 'rgba(88,14,88,0.07)');
       grad.addColorStop(0.720, 'rgba(42,7,62,0.03)');
     } else {
-      const boost = level >= 7 ? 1.62 : level >= 6 ? 1.52 : level >= 5 ? 1.44 : level >= 4 ? 1.38 : level >= 3 ? 1.28 : level === 2 ? 1.18 : 1;
+      const boost = level >= 8 ? 1.72 : level >= 7 ? 1.62 : level >= 6 ? 1.52 : level >= 5 ? 1.44 : level >= 4 ? 1.38 : level >= 3 ? 1.28 : level === 2 ? 1.18 : 1;
       grad.addColorStop(0.000, `rgba(255,218,166,${Math.min(1, 0.98 * boost).toFixed(3)})`);
       grad.addColorStop(0.014, `rgba(227,138,74,${Math.min(1, 0.96 * boost).toFixed(3)})`);
       grad.addColorStop(0.040, `rgba(198,90,46,${Math.min(1, 0.92 * boost).toFixed(3)})`);
@@ -431,7 +434,7 @@ export class DistantSuns {
       grad.addColorStop(0.30, 'rgba(220,122,40,0.042)');
       grad.addColorStop(0.65, 'rgba(160,58,18,0.022)');
     } else {
-      const boost = level >= 7 ? 2.04 : level >= 6 ? 1.88 : level >= 5 ? 1.74 : level >= 4 ? 1.65 : level >= 3 ? 1.50 : level === 2 ? 1.34 : 1;
+      const boost = level >= 8 ? 2.20 : level >= 7 ? 2.04 : level >= 6 ? 1.88 : level >= 5 ? 1.74 : level >= 4 ? 1.65 : level >= 3 ? 1.50 : level === 2 ? 1.34 : 1;
       grad.addColorStop(0.00, `rgba(227,138,74,${(0.165 * boost).toFixed(3)})`);
       grad.addColorStop(0.24, `rgba(198,90,46,${(0.112 * boost).toFixed(3)})`);
       grad.addColorStop(0.56, `rgba(163,71,40,${(0.066 * boost).toFixed(3)})`);
@@ -566,7 +569,7 @@ export class DistantSuns {
           g.addColorStop(0.50, `rgba(240,108,32,${(alpha * 0.30).toFixed(3)})`);
           g.addColorStop(0.80, `rgba(200,70,18,${(alpha * 0.08).toFixed(3)})`);
         } else {
-          const boost = level >= 7 ? 1.56 : level >= 6 ? 1.42 : level >= 5 ? 1.34 : level >= 3 ? 1.26 : level === 2 ? 1.16 : 1;
+          const boost = level >= 8 ? 1.68 : level >= 7 ? 1.56 : level >= 6 ? 1.42 : level >= 5 ? 1.34 : level >= 3 ? 1.26 : level === 2 ? 1.16 : 1;
           g.addColorStop(0.00, `rgba(227,138,74,${Math.min(1, alpha * boost).toFixed(3)})`);
           g.addColorStop(0.18, `rgba(198,90,46,${Math.min(1, alpha * 0.80 * boost).toFixed(3)})`);
           g.addColorStop(0.50, `rgba(163,71,40,${Math.min(1, alpha * 0.42 * boost).toFixed(3)})`);
@@ -577,7 +580,7 @@ export class DistantSuns {
       };
 
       const drawPass = (halfWidthMult: number, alphaScale: number): void => {
-        const hw = len * (level === 0 ? 0.022 : level === 1 ? 0.036 : level === 2 ? 0.045 : level === 3 ? 0.052 : level === 4 ? 0.055 : level === 5 ? 0.059 : level === 6 ? 0.063 : 0.068) * halfWidthMult;
+        const hw = len * (level === 0 ? 0.022 : level === 1 ? 0.036 : level === 2 ? 0.045 : level === 3 ? 0.052 : level === 4 ? 0.055 : level === 5 ? 0.059 : level === 6 ? 0.063 : level === 7 ? 0.068 : 0.074) * halfWidthMult;
         ctx.fillStyle = makeGrad(flicker * alphaScale);
         ctx.beginPath();
         ctx.moveTo(cx + px * hw, cy + py * hw);
@@ -590,10 +593,10 @@ export class DistantSuns {
       // Five passes with quadratic-style falloff from core to edges.
       // Combined with the 8 px blur on composite, these produce soft atmospheric
       // light shafts rather than hard transparent polygons.
-      drawPass(level === 0 ? 6.0 : level === 1 ? 7.4 : level === 2 ? 9.0 : level === 3 ? 10.5 : level === 4 ? 11.2 : level === 5 ? 12.0 : level === 6 ? 12.8 : 13.8, level === 0 ? 0.15 : level >= 7 ? 0.20 : level >= 6 ? 0.18 : 0.16);
-      drawPass(level === 0 ? 4.0 : level === 1 ? 5.0 : level === 2 ? 6.0 : level === 3 ? 7.0 : level === 4 ? 7.8 : level === 5 ? 8.6 : level === 6 ? 9.4 : 10.2,  level === 0 ? 0.28 : level >= 7 ? 0.37 : level >= 6 ? 0.33 : 0.30);
-      drawPass(level === 0 ? 2.5 : level === 1 ? 3.0 : level === 2 ? 3.8 : level === 3 ? 4.4 : level === 4 ? 4.8 : level === 5 ? 5.2 : level === 6 ? 5.8 : 6.4,  level === 0 ? 0.46 : level >= 7 ? 0.60 : level >= 6 ? 0.54 : 0.50);
-      drawPass(level === 0 ? 1.6 : level === 1 ? 1.8 : level === 2 ? 2.2 : level === 3 ? 2.6 : level === 4 ? 2.9 : level === 5 ? 3.2 : level === 6 ? 3.5 : 3.8,  level === 0 ? 0.68 : level >= 7 ? 0.86 : level >= 6 ? 0.78 : 0.72);
+      drawPass(level === 0 ? 6.0 : level === 1 ? 7.4 : level === 2 ? 9.0 : level === 3 ? 10.5 : level === 4 ? 11.2 : level === 5 ? 12.0 : level === 6 ? 12.8 : level === 7 ? 13.8 : 14.8, level === 0 ? 0.15 : level >= 8 ? 0.22 : level >= 7 ? 0.20 : level >= 6 ? 0.18 : 0.16);
+      drawPass(level === 0 ? 4.0 : level === 1 ? 5.0 : level === 2 ? 6.0 : level === 3 ? 7.0 : level === 4 ? 7.8 : level === 5 ? 8.6 : level === 6 ? 9.4 : level === 7 ? 10.2 : 11.0,  level === 0 ? 0.28 : level >= 8 ? 0.40 : level >= 7 ? 0.37 : level >= 6 ? 0.33 : 0.30);
+      drawPass(level === 0 ? 2.5 : level === 1 ? 3.0 : level === 2 ? 3.8 : level === 3 ? 4.4 : level === 4 ? 4.8 : level === 5 ? 5.2 : level === 6 ? 5.8 : level === 7 ? 6.4 : 7.0,  level === 0 ? 0.46 : level >= 8 ? 0.65 : level >= 7 ? 0.60 : level >= 6 ? 0.54 : 0.50);
+      drawPass(level === 0 ? 1.6 : level === 1 ? 1.8 : level === 2 ? 2.2 : level === 3 ? 2.6 : level === 4 ? 2.9 : level === 5 ? 3.2 : level === 6 ? 3.5 : level === 7 ? 3.8 : 4.2,  level === 0 ? 0.68 : level >= 8 ? 0.92 : level >= 7 ? 0.86 : level >= 6 ? 0.78 : 0.72);
       drawPass(1.0, 1.00);  // core spine — narrowest, brightest
     }
 
@@ -1176,6 +1179,93 @@ export class DistantSuns {
       ctx.beginPath();
       ctx.ellipse(0, 0, ring.r, ring.r * ring.yScale, ring.tilt + phase * 0.14, startA, startA + ring.arcLen);
       ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  /**
+   * Level 8: solar prominence eruptions — animated plasma arcs that loop from
+   * the solar surface outward and curve back, simulating real solar prominences.
+   * Each arc is a Bézier curve with warm-to-cool color shift: the base is
+   * golden-orange (attached to the hot photosphere) while the apex fades to
+   * soft violet-pink as the plasma cools at height.  Three arcs with staggered
+   * phase offsets loop at different speeds and scales so the sun feels alive.
+   */
+  private drawSolarProminences(
+    ctx: CanvasRenderingContext2D,
+    cx: number,
+    cy: number,
+    screenW: number,
+    screenH: number,
+  ): void {
+    const t = this.time;
+    const baseR = Math.max(screenW, screenH) * 0.11;
+
+    // Each prominence: base angle (where it roots on the limb), arc size,
+    // oscillation speed, and per-prominence phase.
+    const prominences = [
+      { baseAngle: -0.38, arcScale: 1.00, speed: 0.048, phase: 0.00 },
+      { baseAngle:  0.52, arcScale: 0.76, speed: 0.062, phase: 2.09 },
+      { baseAngle:  1.20, arcScale: 0.88, speed: 0.038, phase: 4.19 },
+    ];
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+
+    for (const p of prominences) {
+      // Slow wave that causes the prominence to breathe — swell out and retract.
+      const swell = 0.55 + 0.45 * Math.abs(Math.sin(t * p.speed + p.phase));
+      const alpha = (0.048 + 0.018 * Math.sin(t * p.speed * 1.7 + p.phase)) * swell;
+
+      const baseA = p.baseAngle + t * p.speed * 0.22;
+      const spreadA = 0.48 * p.arcScale;
+
+      // Two feet of the arch on the solar limb.
+      const foot1X = cx + Math.cos(baseA - spreadA) * baseR;
+      const foot1Y = cy + Math.sin(baseA - spreadA) * baseR * 0.60;
+      const foot2X = cx + Math.cos(baseA + spreadA) * baseR;
+      const foot2Y = cy + Math.sin(baseA + spreadA) * baseR * 0.60;
+
+      // Apex — lifted radially outward from the sun center, proportional to swell.
+      const apexDist = baseR * (1.55 + 0.55 * p.arcScale) * swell;
+      const apexX = cx + Math.cos(baseA) * apexDist;
+      const apexY = cy + Math.sin(baseA) * apexDist * 0.60;
+
+      // Control points lean outward to give the arch a teardrop silhouette.
+      const cp1X = cx + Math.cos(baseA - spreadA * 0.55) * apexDist * 0.82;
+      const cp1Y = cy + Math.sin(baseA - spreadA * 0.55) * apexDist * 0.60 * 0.82;
+      const cp2X = cx + Math.cos(baseA + spreadA * 0.55) * apexDist * 0.82;
+      const cp2Y = cy + Math.sin(baseA + spreadA * 0.55) * apexDist * 0.60 * 0.82;
+
+      // Gradient along the arch from warm base to cool apex.
+      const grad = ctx.createLinearGradient(
+        (foot1X + foot2X) * 0.5, (foot1Y + foot2Y) * 0.5,
+        apexX, apexY,
+      );
+      grad.addColorStop(0.00, `rgba(255,185,80,${(alpha * 0.80).toFixed(3)})`);
+      grad.addColorStop(0.30, `rgba(255,130,60,${alpha.toFixed(3)})`);
+      grad.addColorStop(0.65, `rgba(200,100,220,${(alpha * 0.70).toFixed(3)})`);
+      grad.addColorStop(0.88, `rgba(140,160,255,${(alpha * 0.40).toFixed(3)})`);
+      grad.addColorStop(1.00, 'rgba(0,0,0,0)');
+
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = Math.max(0.8, baseR * 0.065 * p.arcScale * swell);
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(foot1X, foot1Y);
+      ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, foot2X, foot2Y);
+      ctx.stroke();
+
+      // Soft glow halo around the arch apex.
+      const haloR = baseR * 0.18 * p.arcScale * swell;
+      const halo = ctx.createRadialGradient(apexX, apexY, 0, apexX, apexY, haloR);
+      halo.addColorStop(0.00, `rgba(255,200,255,${(alpha * 0.55).toFixed(3)})`);
+      halo.addColorStop(1.00, 'rgba(0,0,0,0)');
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(apexX, apexY, haloR, 0, Math.PI * 2);
+      ctx.fill();
     }
 
     ctx.restore();
