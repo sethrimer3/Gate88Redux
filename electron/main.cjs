@@ -89,12 +89,12 @@ function resolveTsxCommand() {
   const isWindows = process.platform === 'win32';
   const localTsx = path.join(REPO_ROOT, 'node_modules', '.bin', isWindows ? 'tsx.cmd' : 'tsx');
   if (fs.existsSync(localTsx)) {
-    return { command: localTsx, args: [LAN_SERVER_ENTRY], shell: false };
+    return { command: localTsx, args: [LAN_SERVER_ENTRY], shell: isWindows };
   }
   return {
     command: isWindows ? 'npm.cmd' : 'npm',
     args: ['run', 'lan:server'],
-    shell: false,
+    shell: isWindows,
   };
 }
 
