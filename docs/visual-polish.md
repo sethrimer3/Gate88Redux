@@ -2,7 +2,7 @@
 
 Implemented:
 - `src/glowlayer.ts` adds a low-resolution additive glow pass for major effects without WebGL, `getImageData`, or full-screen blur.
-- `src/visualquality.ts` defines `low`, `medium`, and `high` presets. Press `F6` while playing to cycle quality at runtime.
+- `src/visualquality.ts` defines `ultraLow`, `low`, `medium`, and `high` presets. Press `F6` while playing to cycle quality at runtime.
 - Lasers and charged laser bursts now use layered beams, white cores, endpoint rings, and animated energy crawl.
 - Guided, bomber, and swarm missiles feed selective exhaust into the low-resolution glow layer.
 - Player shield, boost/overdrive, and overheat states get selective aura glow.
@@ -10,11 +10,12 @@ Implemented:
 - Conduit shimmer can be toggled by quality; powered conduits keep deterministic coordinate-based phase offsets.
 - The screen overlay now uses a cached vignette gradient plus a subtle territory tint and optional high-quality scanlines.
 - **Crystal Nebula Clouds** (`src/crystalnebula.ts`): tiny angular crystal motes (diamonds, rhombuses, 4-point glints) scattered across 9 world regions in a parallax-aware layer between the starfield and gameplay. Ships, fighters, bullets, missiles, and explosions disturb the motes; spring-damping physics returns them to their home positions. Quality-scaled: disabled on Low, sparse on Medium, full density with glow on High.
-- **Distant Suns / Solar Backdrop** (`src/suns.ts`): one enormous warm sun rendered in screen space (rebuilt on resize) behind all other background layers. Molten-gold core, amber halo, deep red outer glow, and soft violet-pink fringe bathe the scene in warm cinematic light. Quality tiers: Low = glow only; Medium = glow + 5 volumetric light rays; High = glow + 8 rays + 3 solar corona arcs + rare warm lens-glint sparkles. A faint screen-space radial warmth overlay provides subtle directional warmth at all quality levels.
+- **Distant Suns / Solar Backdrop** (`src/suns.ts`): one enormous warm sun rendered in screen space (rebuilt on resize) behind all other background layers. Molten-gold core, amber halo, deep red outer glow, and soft violet-pink fringe bathe the scene in warm cinematic light. Quality tiers: Ultra Low = disabled; Low = glow only; Medium = glow + 5 volumetric light rays; High = glow + 8 rays + 3 solar corona arcs + rare warm lens-glint sparkles. A faint screen-space radial warmth overlay provides subtle directional warmth when the layer is enabled.
 
 Tuning:
 - Change the default in `src/visualquality.ts` via `DEFAULT_VISUAL_QUALITY`.
 - Adjust glow cost through each preset's `glowEnabled` and `glowScale`.
+- `ultraLow` disables glow, solar backdrop, conduit shimmer, star-nest, asteroid extras, shooting stars, camera shake, crystal nebula, and nearly all optional particle budget for old computers.
 - `low` disables glow and conduit shimmer, lowers ring capacity, keeps fluid in low graphics mode, and disables crystal nebula entirely.
 - `medium` is the safe default: glow at 0.25 scale, conduit shimmer on, fluid low graphics, crystal nebula at 40 % density with no per-mote glow.
 - `high` raises glow to 0.33 scale, enables scanlines and full fluid density, crystal nebula at 100 % density with glow highlights for disturbed motes and glints.

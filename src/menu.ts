@@ -462,10 +462,15 @@ export class MainMenu {
           {
             label: `Graphics: ${visualQualityLabel(this.visualQuality)}`,
             action: () => {
-              const next: Record<VisualQuality, VisualQuality> = { low: 'medium', medium: 'high', high: 'low' };
+              const next: Record<VisualQuality, VisualQuality> = {
+                ultraLow: 'low',
+                low: 'medium',
+                medium: 'high',
+                high: 'ultraLow',
+              };
               this.visualQuality = next[this.visualQuality];
             },
-            description: 'Low / Medium / High — click to cycle',
+            description: 'Ultra Low / Low / Medium / High - click to cycle',
           },
           { label: 'Audio Settings', action: () => { /* sliders render below */ },
             description: 'Music and sound effects volume' },
@@ -1063,7 +1068,7 @@ export class MainMenu {
     let y = 160;
     const rowH = 44;
 
-    const QUALITY_OPTIONS: VisualQuality[] = ['low', 'medium', 'high'];
+    const QUALITY_OPTIONS: VisualQuality[] = ['ultraLow', 'low', 'medium', 'high'];
     y = this.drawCycleRow<VisualQuality>(
       ctx, x, y, rowH, 'Graphics Quality',
       this.visualQuality,
@@ -2736,6 +2741,7 @@ export class MainMenu {
 
 function visualQualityLabel(v: VisualQuality): string {
   switch (v) {
+    case 'ultraLow': return 'Ultra Low';
     case 'low':    return 'Low';
     case 'medium': return 'Medium';
     case 'high':   return 'High';

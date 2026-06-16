@@ -1,4 +1,4 @@
-export type VisualQuality = 'low' | 'medium' | 'high';
+export type VisualQuality = 'ultraLow' | 'low' | 'medium' | 'high';
 
 export interface VisualQualityPreset {
   readonly glowEnabled: boolean;
@@ -123,6 +123,36 @@ export interface VisualQualityPreset {
 }
 
 export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> = {
+  ultraLow: {
+    glowEnabled: false,
+    glowScale: 0.1,
+    conduitShimmer: false,
+    shockwaveScale: 0.25,
+    scanlines: false,
+    fluidLowGraphics: true,
+    bulletGlow: false,
+    engineGlow: false,
+    colorFringe: false,
+    particleScale: 0.12,
+    shootingStarsEnabled: false,
+    cameraShakeEnabled: false,
+    conduitPulseEnabled: false,
+    crystalNebulaEnabled: false,
+    crystalNebulaDensityScale: 0,
+    crystalNebulaGlow: false,
+    crystalNebulaInteractionScale: 0,
+    distantSunsEnabled: false,
+    distantSunsRays: false,
+    distantSunsCorona: false,
+    distantSunsGlints: false,
+    asteroidFieldLayers: 0,
+    dustHazeEnabled: false,
+    starNestEnabled: false,
+    starNestRenderScale: 0.25,
+    starNestOpacity: 0,
+    starNestIterations: 8,
+    starNestVolsteps: 8,
+  },
   low: {
     glowEnabled: false,
     glowScale: 0.2,
@@ -224,7 +254,7 @@ const VISUAL_QUALITY_STORAGE_KEY = 'gate88_visual_quality';
 export function loadVisualQuality(): VisualQuality {
   try {
     const raw = window.localStorage?.getItem(VISUAL_QUALITY_STORAGE_KEY);
-    if (raw === 'low' || raw === 'medium' || raw === 'high') return raw;
+    if (raw === 'ultraLow' || raw === 'low' || raw === 'medium' || raw === 'high') return raw;
   } catch {
     // localStorage unavailable (e.g. private browsing with strict settings)
   }

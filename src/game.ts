@@ -318,7 +318,9 @@ export class Game {
     this.distantSuns.configure(this.visualPreset);
     this.asteroidField.configure(this.visualPreset);
     this.starNest.configure(this.visualPreset);
-    this.state?.ringEffects.setMaxLive(quality === 'low' ? 32 : quality === 'medium' ? 64 : 96);
+    this.state?.ringEffects.setMaxLive(
+      quality === 'ultraLow' ? 16 : quality === 'low' ? 32 : quality === 'medium' ? 64 : 96,
+    );
     this.state?.particles.setParticleScale(this.visualPreset.particleScale);
     this.starfield.setShootingStarsEnabled(this.visualPreset.shootingStarsEnabled);
     this.mainMenu.visualQuality = quality;
@@ -510,7 +512,12 @@ export class Game {
   private updatePlaying(): void {
     // ESC -> pause
     if (Input.wasPressed('F6')) {
-      const next: Record<VisualQuality, VisualQuality> = { low: 'medium', medium: 'high', high: 'low' };
+      const next: Record<VisualQuality, VisualQuality> = {
+        ultraLow: 'low',
+        low: 'medium',
+        medium: 'high',
+        high: 'ultraLow',
+      };
       this.applyVisualQuality(next[this.visualQuality]);
       this.hud.showMessage(`Visual quality: ${this.visualQuality.toUpperCase()}`, Colors.general_building, 2);
     }
