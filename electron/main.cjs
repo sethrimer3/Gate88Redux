@@ -1,4 +1,4 @@
-const { app, BrowserWindow, session } = require('electron');
+const { app, BrowserWindow, ipcMain, session } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { spawn } = require('node:child_process');
@@ -149,6 +149,11 @@ async function ensureLanHelperRunning() {
     lanHelperStarting = false;
   }
 }
+
+ipcMain.handle('gate88:ensure-lan-helper', async () => {
+  const ok = await ensureLanHelperRunning();
+  return { ok };
+});
 
 function stopLanHelper() {
   if (!lanHelperProcess || lanHelperProcess.killed) return;

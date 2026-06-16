@@ -1585,6 +1585,7 @@ export class MainMenu {
   }
 
   private async checkLocalLanHelper(): Promise<boolean> {
+    await this.ensureElectronLanHelper();
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), 750);
     try {
@@ -1597,6 +1598,21 @@ export class MainMenu {
       return false;
     } finally {
       window.clearTimeout(timeoutId);
+    }
+  }
+
+  private async ensureElectronLanHelper(): Promise<boolean> {
+    const api = (window as Window & {
+      gate88Lan?: { ensureHelper?: () => Promise<{ ok?: boolean }> };
+    }).gate88Lan;
+    if (!api?.ensureHelper) return false;
+    try {
+      const res = await api.ensureHelper();
+      if (!res?.ok) return false;
+      await new Promise(resolve => window.setTimeout(resolve, 250));
+      return true;
+    } catch {
+      return false;
     }
   }
 
@@ -1731,14 +1747,21 @@ export class MainMenu {
   private async refreshLanDiscovery(): Promise<void> {
     this._lanDiscoveryError = '';
     try {
-      const res = await fetch('http://localhost:8788/lan/discovered');
+      const res = await this.fetchLanDiscovery();
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json() as { lobbies?: LanDiscoveredLobby[] };
       this._discoveredLobbies = Array.isArray(data.lobbies) ? data.lobbies : [];
     } catch {
       this._discoveredLobbies = [];
-      this._lanDiscoveryError = 'Automatic LAN discovery requires running the local Sign 99 LAN helper. You can still enter the host URL manually.';
+      this._lanDiscoveryError = 'Automatic LAN discovery could not reach the local Gate88 LAN helper. You can still enter the host URL manually.';
     }
+  }
+
+  private async fetchLanDiscovery(): Promise<Response> {
+    const first = await fetch('http://localhost:8788/lan/discovered', { cache: 'no-store' }).catch(() => null);
+    if (first) return first;
+    await this.ensureElectronLanHelper();
+    return fetch('http://localhost:8788/lan/discovered', { cache: 'no-store' });
   }
 
   private drawLanBrowser(ctx: CanvasRenderingContext2D, w: number, h: number): void {
