@@ -340,16 +340,17 @@ export class MainMenu {
       if (this.clickPulse.t <= 0) this.clickPulse = null;
     }
 
-    if (this.state === 'none') return 'none';
-    if (Input.mouseReleased || !Input.mouseDown) {
-      this.rankedSliderDragging = false;
-    }
-
     // Resolve any pendingAction triggered last frame by setup-screen buttons.
+    // Async LAN/online callbacks can set this while the menu is hidden.
     if (this.pendingAction !== 'none') {
       const out = this.pendingAction;
       this.pendingAction = 'none';
       return out;
+    }
+
+    if (this.state === 'none') return 'none';
+    if (Input.mouseReleased || !Input.mouseDown) {
+      this.rankedSliderDragging = false;
     }
 
     return this.handleSimpleListInput();
