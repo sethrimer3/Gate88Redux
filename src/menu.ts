@@ -1635,6 +1635,9 @@ export class MainMenu {
   }
 
   private connectToJoinUrl(): void {
+    if (this.lanClient.state === 'connecting' || this.lanClient.state === 'lobby') {
+      return;
+    }
     const url = this._joinUrl.trim();
     // Validate URL format before attempting to connect.
     if (!url || url === 'ws://') {
@@ -1651,7 +1654,7 @@ export class MainMenu {
 
     this.lanClient.onLobbyUpdate = (lobby) => {
       this._lanLobby = lobby;
-      if (this.state === 'lan_join') {
+      if (this.state === 'lan_join' || this.state === 'lan_browser') {
         this.setState('lan_client_lobby');
       }
     };
@@ -1808,7 +1811,15 @@ export class MainMenu {
       ctx.textAlign = 'left';
       ctx.fillStyle = colorToCSS(TextColors.normal, 0.95);
       ctx.fillText(`${lobby.hostName}  ${lobby.wsUrl}  ${lobby.openSlots}/${lobby.maxSlots} open  H:${lobby.occupiedHumanSlots} AI:${lobby.aiSlots}  ${status}  ${age}s ago`, rect.x + 8, y + 2);
-      if (this.handleClick(rect) && !lobby.matchStarted) { this._joinUrl = lobby.wsUrl; this.connectToJoinUrl(); }
+      if (
+        this.handleClick(rect) &&
+        !lobby.matchStarted &&
+        this.lanClient.state !== 'connecting' &&
+        this.lanClient.state !== 'lobby'
+      ) {
+        this._joinUrl = lobby.wsUrl;
+        this.connectToJoinUrl();
+      }
     });
     this.drawButtonRow(ctx, [
       { label: 'Back', action: () => this.setState('lan_type') },
