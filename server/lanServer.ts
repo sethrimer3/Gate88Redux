@@ -198,8 +198,22 @@ const lanDiscovery = createLanDiscovery({
   lobbyId,
   getLobby: () => getLobbyState(),
   isHostActive: () => hostClientId !== null,
+  resetLobby: resetLobbyForFreshHost,
 });
 lanDiscovery.start();
+
+function resetLobbyForFreshHost(): void {
+  for (const [, client] of clients) {
+    send(client.ws, { type: 'match_end', reason: 'Host opened a new lobby.' } satisfies MsgMatchEnd);
+    client.ws.close();
+  }
+  clients.clear();
+  lobbySlots = initSlots();
+  hostClientId = null;
+  matchStarted = false;
+  matchSeed = 0;
+  console.log('[Gate88 LAN] Local host requested a fresh lobby reset.');
+}
 
 wss.on('connection', (ws: WebSocket) => {
   const clientId = newClientId();

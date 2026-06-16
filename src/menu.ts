@@ -1576,6 +1576,7 @@ export class MainMenu {
       this.lanClient.lastError = 'LAN helper did not start. Close extra Gate88 windows, allow Node.js in Windows Firewall, then retry.';
       return;
     }
+    await this.resetLocalLanLobby();
 
     this.lanClient = new LanClient('ws://localhost:8787');
 
@@ -1587,6 +1588,17 @@ export class MainMenu {
     };
     this.lanClient.onDisconnected = () => { this._lanLobby = null; };
     this.lanClient.connect();
+  }
+
+  private async resetLocalLanLobby(): Promise<void> {
+    try {
+      await fetch('http://localhost:8788/lan/reset', {
+        method: 'POST',
+        cache: 'no-store',
+      });
+    } catch {
+      // Older helpers do not expose reset; the WebSocket connect will still surface any real failure.
+    }
   }
 
   private async checkLocalLanHelper(): Promise<boolean> {

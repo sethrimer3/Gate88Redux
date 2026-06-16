@@ -43,6 +43,7 @@ export function createLanDiscovery(opts: {
   lobbyId: string;
   getLobby: () => LobbyState | null;
   isHostActive: () => boolean;
+  resetLobby?: () => void;
 }) {
   const socket = dgram.createSocket('udp4');
   const discovered = new Map<string, LanDiscoveredLobby>();
@@ -122,6 +123,12 @@ export function createLanDiscovery(opts: {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     if (req.method === 'OPTIONS') { res.statusCode = 204; res.end(); return; }
     pruneStale();
+    if (req.url === '/lan/reset' && req.method === 'POST') {
+      opts.resetLobby?.();
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ ok: true, timestamp: Date.now() }));
+      return;
+    }
     if (req.url === '/lan/discovered') {
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ lobbies: Array.from(discovered.values()), timestamp: Date.now() }));
