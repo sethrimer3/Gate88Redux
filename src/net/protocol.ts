@@ -39,6 +39,7 @@ export const NET_PROTOCOL_VERSION: NetProtocolVersion = 1;
 
 export interface NetShipState {
   slotIndex: number;
+  team: number;
   x: number;
   y: number;
   vx: number;

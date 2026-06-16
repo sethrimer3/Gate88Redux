@@ -85,7 +85,7 @@ const lobbyId = `lobby_${Math.random().toString(36).slice(2, 10)}`;
 function initSlots(): LobbySlot[] {
   const slots: LobbySlot[] = [];
   for (let i = 0; i < MAX_SLOTS; i++) {
-    slots.push({ slotIndex: i, type: 'open', ready: false, race: 'terran' });
+    slots.push({ slotIndex: i, type: 'open', teamId: i, ready: false, race: 'terran' });
   }
   return slots;
 }
@@ -145,7 +145,9 @@ function findOpenSlot(): number | null {
 }
 
 function assignSlot(clientId: string, slotIndex: number, playerName: string): void {
+  const slotWasOpenOnDefaultTeam = lobbySlots[slotIndex].type === 'open' && (lobbySlots[slotIndex].teamId ?? slotIndex) === slotIndex;
   lobbySlots[slotIndex].type = 'human';
+  lobbySlots[slotIndex].teamId = slotWasOpenOnDefaultTeam ? 0 : lobbySlots[slotIndex].teamId ?? slotIndex;
   lobbySlots[slotIndex].clientId = clientId;
   lobbySlots[slotIndex].playerName = playerName;
   lobbySlots[slotIndex].ready = false;
@@ -156,6 +158,7 @@ function releaseSlot(clientId: string): void {
   for (const slot of lobbySlots) {
     if (slot.clientId === clientId) {
       slot.type = 'open';
+      slot.teamId ??= slot.slotIndex;
       slot.clientId = undefined;
       slot.playerName = undefined;
       slot.ready = false;
@@ -345,7 +348,7 @@ wss.on('connection', (ws: WebSocket) => {
       // -------------------------------------------------------------------
       case 'slot_config': {
         if (matchStarted) break;
-        const { slotIndex, slotType, aiDifficulty, race } = msg;
+        const { slotIndex, slotType, aiDifficulty, race, teamId } = msg;
         // Validate inputs.
         if (
           typeof slotIndex !== 'number' ||
@@ -354,6 +357,9 @@ wss.on('connection', (ws: WebSocket) => {
         const validTypes: SlotType[] = ['open', 'closed', 'ai', 'human'];
         if (!validTypes.includes(slotType)) break;
         const slot = lobbySlots[slotIndex];
+        const nextTeamId = Number.isInteger(teamId)
+          ? Math.max(0, Math.min(MAX_SLOTS - 1, Math.floor(teamId as number)))
+          : slot.teamId ?? slotIndex;
         const validRaces: RaceSelection[] = ['terran', 'synonymous', 'random'];
         const nextRace = validRaces.includes(race as RaceSelection)
           ? (race as RaceSelection)
@@ -361,11 +367,13 @@ wss.on('connection', (ws: WebSocket) => {
         if (!myClient.isHost) {
           if (slot.clientId !== clientId || slot.type !== 'human') break;
           slot.race = nextRace;
+          slot.teamId = nextTeamId;
           broadcastLobbyUpdate();
           break;
         }
         if (slotType === 'human' && slot.type === 'human' && slot.clientId) {
           slot.race = nextRace;
+          slot.teamId = nextTeamId;
           broadcastLobbyUpdate();
           break;
         }
@@ -376,6 +384,7 @@ wss.on('connection', (ws: WebSocket) => {
           ? (aiDifficulty as AIDifficulty)
           : 'normal';
         slot.type = slotType;
+        slot.teamId = nextTeamId;
         slot.aiDifficulty = slotType === 'ai' ? diff : undefined;
         slot.race = nextRace;
         slot.ready = false;

@@ -1341,8 +1341,13 @@ export class Game {
     this.lanUnacknowledgedInputs = [];
     this.lanLastProcessedSeqPerSlot.clear();
 
-    const myTeam = teamForSlot(this.lanMySlot);
     const myLobbySlot = matchStart.lobby.slots.find((s) => s.slotIndex === this.lanMySlot);
+    const teamForLobbySlot = (slotIndex: number): Team => {
+      const slot = matchStart.lobby.slots.find((s) => s.slotIndex === slotIndex);
+      const teamId = Math.max(0, Math.min(7, slot?.teamId ?? slotIndex));
+      return teamForSlot(teamId);
+    };
+    const myTeam = teamForLobbySlot(this.lanMySlot);
     const myFaction = resolveRaceSelection(myLobbySlot?.race ?? 'terran', matchStart.seed + this.lanMySlot * 0.37);
     const playerStart = new Vec2(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
 
@@ -1351,7 +1356,7 @@ export class Game {
     this.state.gameMode = isHost ? 'lan_host' : 'lan_client';
     for (const slot of matchStart.lobby.slots) {
       if (slot.type === 'open' || slot.type === 'closed') continue;
-      this.state.setFaction(teamForSlot(slot.slotIndex), resolveRaceSelection(slot.race ?? 'terran', matchStart.seed + slot.slotIndex * 0.37));
+      this.state.setFaction(teamForLobbySlot(slot.slotIndex), resolveRaceSelection(slot.race ?? 'terran', matchStart.seed + slot.slotIndex * 0.37));
     }
     this.applyVisualQuality(this.visualQuality);
     this.vsAIDirector = null;
@@ -1381,7 +1386,7 @@ export class Game {
     // For every non-local human slot, create a remote PlayerShip placeholder.
     for (const slot of matchStart.lobby.slots) {
       if (slot.type === 'human' && slot.slotIndex !== this.lanMySlot) {
-        const remoteShip = new PlayerShip(playerStart.clone(), teamForSlot(slot.slotIndex));
+        const remoteShip = new PlayerShip(playerStart.clone(), teamForLobbySlot(slot.slotIndex));
         this.state.playerShips.set(slot.slotIndex, remoteShip);
       }
     }
@@ -1391,7 +1396,7 @@ export class Game {
     if (isHost) {
       for (const slot of matchStart.lobby.slots) {
         if (slot.type !== 'ai') continue;
-        const aiTeam = teamForSlot(slot.slotIndex);
+        const aiTeam = teamForLobbySlot(slot.slotIndex);
         // Place AI ship offset from centre so it doesn't overlap other ships.
         // Spread AI ships around the map centre, one per slot, with 300px spacing.
         // Slot indices 0–7 are offset from slot 4 (centre) so ships spread symmetrically.
@@ -1781,7 +1786,7 @@ export class Game {
       let ship = this.state.playerShips.get(sd.slotIndex);
       if (!ship) {
         // Lazily create remote ship on first snapshot.
-        ship = new PlayerShip(new Vec2(sd.x, sd.y), teamForSlot(sd.slotIndex));
+        ship = new PlayerShip(new Vec2(sd.x, sd.y), sd.team as Team);
         this.state.playerShips.set(sd.slotIndex, ship);
       }
       ship.position.x = sd.x;
@@ -1944,6 +1949,7 @@ export class Game {
     for (const [slot, ship] of this.state.playerShips) {
       ships.push({
         slotIndex: slot,
+        team: ship.team,
         x: ship.position.x,
         y: ship.position.y,
         vx: ship.velocity.x,

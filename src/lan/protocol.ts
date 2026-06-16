@@ -26,6 +26,7 @@ export type RaceSelection = FactionType | 'random';
 export interface LobbySlot {
   slotIndex: number;       // 0–7
   type: SlotType;
+  teamId?: number;
   playerName?: string;     // set when a human occupies it
   clientId?: string;       // ws client id that owns this slot
   ready: boolean;          // for human slots
@@ -64,6 +65,7 @@ export interface MsgSlotConfig {
   slotType: SlotType;
   aiDifficulty?: AIDifficulty;
   race?: RaceSelection;
+  teamId?: number;
 }
 
 /** Host-only: kick a human from a slot */
@@ -121,6 +123,7 @@ export interface MsgGameSnapshot {
 
 export interface SerializedShip {
   slotIndex: number;
+  team: number;
   x: number; y: number;
   vx: number; vy: number;
   angle: number;

@@ -1726,7 +1726,7 @@ export class MainMenu {
     // Hints at bottom
     ctx.font = gameFont(11);
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
-    ctx.fillText('Host: toggle slots and AI race.  Players can change their own race before readying.', cx, h - 120);
+    ctx.fillText('Host: add AI, cycle Team for allies/enemies, and set AI race/difficulty. Players can change race before readying.', cx, h - 120);
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.55);
     ctx.fillText('⚠ For others to join, share your LAN IP — e.g. ws://192.168.1.25:8787', cx, h - 104);
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.45);
@@ -1968,7 +1968,7 @@ export class MainMenu {
   ): void {
     const tableTop = 130;
     const rowH = 36;
-    const tableW = 760;
+    const tableW = 840;
     const tableLeft = cx - tableW / 2;
 
     // Header
@@ -1980,7 +1980,8 @@ export class MainMenu {
     ctx.fillText('Name', tableLeft + 160, tableTop - 10);
     ctx.fillText('Type / Difficulty', tableLeft + 360, tableTop - 10);
     ctx.fillText('Race', tableLeft + 500, tableTop - 10);
-    ctx.fillText('Controls', tableLeft + 612, tableTop - 10);
+    ctx.fillText('Team', tableLeft + 592, tableTop - 10);
+    ctx.fillText('Controls', tableLeft + 658, tableTop - 10);
 
     ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.35);
     ctx.lineWidth = 1;
@@ -2038,14 +2039,16 @@ export class MainMenu {
       ctx.fillText(typeText, tableLeft + 364, y);
 
       const race = slot.race ?? 'terran';
+      const teamId = Math.max(0, Math.min(7, slot.teamId ?? slot.slotIndex));
       ctx.fillStyle = colorToCSS(TextColors.normal, 0.72);
       ctx.fillText(factionLabel(race), tableLeft + 504, y);
+      ctx.fillText(`T${teamId + 1}`, tableLeft + 596, y);
 
       const canChangeRace = (slot.type === 'human' && slot.clientId === this.lanClient.clientId) ||
         (isHost && slot.type === 'ai') ||
         (isHost && slot.type === 'human' && i === 0);
       if (canChangeRace) {
-        const raceRect: HitRect = { x: tableLeft + 608, y: tableTop + i * rowH + 6, w: 54, h: rowH - 14 };
+        const raceRect: HitRect = { x: tableLeft + 638, y: tableTop + i * rowH + 6, w: 46, h: rowH - 14 };
         const raceHovered = pointInRect(this.mouseXLatched, this.mouseYLatched, raceRect);
         ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, raceHovered ? 0.8 : 0.4);
         ctx.lineWidth = 1;
@@ -2058,14 +2061,29 @@ export class MainMenu {
           const idx = RACE_SELECTIONS.indexOf(race);
           const nextRace = RACE_SELECTIONS[(idx + 1) % RACE_SELECTIONS.length];
           const typeForMsg = slot.type === 'human' ? 'human' : slot.type;
-          this.lanClient.sendSlotConfig(i, typeForMsg, slot.aiDifficulty, nextRace);
+          this.lanClient.sendSlotConfig(i, typeForMsg, slot.aiDifficulty, nextRace, teamId);
+        }
+      }
+
+      if (isHost) {
+        const teamRect: HitRect = { x: tableLeft + 688, y: tableTop + i * rowH + 6, w: 32, h: rowH - 14 };
+        const teamHovered = pointInRect(this.mouseXLatched, this.mouseYLatched, teamRect);
+        ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, teamHovered ? 0.8 : 0.4);
+        ctx.lineWidth = 1;
+        ctx.strokeRect(teamRect.x + 0.5, teamRect.y + 0.5, teamRect.w - 1, teamRect.h - 1);
+        ctx.font = gameFont(11);
+        ctx.textAlign = 'center';
+        ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, teamHovered ? 1.0 : 0.75);
+        ctx.fillText('Team', teamRect.x + teamRect.w / 2, teamRect.y + teamRect.h / 2);
+        if (this.handleClick(teamRect)) {
+          this.lanClient.sendSlotConfig(i, slot.type, slot.aiDifficulty, race, (teamId + 1) % 8);
         }
       }
 
       // Host controls for non-slot-0 slots
       if (isHost && i > 0) {
         // Toggle type button
-        const toggleRect: HitRect = { x: tableLeft + 666, y: tableTop + i * rowH + 6, w: 54, h: rowH - 14 };
+        const toggleRect: HitRect = { x: tableLeft + 724, y: tableTop + i * rowH + 6, w: 32, h: rowH - 14 };
         const toggleHovered = pointInRect(this.mouseXLatched, this.mouseYLatched, toggleRect);
         ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, toggleHovered ? 0.8 : 0.45);
         ctx.lineWidth = 1;
@@ -2073,21 +2091,21 @@ export class MainMenu {
         ctx.font = gameFont(12);
         ctx.textAlign = 'center';
         ctx.fillStyle = colorToCSS(TextColors.normal, toggleHovered ? 1.0 : 0.7);
-        const nextType = slot.type === 'open' ? 'AI' : slot.type === 'ai' ? 'Closed' : 'Open';
-        ctx.fillText(`→ ${nextType}`, toggleRect.x + toggleRect.w / 2, toggleRect.y + toggleRect.h / 2);
+        const nextType = slot.type === 'open' ? 'AI' : slot.type === 'ai' ? 'Cls' : 'Opn';
+        ctx.fillText(nextType, toggleRect.x + toggleRect.w / 2, toggleRect.y + toggleRect.h / 2);
         if (this.handleClick(toggleRect)) {
           if (slot.type === 'open') {
-            this.lanClient.sendSlotConfig(i, 'ai', 'normal', slot.race ?? 'terran');
+            this.lanClient.sendSlotConfig(i, 'ai', 'normal', slot.race ?? 'terran', teamId === i ? 1 : teamId);
           } else if (slot.type === 'ai') {
-            this.lanClient.sendSlotConfig(i, 'closed', undefined, slot.race ?? 'terran');
+            this.lanClient.sendSlotConfig(i, 'closed', undefined, slot.race ?? 'terran', teamId);
           } else {
-            this.lanClient.sendSlotConfig(i, 'open', undefined, slot.race ?? 'terran');
+            this.lanClient.sendSlotConfig(i, 'open', undefined, slot.race ?? 'terran', teamId);
           }
         }
 
         // AI difficulty cycle (only for AI slots)
         if (slot.type === 'ai') {
-          const diffRect: HitRect = { x: tableLeft + 724, y: tableTop + i * rowH + 6, w: 32, h: rowH - 14 };
+          const diffRect: HitRect = { x: tableLeft + 760, y: tableTop + i * rowH + 6, w: 32, h: rowH - 14 };
           const diffHovered = pointInRect(this.mouseXLatched, this.mouseYLatched, diffRect);
           ctx.strokeStyle = colorToCSS(Colors.radar_allied_status, diffHovered ? 0.8 : 0.4);
           ctx.lineWidth = 1;
@@ -2100,13 +2118,13 @@ export class MainMenu {
             const cur = slot.aiDifficulty ?? 'normal';
             const idx = AI_DIFFICULTIES.indexOf(cur);
             const next = AI_DIFFICULTIES[(idx + 1) % AI_DIFFICULTIES.length];
-            this.lanClient.sendSlotConfig(i, 'ai', next, slot.race ?? 'terran');
+            this.lanClient.sendSlotConfig(i, 'ai', next, slot.race ?? 'terran', teamId);
           }
         }
 
         // Kick button for occupied human slots
         if (slot.type === 'human' && slot.clientId) {
-          const kickRect: HitRect = { x: tableLeft + 724, y: tableTop + i * rowH + 6, w: 32, h: rowH - 14 };
+          const kickRect: HitRect = { x: tableLeft + 760, y: tableTop + i * rowH + 6, w: 32, h: rowH - 14 };
           const kickHovered = pointInRect(this.mouseXLatched, this.mouseYLatched, kickRect);
           ctx.strokeStyle = colorToCSS(Colors.alert1, kickHovered ? 0.8 : 0.4);
           ctx.lineWidth = 1;
