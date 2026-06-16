@@ -206,6 +206,8 @@ export class MainMenu {
   private _joinName: string = 'Player';
   /** Join screen: which field is active: 'url' | 'name' */
   private _joinActiveField: 'url' | 'name' = 'url';
+  private _joinUrlCursor: number = this._joinUrl.length;
+  private _joinNameCursor: number = this._joinName.length;
 
   /** Returned to game.ts alongside start_lan_host / start_lan_client. */
   pendingLanMatchStart: MsgMatchStart | null = null;
@@ -1814,8 +1816,12 @@ export class MainMenu {
     ctx.font = gameFont(14);
     ctx.textAlign = 'left';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.95);
-    ctx.fillText(this._joinUrl + (urlActive && Math.floor(this.animTime * 2) % 2 === 0 ? '|' : ''), fieldX + 8, 167);
-    if (this.handleClick(urlRect)) this._joinActiveField = 'url';
+    ctx.fillText(this._joinUrl, fieldX + 8, 167);
+    this.drawJoinTextCaret(ctx, this._joinUrl, this._joinUrlCursor, urlActive, fieldX + 8, 167);
+    if (this.handleClick(urlRect)) {
+      this._joinActiveField = 'url';
+      this._joinUrlCursor = this._joinUrl.length;
+    }
 
     // ---- Name field ----
     ctx.font = gameFont(13);
@@ -1833,8 +1839,12 @@ export class MainMenu {
     ctx.font = gameFont(14);
     ctx.textAlign = 'left';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.95);
-    ctx.fillText(this._joinName + (nameActive && Math.floor(this.animTime * 2) % 2 === 0 ? '|' : ''), fieldX + 8, 237);
-    if (this.handleClick(nameRect)) this._joinActiveField = 'name';
+    ctx.fillText(this._joinName, fieldX + 8, 237);
+    this.drawJoinTextCaret(ctx, this._joinName, this._joinNameCursor, nameActive, fieldX + 8, 237);
+    if (this.handleClick(nameRect)) {
+      this._joinActiveField = 'name';
+      this._joinNameCursor = this._joinName.length;
+    }
 
     // Handle keyboard input for the active field
     this.handleTextInput();
@@ -2081,17 +2091,35 @@ export class MainMenu {
     // Only handle typed characters for LAN join fields
     if (this.state !== 'lan_join') return;
 
-    // Backspace
+    const text = this.getActiveJoinText();
+    const cursor = this.getActiveJoinCursor();
+
     if (Input.wasPressed('Backspace')) {
-      if (this._joinActiveField === 'url' && this._joinUrl.length > 0) {
-        this._joinUrl = this._joinUrl.slice(0, -1);
-      } else if (this._joinActiveField === 'name' && this._joinName.length > 0) {
-        this._joinName = this._joinName.slice(0, -1);
+      if (cursor > 0) {
+        this.setActiveJoinText(text.slice(0, cursor - 1) + text.slice(cursor));
+        this.setActiveJoinCursor(cursor - 1);
       }
     }
-    // Tab: switch field
+    if (Input.wasPressed('Delete')) {
+      if (cursor < text.length) {
+        this.setActiveJoinText(text.slice(0, cursor) + text.slice(cursor + 1));
+      }
+    }
+    if (Input.wasPressed('ArrowLeft')) {
+      this.setActiveJoinCursor(Math.max(0, this.getActiveJoinCursor() - 1));
+    }
+    if (Input.wasPressed('ArrowRight')) {
+      this.setActiveJoinCursor(Math.min(this.getActiveJoinText().length, this.getActiveJoinCursor() + 1));
+    }
+    if (Input.wasPressed('Home')) {
+      this.setActiveJoinCursor(0);
+    }
+    if (Input.wasPressed('End')) {
+      this.setActiveJoinCursor(this.getActiveJoinText().length);
+    }
     if (Input.wasPressed('Tab')) {
       this._joinActiveField = this._joinActiveField === 'url' ? 'name' : 'url';
+      this.clampJoinCursors();
     }
   }
 
@@ -2101,11 +2129,64 @@ export class MainMenu {
    */
   appendJoinChar(ch: string): void {
     if (this.state !== 'lan_join') return;
+    if (ch.length !== 1) return;
     if (this._joinActiveField === 'url') {
-      if (this._joinUrl.length < 120) this._joinUrl += ch;
+      if (this._joinUrl.length >= 120) return;
+      this._joinUrl = this._joinUrl.slice(0, this._joinUrlCursor) + ch + this._joinUrl.slice(this._joinUrlCursor);
+      this._joinUrlCursor += ch.length;
     } else {
-      if (this._joinName.length < 24) this._joinName += ch;
+      if (this._joinName.length >= 24) return;
+      this._joinName = this._joinName.slice(0, this._joinNameCursor) + ch + this._joinName.slice(this._joinNameCursor);
+      this._joinNameCursor += ch.length;
     }
+  }
+
+  private drawJoinTextCaret(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    cursor: number,
+    active: boolean,
+    x: number,
+    y: number,
+  ): void {
+    if (!active || Math.floor(this.animTime * 2) % 2 !== 0) return;
+    const caretX = x + ctx.measureText(text.slice(0, cursor)).width + 1;
+    ctx.strokeStyle = colorToCSS(TextColors.normal, 0.95);
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(caretX, y - 11);
+    ctx.lineTo(caretX, y + 9);
+    ctx.stroke();
+  }
+
+  private getActiveJoinText(): string {
+    return this._joinActiveField === 'url' ? this._joinUrl : this._joinName;
+  }
+
+  private setActiveJoinText(text: string): void {
+    if (this._joinActiveField === 'url') {
+      this._joinUrl = text.slice(0, 120);
+    } else {
+      this._joinName = text.slice(0, 24);
+    }
+    this.clampJoinCursors();
+  }
+
+  private getActiveJoinCursor(): number {
+    return this._joinActiveField === 'url' ? this._joinUrlCursor : this._joinNameCursor;
+  }
+
+  private setActiveJoinCursor(cursor: number): void {
+    if (this._joinActiveField === 'url') {
+      this._joinUrlCursor = Math.max(0, Math.min(this._joinUrl.length, cursor));
+    } else {
+      this._joinNameCursor = Math.max(0, Math.min(this._joinName.length, cursor));
+    }
+  }
+
+  private clampJoinCursors(): void {
+    this._joinUrlCursor = Math.max(0, Math.min(this._joinUrl.length, this._joinUrlCursor));
+    this._joinNameCursor = Math.max(0, Math.min(this._joinName.length, this._joinNameCursor));
   }
 
   /**
