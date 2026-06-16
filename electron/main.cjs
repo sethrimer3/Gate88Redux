@@ -76,6 +76,15 @@ function probeLanHelperHttp(timeoutMs = 500) {
   });
 }
 
+async function waitForLanHelperHttp(timeoutMs = 5000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (await probeLanHelperHttp(500)) return true;
+    await new Promise(resolve => setTimeout(resolve, 150));
+  }
+  return false;
+}
+
 function resolveTsxCommand() {
   const isWindows = process.platform === 'win32';
   const localTsx = path.join(REPO_ROOT, 'node_modules', '.bin', isWindows ? 'tsx.cmd' : 'tsx');
@@ -144,7 +153,7 @@ async function ensureLanHelperRunning() {
       lanHelperProcess = null;
     });
 
-    return true;
+    return waitForLanHelperHttp();
   } finally {
     lanHelperStarting = false;
   }

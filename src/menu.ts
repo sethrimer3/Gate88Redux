@@ -1568,7 +1568,7 @@ export class MainMenu {
     const helperAvailable = await this.checkLocalLanHelper();
     if (!helperAvailable) {
       this.lanClient.disconnect();
-      this.lanClient.lastError = 'LAN helper not running. Start it with "npm run dev:lan" or "npm run lan:server", then retry.';
+      this.lanClient.lastError = 'LAN helper did not start. Close extra Gate88 windows, allow Node.js in Windows Firewall, then retry.';
       return;
     }
 
@@ -1587,7 +1587,7 @@ export class MainMenu {
   private async checkLocalLanHelper(): Promise<boolean> {
     await this.ensureElectronLanHelper();
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 750);
+    const timeoutId = window.setTimeout(() => controller.abort(), 5000);
     try {
       const res = await fetch('http://localhost:8788/lan/self', {
         cache: 'no-store',
@@ -1609,7 +1609,7 @@ export class MainMenu {
     try {
       const res = await api.ensureHelper();
       if (!res?.ok) return false;
-      await new Promise(resolve => window.setTimeout(resolve, 250));
+      await new Promise(resolve => window.setTimeout(resolve, 500));
       return true;
     } catch {
       return false;
@@ -1699,7 +1699,7 @@ export class MainMenu {
     if (st !== 'lobby') {
       ctx.font = gameFont(11);
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.65);
-      ctx.fillText('You must run "npm run lan:server" (or "npm run dev:lan") on your machine first.', cx, 118);
+      ctx.fillText('Electron starts the LAN helper automatically. If this stays here, close extra Gate88 windows and retry.', cx, 118);
     }
 
     // Slots table
