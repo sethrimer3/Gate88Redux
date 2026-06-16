@@ -24,7 +24,8 @@ echo Starting Gate88Redux desktop build...
 call npm run build
 if errorlevel 1 goto error
 
-echo Launching Gate88Redux desktop...
+echo Launching Gate88Redux desktop with LAN helper auto-start enabled...
+set "GATE88_AUTO_START_LAN_HELPER=1"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%CD%\node_modules\.bin\electron.cmd' -ArgumentList @('electron\main.cjs') -WorkingDirectory '%CD%' -WindowStyle Hidden"
 if errorlevel 1 goto error
 
