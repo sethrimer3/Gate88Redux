@@ -1105,9 +1105,44 @@ export class MainMenu {
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.75);
     ctx.fillText('Text uses Poiret One. Opened menus decode from BJ Cree syllabics.', cx, y + 36);
 
+    this.drawDiscordButton(ctx, cx, y + 86);
+
     this.drawButtonRow(ctx, [
       { label: 'Back', action: () => this.setState('title'), emphasis: true },
     ], cx, h - 70);
+  }
+
+  private drawDiscordButton(ctx: CanvasRenderingContext2D, cx: number, y: number): void {
+    const rect: HitRect = { x: cx - 250, y: y - 30, w: 500, h: 60 };
+    const hovered = pointInRect(this.mouseX(), this.mouseY(), rect);
+    const pulse = 0.5 + Math.sin(this.animTime * 3) * 0.5;
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(88, 101, 242, 0.9)';
+    ctx.shadowBlur = hovered ? 28 : 15 + pulse * 7;
+    const fill = ctx.createLinearGradient(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
+    fill.addColorStop(0, hovered ? '#7289ff' : '#5865f2');
+    fill.addColorStop(1, hovered ? '#5865f2' : '#404eed');
+    ctx.fillStyle = fill;
+    ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    ctx.lineWidth = hovered ? 2 : 1;
+    ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 22px "Poiret One", sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText('JOIN THE GATE 88 DISCORD', cx, y - 7);
+    ctx.font = '14px "Poiret One", sans-serif';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
+    ctx.fillText('Community  •  Matches  •  Updates', cx, y + 17);
+    ctx.restore();
+
+    if (this.handleClick(rect)) {
+      window.open('https://discord.gg/dSwR3Fj7du', '_blank', 'noopener,noreferrer');
+    }
   }
 
   private enforceRankedVsAIConfig(cfg: VsAIConfig): void {
