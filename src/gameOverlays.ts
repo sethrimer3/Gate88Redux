@@ -23,6 +23,7 @@ import { GRID_CELL_SIZE } from './grid.js';
 import { WORLD_WIDTH } from './constants.js';
 import type { VisualQualityPreset } from './visualquality.js';
 import { buildingBlocksShips, buildingFootprintOrigin } from './buildingCollision.js';
+import { t } from './i18n.js';
 
 // ---------------------------------------------------------------------------
 // Overlay cache — holds canvas gradients/patterns that are rebuilt only when
@@ -200,11 +201,11 @@ export function drawLossOverlay(
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  ctx.font = 'bold 42px "Poiret One", sans-serif';
+  ctx.font = 'bold 42px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
   ctx.shadowColor = colorToCSS(Colors.alert1, 0.8);
   ctx.shadowBlur = 18;
   ctx.fillStyle = colorToCSS(Colors.alert1, 0.95);
-  ctx.fillText('Loss.', w * 0.5, 18);
+  ctx.fillText(t('overlay.loss'), w * 0.5, 18);
   ctx.restore();
 }
 
@@ -341,11 +342,11 @@ export function drawCommandModeOverlay(
   }
   if (active) {
     ctx.globalCompositeOperation = 'source-over';
-    ctx.font = 'bold 15px "Poiret One", sans-serif';
+    ctx.font = 'bold 15px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.82);
-    ctx.fillText('COMMAND MODE', w * 0.5, 58);
+    ctx.fillText(t('overlay.commandMode'), w * 0.5, 58);
   }
   ctx.restore();
 }
@@ -399,7 +400,7 @@ export function drawBuildingHoverHitpoints(
       ? `${Math.ceil(b.shield)}/${Math.ceil(b.maxShield)}`
       : '';
     ctx.save();
-    ctx.font = 'bold 14px "Poiret One", sans-serif';
+    ctx.font = 'bold 14px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const metrics = ctx.measureText(shieldText || text);

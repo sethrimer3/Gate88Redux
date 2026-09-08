@@ -110,7 +110,7 @@ export function drawWaypointMarkers(
     ctx.fill();
 
     ctx.globalCompositeOperation = 'source-over';
-    ctx.font = `bold ${Math.max(9, 12 * camera.zoom)}px "Poiret One", sans-serif`;
+    ctx.font = `bold ${Math.max(9, 12 * camera.zoom)}px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = colorToCSS(Colors.particles_switch, 0.92);
@@ -207,7 +207,7 @@ export function drawDebugOverlay(ctx: CanvasRenderingContext2D, args: {
   }
 
   ctx.save();
-  ctx.font = '11px "Poiret One", sans-serif';
+  ctx.font = '11px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   const width = 440;

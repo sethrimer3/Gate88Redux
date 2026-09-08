@@ -396,7 +396,7 @@ function drawRadarWaypointMarker(
 
   ctx.globalCompositeOperation = 'source-over';
   ctx.shadowBlur = 0;
-  ctx.font = 'bold 12px "Poiret One", sans-serif';
+  ctx.font = 'bold 12px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = colorToCSS(Colors.particles_switch, 0.95);
@@ -657,7 +657,7 @@ export function drawRadarOverlay(
   }
 
   // Distance label
-  ctx.font = '10px "Poiret One", sans-serif';
+  ctx.font = '10px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
   ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.6);
   ctx.textAlign = 'left';
   for (let r = gridStep; r <= RADAR_RANGE; r += gridStep) {

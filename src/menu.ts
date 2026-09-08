@@ -23,6 +23,7 @@ import { Audio } from './audio.js';
 import { buildLabel } from './version.js';
 import { gameFont } from './fonts.js';
 import { drawDecodedText } from './decodeText.js';
+import { t as tr, LOCALES, LOCALE_NAMES, getLocale, setLocale, type Locale } from './i18n.js';
 import { applyThemeColors, cycleThemeColor, themeColorLabel, themeSettings, type ThemeColorId } from './theme.js';
 import {
   PracticeConfig,
@@ -50,6 +51,7 @@ import { LanClient } from './lan/lanClient.js';
 import type { LobbyState, LobbySlot, AIDifficulty, MsgMatchStart, LanDiscoveredLobby } from './lan/protocol.js';
 import { factionLabel, RACE_SELECTIONS, type RaceSelection } from './confluence.js';
 import { WebRtcTransport, type WebRtcPeerConnectionState } from './online/webrtcTransport.js';
+import type { MultiplayerTransport } from './net/transport.js';
 import type { OnlineLobbyRow } from './online/onlineLobby.js';
 import {
   createSupabaseClient,
@@ -218,7 +220,7 @@ export class MainMenu {
 
   /** Pending online match start data — consumed by game.ts via takePendingOnlineMatchStart(). */
   private _pendingOnlineMatchStart: {
-    transport: WebRtcTransport;
+    transport: MultiplayerTransport;
     matchStart: MsgMatchStart;
   } | null = null;
 
@@ -414,54 +416,54 @@ export class MainMenu {
     switch (this.state) {
       case 'title':
         return [
-          { label: 'Play',     action: () => this.setState('play'),
-            description: 'Vs. AI skirmish' },
-          { label: 'Practice', action: () => this.setState('practice_setup'),
-            description: 'Configurable skirmish against a growing enemy base' },
-          { label: 'Tutorial', action: () => { this.pendingAction = 'tutorial'; },
-            description: 'Learn the game — no enemies, infinite resources' },
-          { label: 'Settings', action: () => this.setState('settings'),
-            description: 'Colors and interface style' },
+          { label: tr('menu.title.play'),     action: () => this.setState('play'),
+            description: tr('menu.title.play.desc') },
+          { label: tr('menu.title.practice'), action: () => this.setState('practice_setup'),
+            description: tr('menu.title.practice.desc') },
+          { label: tr('menu.title.tutorial'), action: () => { this.pendingAction = 'tutorial'; },
+            description: tr('menu.title.tutorial.desc') },
+          { label: tr('menu.title.settings'), action: () => this.setState('settings'),
+            description: tr('menu.title.settings.desc') },
         ];
       case 'play':
         return [
-          { label: 'Vs. AI [Unranked]', action: () => {
+          { label: tr('menu.play.vsAiUnranked'), action: () => {
             this.vsAIConfig = { ...this.vsAIConfig, mode: 'duel', ranked: false };
             this.setState('vs_ai_setup');
-          }, description: 'Custom match against an AI opponent' },
-          { label: 'Vs. AI [Ranked]', action: () => {
+          }, description: tr('menu.play.vsAiUnranked.desc') },
+          { label: tr('menu.play.vsAiRanked'), action: () => {
             this.vsAIConfig = { ...cloneRankedVsAIConfig(this.vsAIConfig), mode: 'duel' };
             this.setState('vs_ai_setup');
-          }, description: 'Fair fog-of-war duel with a ranked AI climb' },
-          { label: 'Survival [Unranked]', action: () => {
+          }, description: tr('menu.play.vsAiRanked.desc') },
+          { label: tr('menu.play.survivalUnranked'), action: () => {
             this.vsAIConfig = { ...this.vsAIConfig, mode: 'survival', ranked: false };
             this.setState('vs_ai_setup');
-          }, description: 'Hold out as another enemy base appears every minute' },
-          { label: 'Survival [Ranked]', action: () => {
+          }, description: tr('menu.play.survivalUnranked.desc') },
+          { label: tr('menu.play.survivalRanked'), action: () => {
             this.vsAIConfig = { ...cloneRankedVsAIConfig(this.vsAIConfig), mode: 'survival' };
             this.setState('vs_ai_setup');
-          }, description: 'Survive against escalating bases for ranked score' },
-          { label: 'LAN Multiplayer', action: () => this.setState('lan_type'),
-            description: 'Host or join a LAN game with up to 8 players' },
-          { label: 'Online Multiplayer', action: () => this.setState('online_multiplayer'),
-            description: 'Host or join an online game via internet (beta)' },
-          { label: 'Back', action: () => this.setState('title') },
+          }, description: tr('menu.play.survivalRanked.desc') },
+          { label: tr('menu.play.lan'), action: () => this.setState('lan_type'),
+            description: tr('menu.play.lan.desc') },
+          { label: tr('menu.play.online'), action: () => this.setState('online_multiplayer'),
+            description: tr('menu.play.online.desc') },
+          { label: tr('common.back'), action: () => this.setState('title') },
         ];
       case 'lan_type':
         return [
-          { label: 'Host LAN Lobby', action: () => this.openHostLobby(),
-            description: 'Create a lobby — other players join via your IP' },
-          { label: 'Find LAN Games', action: () => this.openLanBrowser(),
-            description: 'Scan local LAN helpers for advertised lobbies' },
-          { label: 'Join Manually', action: () => this.setState('lan_join'),
-            description: 'Enter the host IP/port to join' },
-          { label: 'Back', action: () => this.setState('play') },
+          { label: tr('menu.lanType.host'), action: () => this.openHostLobby(),
+            description: tr('menu.lanType.host.desc') },
+          { label: tr('menu.lanType.find'), action: () => this.openLanBrowser(),
+            description: tr('menu.lanType.find.desc') },
+          { label: tr('menu.lanType.joinManual'), action: () => this.setState('lan_join'),
+            description: tr('menu.lanType.joinManual.desc') },
+          { label: tr('common.back'), action: () => this.setState('play') },
         ];
       case 'pause':
         return [
-          { label: 'Resume', action: () => { this.pendingAction = 'resume'; } },
+          { label: tr('menu.pause.resume'), action: () => { this.pendingAction = 'resume'; } },
           {
-            label: `Graphics: ${visualQualityLabel(this.visualQuality)}`,
+            label: tr('menu.pause.graphics', { value: visualQualityLabel(this.visualQuality) }),
             action: () => {
               const next: Record<VisualQuality, VisualQuality> = {
                 ultraLow: 'low',
@@ -471,11 +473,11 @@ export class MainMenu {
               };
               this.visualQuality = next[this.visualQuality];
             },
-            description: 'Ultra Low / Low / Medium / High - click to cycle',
+            description: tr('menu.pause.graphics.desc'),
           },
-          { label: 'Audio Settings', action: () => { /* sliders render below */ },
-            description: 'Music and sound effects volume' },
-          { label: 'Quit to Menu', action: () => { this.pendingAction = 'quit_to_menu'; } },
+          { label: tr('menu.pause.audio'), action: () => { /* sliders render below */ },
+            description: tr('menu.pause.audio.desc') },
+          { label: tr('menu.pause.quit'), action: () => { this.pendingAction = 'quit_to_menu'; } },
         ];
       default:
         return null;
@@ -600,7 +602,7 @@ export class MainMenu {
   /** Draw the build-number badge in the top-right corner. */
   private drawBuildBadge(ctx: CanvasRenderingContext2D, w: number): void {
     const label = buildLabel();
-    ctx.font = '15px "Poiret One", sans-serif';
+    ctx.font = '15px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'top';
     const padX = 14;
@@ -653,7 +655,7 @@ export class MainMenu {
     ctx.lineTo(cx + ruleW * 0.5, titleY - 36);
     ctx.stroke();
 
-    ctx.font = 'bold 58px "Poiret One", sans-serif';
+    ctx.font = 'bold 58px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.save();
     ctx.shadowColor = MENU_ACCENT_CYAN + '0.95)';
     ctx.shadowBlur = 24;
@@ -673,17 +675,17 @@ export class MainMenu {
     ctx.stroke();
 
     const subtitleAlpha = 0.35 + 0.25 * Math.sin(this.animTime * 1.8);
-    ctx.font = '18px "Poiret One", sans-serif';
+    ctx.font = '18px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.shadow, subtitleAlpha);
-    ctx.fillText('A game of space strategy', cx, titleY + 56);
+    ctx.fillText(tr('title.subtitle'), cx, titleY + 56);
 
     const opts = this.currentSimpleOptions()!;
     this.drawClickableOptions(ctx, cx, h * 0.50, opts);
 
-    ctx.font = '15px "Poiret One", sans-serif';
+    ctx.font = '15px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.35);
-    ctx.fillText('Click an option, or use \u2191 \u2193 + Enter', cx, h - 18);
+    ctx.fillText(tr('hint.clickOrArrows'), cx, h - 18);
   }
 
   private drawLuminousFrame(
@@ -737,7 +739,7 @@ export class MainMenu {
     const cx = w * 0.5;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold 38px "Poiret One", sans-serif';
+    ctx.font = 'bold 38px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.title);
     const title = this.state === 'lan_type' ? 'LAN MULTIPLAYER' : 'PLAY';
     ctx.fillText(title, cx, h * 0.22);
@@ -760,10 +762,11 @@ export class MainMenu {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    ctx.font = 'bold 38px "Poiret One", sans-serif';
+    ctx.font = 'bold 38px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.title);
-    drawDecodedText(ctx, 'PAUSED', cx, headerY, 38, this.openedAt, 'center');
-    const tw = ctx.measureText('PAUSED').width;
+    const pausedLabel = tr('pause.heading');
+    drawDecodedText(ctx, pausedLabel, cx, headerY, 38, this.openedAt, 'center');
+    const tw = ctx.measureText(pausedLabel).width;
     ctx.strokeStyle = colorToCSS(Colors.radar_gridlines, 0.5);
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -838,19 +841,19 @@ export class MainMenu {
         this.drawLuminousFrame(ctx, rect.x, rect.y, rect.w, rect.h, hovered ? 0.92 : 0.62);
 
         ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.9);
-        ctx.font = '24px "Poiret One", sans-serif';
+        ctx.font = '24px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
         ctx.textAlign = 'left';
         ctx.fillText('>', cx - barW * 0.5 + 12, y);
         ctx.textAlign = 'right';
         ctx.fillText('<', cx + barW * 0.5 - 12, y);
 
         ctx.textAlign = 'center';
-        ctx.font = 'bold 24px "Poiret One", sans-serif';
+        ctx.font = 'bold 24px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
         ctx.fillStyle = colorToCSS(Colors.radar_friendly_status);
         drawDecodedText(ctx, options[i].label, cx, y - 6, 24, this.openedAt, 'center');
 
         if (options[i].description) {
-          ctx.font = '15px "Poiret One", sans-serif';
+          ctx.font = '15px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
           ctx.fillStyle = colorToCSS(TextColors.normal, 0.78);
           drawDecodedText(ctx, options[i].description ?? '', cx, y + 18, 15, this.openedAt, 'center');
         }
@@ -861,7 +864,7 @@ export class MainMenu {
         ctx.moveTo(rect.x + 18, y + lineH * 0.34);
         ctx.lineTo(rect.x + rect.w - 18, y + lineH * 0.34);
         ctx.stroke();
-        ctx.font = '24px "Poiret One", sans-serif';
+        ctx.font = '24px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
         ctx.fillStyle = colorToCSS(TextColors.normal, 0.68);
         ctx.textAlign = 'center';
         drawDecodedText(ctx, options[i].label, cx, y, 24, this.openedAt, 'center');
@@ -889,9 +892,9 @@ export class MainMenu {
     const cx = w * 0.5;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold 34px "Poiret One", sans-serif';
+    ctx.font = 'bold 34px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.title);
-    ctx.fillText('PRACTICE SETUP', cx, 70);
+    ctx.fillText(tr('practice.heading'), cx, 70);
 
     const cfg = this.practiceConfig;
     const colW = 460;
@@ -901,69 +904,69 @@ export class MainMenu {
     const rowH = 38;
 
     // Left column
-    y = this.drawDifficultyRow(ctx, left, y, rowH, 'Enemy Difficulty',
+    y = this.drawDifficultyRow(ctx, left, y, rowH, tr('practice.enemyDifficulty'),
       cfg.difficulty, (v) => cfg.difficulty = v);
-    y = this.drawRaceRow(ctx, left, y, rowH, 'Player Race',
+    y = this.drawRaceRow(ctx, left, y, rowH, tr('practice.playerRace'),
       cfg.playerRace, (v) => cfg.playerRace = v);
-    y = this.drawRaceRow(ctx, left, y, rowH, 'Enemy Race',
+    y = this.drawRaceRow(ctx, left, y, rowH, tr('practice.enemyRace'),
       cfg.enemyRace, (v) => cfg.enemyRace = v);
-    y = this.drawSliderRow(ctx, left, y, rowH, 'Player Resources',
+    y = this.drawSliderRow(ctx, left, y, rowH, tr('practice.playerResources'),
       cfg.playerStartingResources, 0, 5000, 50,
       (v) => cfg.playerStartingResources = v, (v) => `${v}`);
-    y = this.drawSliderRow(ctx, left, y, rowH, 'Enemy Resources',
+    y = this.drawSliderRow(ctx, left, y, rowH, tr('practice.enemyResources'),
       cfg.enemyStartingResources, 0, 5000, 50,
       (v) => cfg.enemyStartingResources = v, (v) => `${v}`);
-    y = this.drawSliderRow(ctx, left, y, rowH, 'Player Income x',
+    y = this.drawSliderRow(ctx, left, y, rowH, tr('practice.playerIncome'),
       cfg.playerIncomeMul, 0.25, 4.0, 0.25,
       (v) => cfg.playerIncomeMul = v, (v) => v.toFixed(2));
-    y = this.drawSliderRow(ctx, left, y, rowH, 'Enemy Income x',
+    y = this.drawSliderRow(ctx, left, y, rowH, tr('practice.enemyIncome'),
       cfg.enemyIncomeMul, 0.25, 4.0, 0.25,
       (v) => cfg.enemyIncomeMul = v, (v) => v.toFixed(2));
-    y = this.drawSliderRow(ctx, left, y, rowH, 'Enemy Build Speed x',
+    y = this.drawSliderRow(ctx, left, y, rowH, tr('practice.enemyBuildSpeed'),
       cfg.enemyBuildSpeedMul, 0.25, 4.0, 0.25,
       (v) => cfg.enemyBuildSpeedMul = v, (v) => v.toFixed(2));
-    y = this.drawSliderRow(ctx, left, y, rowH, 'Enemy Max Builders',
+    y = this.drawSliderRow(ctx, left, y, rowH, tr('practice.enemyMaxBuilders'),
       cfg.enemyMaxBuilders, 1, 10, 1,
       (v) => cfg.enemyMaxBuilders = v, (v) => `${v}`);
-    y = this.drawSliderRow(ctx, left, y, rowH, 'Builder Rebuild (s)',
+    y = this.drawSliderRow(ctx, left, y, rowH, tr('practice.builderRebuild'),
       cfg.enemyBuilderRebuildSeconds, 5, 120, 5,
       (v) => cfg.enemyBuilderRebuildSeconds = v, (v) => `${v}s`);
 
     // Right column
     let yr = 130;
-    yr = this.drawDifficultyRow(ctx, right, yr, rowH, 'Enemy Aggression',
+    yr = this.drawDifficultyRow(ctx, right, yr, rowH, tr('practice.enemyAggression'),
       cfg.enemyAggression, (v) => cfg.enemyAggression = v);
-    yr = this.drawDifficultyRow(ctx, right, yr, rowH, 'Expansion Speed',
+    yr = this.drawDifficultyRow(ctx, right, yr, rowH, tr('practice.expansionSpeed'),
       cfg.enemyExpansionSpeed, (v) => cfg.enemyExpansionSpeed = v);
-    yr = this.drawCycleRow<'tiny'|'small'|'medium'>(ctx, right, yr, rowH, 'Starting Base Size',
+    yr = this.drawCycleRow<'tiny'|'small'|'medium'>(ctx, right, yr, rowH, tr('practice.startingBaseSize'),
       cfg.enemyStartingBaseSize, ['tiny','small','medium'],
       (v) => cfg.enemyStartingBaseSize = v);
-    yr = this.drawCheckboxRow(ctx, right, yr, rowH, 'Fog of War',
+    yr = this.drawCheckboxRow(ctx, right, yr, rowH, tr('vsai.fogOfWar'),
       cfg.fogOfWar, (v) => cfg.fogOfWar = v);
-    yr = this.drawCycleRow<MapSize>(ctx, right, yr, rowH, 'Map Size',
+    yr = this.drawCycleRow<MapSize>(ctx, right, yr, rowH, tr('vsai.mapSize'),
       cfg.mapSize, ['small','medium','large'], (v) => cfg.mapSize = v);
-    yr = this.drawSliderRow(ctx, right, yr, rowH, 'Starting Distance',
+    yr = this.drawSliderRow(ctx, right, yr, rowH, tr('vsai.startingDistance'),
       cfg.startingDistance, 1000, 5000, 200,
       (v) => cfg.startingDistance = v, (v) => `${v}`);
-    yr = this.drawCycleRow<ResearchUnlock>(ctx, right, yr, rowH, 'Research Unlocked',
+    yr = this.drawCycleRow<ResearchUnlock>(ctx, right, yr, rowH, tr('practice.researchUnlocked'),
       cfg.researchUnlocked,
       ['none','basic_turrets','all_turrets','full_tech'],
       (v) => cfg.researchUnlocked = v,
       researchUnlockLabel);
-    yr = this.drawCycleRow<VictoryCondition>(ctx, right, yr, rowH, 'Victory Condition',
+    yr = this.drawCycleRow<VictoryCondition>(ctx, right, yr, rowH, tr('practice.victoryCondition'),
       cfg.victoryCondition, ['destroy_cp','survive_waves','sandbox'],
       (v) => cfg.victoryCondition = v, victoryLabel);
-    yr = this.drawCycleRow<DefeatCondition>(ctx, right, yr, rowH, 'Defeat Condition',
+    yr = this.drawCycleRow<DefeatCondition>(ctx, right, yr, rowH, tr('practice.defeatCondition'),
       cfg.defeatCondition, ['cp_destroyed','ship_and_no_cp','disabled'],
       (v) => cfg.defeatCondition = v, defeatLabel);
 
     // Buttons
     const btnY = h - 60;
     this.drawButtonRow(ctx, [
-      { label: 'Reset Defaults', action: () => {
+      { label: tr('common.resetDefaults'), action: () => {
         this.practiceConfig = cloneDefaultPracticeConfig(); } },
-      { label: 'Back',           action: () => this.setState('title') },
-      { label: 'Start Practice', action: () => { this.pendingAction = 'start_practice'; },
+      { label: tr('common.back'),           action: () => this.setState('title') },
+      { label: tr('practice.start'), action: () => { this.pendingAction = 'start_practice'; },
         emphasis: true },
     ], cx, btnY);
   }
@@ -980,10 +983,10 @@ export class MainMenu {
     const cfg = this.vsAIConfig;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold 34px "Poiret One", sans-serif';
+    ctx.font = 'bold 34px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.title);
-    const modeTitle = cfg.mode === 'survival' ? 'SURVIVAL' : 'VS. AI';
-    ctx.fillText(`${modeTitle} [${cfg.ranked ? 'RANKED' : 'UNRANKED'}]`, cx, 70);
+    const modeTitle = cfg.mode === 'survival' ? tr('vsai.survival') : tr('vsai.vsAi');
+    ctx.fillText(tr('vsai.headerFmt', { mode: modeTitle, rank: cfg.ranked ? tr('vsai.ranked') : tr('vsai.unranked') }), cx, 70);
 
     const colW = 460;
     const left = cx - colW;
@@ -997,59 +1000,59 @@ export class MainMenu {
       y = 172;
       y = this.drawLargeRankSliderRow(ctx, cx - 310, y, 76, cfg);
       y += 10;
-      y = this.drawRaceRow(ctx, cx - 210, y, rowH, 'Player Race',
+      y = this.drawRaceRow(ctx, cx - 210, y, rowH, tr('practice.playerRace'),
         cfg.playerRace, (v) => cfg.playerRace = v);
-      y = this.drawRaceRow(ctx, cx - 210, y, rowH, 'AI Race',
+      y = this.drawRaceRow(ctx, cx - 210, y, rowH, tr('vsai.aiRace'),
         cfg.aiRace, (v) => cfg.aiRace = v);
-      y = this.drawCheckboxRow(ctx, cx - 210, y, rowH, 'AI Full Map Knowledge (+x0.25)',
+      y = this.drawCheckboxRow(ctx, cx - 210, y, rowH, tr('vsai.aiFullMapKnowledgeBonus'),
         cfg.cheatFullMapKnowledge, (v) => cfg.cheatFullMapKnowledge = v);
-      y = this.drawCheckboxRow(ctx, cx - 210, y, rowH, 'AI 1.25x Resources (+x0.25)',
+      y = this.drawCheckboxRow(ctx, cx - 210, y, rowH, tr('vsai.aiResourcesBonus'),
         cfg.cheat125xResources, (v) => cfg.cheat125xResources = v);
-      ctx.font = '15px "Poiret One", sans-serif';
+      ctx.font = '15px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
       ctx.textAlign = 'left';
       ctx.fillStyle = colorToCSS(TextColors.normal, 0.78);
       ctx.fillText(`Ranked score multiplier: x${rankedScoreMultiplier(cfg).toFixed(2)}`, cx - 210, y + 10);
     } else {
-      y = this.drawDifficultyRow(ctx, left, y, rowH, 'AI Difficulty',
+      y = this.drawDifficultyRow(ctx, left, y, rowH, tr('vsai.aiDifficulty'),
         cfg.difficulty, (v) => cfg.difficulty = v);
-      y = this.drawRaceRow(ctx, left, y, rowH, 'Player Race',
+      y = this.drawRaceRow(ctx, left, y, rowH, tr('practice.playerRace'),
         cfg.playerRace, (v) => cfg.playerRace = v);
-      y = this.drawRaceRow(ctx, left, y, rowH, 'AI Race',
+      y = this.drawRaceRow(ctx, left, y, rowH, tr('vsai.aiRace'),
         cfg.aiRace, (v) => cfg.aiRace = v);
       y = this.drawSliderRow(ctx, left, y, rowH, 'AI APM (-1 = derived)',
         cfg.aiApm, -1, 400, 5,
         (v) => cfg.aiApm = v, (v) => v < 0 ? 'auto' : `${v}`);
-      y = this.drawSliderRow(ctx, left, y, rowH, 'Starting Resources',
+      y = this.drawSliderRow(ctx, left, y, rowH, tr('vsai.startingResources'),
         cfg.startingResources, 0, 5000, 50,
         (v) => cfg.startingResources = v, (v) => `${v}`);
-      y = this.drawCycleRow<MapSize>(ctx, left, y, rowH, 'Map Size',
+      y = this.drawCycleRow<MapSize>(ctx, left, y, rowH, tr('vsai.mapSize'),
         cfg.mapSize, ['small','medium','large'], (v) => cfg.mapSize = v);
 
       let yr = 140;
-      yr = this.drawSliderRow(ctx, right, yr, rowH, 'Starting Distance',
+      yr = this.drawSliderRow(ctx, right, yr, rowH, tr('vsai.startingDistance'),
         cfg.startingDistance, 1000, 5000, 200,
         (v) => cfg.startingDistance = v, (v) => `${v}`);
-      yr = this.drawCheckboxRow(ctx, right, yr, rowH, 'Fog of War',
+      yr = this.drawCheckboxRow(ctx, right, yr, rowH, tr('vsai.fogOfWar'),
         cfg.fogOfWar, (v) => cfg.fogOfWar = v);
 
-      ctx.font = 'bold 18px "Poiret One", sans-serif';
+      ctx.font = 'bold 18px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
       ctx.textAlign = 'left';
       ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
-      ctx.fillText('CHEATER OPTIONS', right, yr + 8);
+      ctx.fillText(tr('vsai.cheaterOptions'), right, yr + 8);
       yr += 28;
 
-      yr = this.drawCheckboxRow(ctx, right, yr, rowH, 'AI Full Map Knowledge',
+      yr = this.drawCheckboxRow(ctx, right, yr, rowH, tr('vsai.aiFullMapKnowledge'),
         cfg.cheatFullMapKnowledge, (v) => cfg.cheatFullMapKnowledge = v);
-      yr = this.drawCheckboxRow(ctx, right, yr, rowH, 'AI 1.25x Resources',
+      yr = this.drawCheckboxRow(ctx, right, yr, rowH, tr('vsai.aiResources'),
         cfg.cheat125xResources, (v) => cfg.cheat125xResources = v);
     }
 
     const btnY = h - 60;
     this.drawButtonRow(ctx, [
-      { label: 'Reset Defaults', action: () => {
+      { label: tr('common.resetDefaults'), action: () => {
         this.vsAIConfig = { ...(cfg.ranked ? cloneRankedVsAIConfig() : cloneDefaultVsAIConfig()), mode: cfg.mode }; } },
-      { label: 'Back',     action: () => this.setState('play') },
-      { label: cfg.mode === 'survival' ? 'Start Survival' : 'Start Vs. AI', action: () => { this.pendingAction = 'start_vs_ai'; },
+      { label: tr('common.back'),     action: () => this.setState('play') },
+      { label: cfg.mode === 'survival' ? tr('vsai.startSurvival') : tr('vsai.startVsAi'), action: () => { this.pendingAction = 'start_vs_ai'; },
         emphasis: true },
     ], cx, btnY);
   }
@@ -1063,15 +1066,24 @@ export class MainMenu {
     ctx.textBaseline = 'middle';
     ctx.font = gameFont(34);
     ctx.fillStyle = colorToCSS(TextColors.title);
-    ctx.fillText('SETTINGS', cx, 90);
+    ctx.fillText(tr('settings.heading'), cx, 90);
 
     const x = cx - 230;
     let y = 160;
     const rowH = 44;
 
+    const LOCALE_OPTIONS: Locale[] = [...LOCALES];
+    y = this.drawCycleRow<Locale>(
+      ctx, x, y, rowH, tr('settings.language'),
+      getLocale(),
+      LOCALE_OPTIONS,
+      (v) => { setLocale(v); },
+      (v) => LOCALE_NAMES[v],
+    );
+
     const QUALITY_OPTIONS: VisualQuality[] = ['ultraLow', 'low', 'medium', 'high'];
     y = this.drawCycleRow<VisualQuality>(
-      ctx, x, y, rowH, 'Graphics Quality',
+      ctx, x, y, rowH, tr('settings.graphicsQuality'),
       this.visualQuality,
       QUALITY_OPTIONS,
       (v) => { this.visualQuality = v; },
@@ -1079,36 +1091,36 @@ export class MainMenu {
       QUALITY_OPTIONS.indexOf(this.visualQuality) / (QUALITY_OPTIONS.length - 1),
     );
 
-    y = this.drawThemeColorRow(ctx, x, y, rowH, 'Player Color', themeSettings.playerColor, (v) => {
+    y = this.drawThemeColorRow(ctx, x, y, rowH, tr('settings.playerColor'), themeSettings.playerColor, (v) => {
       themeSettings.playerColor = v;
       applyThemeColors();
     });
-    y = this.drawThemeColorRow(ctx, x, y, rowH, 'Enemy Color', themeSettings.enemyColor, (v) => {
+    y = this.drawThemeColorRow(ctx, x, y, rowH, tr('settings.enemyColor'), themeSettings.enemyColor, (v) => {
       themeSettings.enemyColor = v;
       applyThemeColors();
     });
-    y = this.drawVolumeSliderRow(ctx, x, y, rowH, 'Music Volume', Audio.getMusicVolume(), (v) => {
+    y = this.drawVolumeSliderRow(ctx, x, y, rowH, tr('settings.musicVolume'), Audio.getMusicVolume(), (v) => {
       Audio.setMusicVolume(v);
     });
-    y = this.drawVolumeSliderRow(ctx, x, y, rowH, 'SFX Volume', Audio.getSfxVolume(), (v) => {
+    y = this.drawVolumeSliderRow(ctx, x, y, rowH, tr('settings.sfxVolume'), Audio.getSfxVolume(), (v) => {
       Audio.setSfxVolume(v);
     });
-    y = this.drawZoomSliderRow(ctx, x, y, rowH, 'Game Zoom', this.gameZoom, (v) => {
+    y = this.drawZoomSliderRow(ctx, x, y, rowH, tr('settings.gameZoom'), this.gameZoom, (v) => {
       this.gameZoom = v;
     });
-    y = this.drawZoomSliderRow(ctx, x, y, rowH, 'GUI / Menu Zoom', this.uiZoom, (v) => {
+    y = this.drawZoomSliderRow(ctx, x, y, rowH, tr('settings.uiZoom'), this.uiZoom, (v) => {
       this.uiZoom = v;
     });
 
     ctx.font = gameFont(16);
     ctx.textAlign = 'center';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.75);
-    ctx.fillText('Text uses Poiret One. Opened menus decode from BJ Cree syllabics.', cx, y + 36);
+    ctx.fillText(tr('settings.fontNote'), cx, y + 36);
 
     this.drawDiscordButton(ctx, cx, y + 86);
 
     this.drawButtonRow(ctx, [
-      { label: 'Back', action: () => this.setState('title'), emphasis: true },
+      { label: tr('common.back'), action: () => this.setState('title'), emphasis: true },
     ], cx, h - 70);
   }
 
@@ -1132,12 +1144,12 @@ export class MainMenu {
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold 22px "Poiret One", sans-serif';
+    ctx.font = 'bold 22px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('JOIN THE SIGN99 DISCORD', cx, y - 7);
-    ctx.font = '14px "Poiret One", sans-serif';
+    ctx.fillText(tr('settings.discord.title'), cx, y - 7);
+    ctx.font = '14px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
-    ctx.fillText('Community  •  Matches  •  Updates', cx, y + 17);
+    ctx.fillText(tr('settings.discord.subtitle'), cx, y + 17);
     ctx.restore();
 
     if (this.handleClick(rect)) {
@@ -1158,11 +1170,11 @@ export class MainMenu {
   private drawRankedHighScore(ctx: CanvasRenderingContext2D, cx: number, y: number): void {
     const best = this.readRankedHighScore();
     const pulse = 0.55 + 0.35 * Math.sin(this.animTime * 3.6);
-    const label = `HIGHEST SCORE  ${best}`;
+    const label = tr('vsai.highestScore', { score: best });
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = 'bold 22px "Poiret One", sans-serif';
+    ctx.font = 'bold 22px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.shadowColor = colorToCSS(Colors.alert2, 0.85);
     ctx.shadowBlur = 16 + 10 * pulse;
     const grad = ctx.createLinearGradient(cx - 170, y, cx + 170, y);
@@ -1203,11 +1215,11 @@ export class MainMenu {
     const t = rank / 3000;
     const knobX = sx + t * sw;
 
-    ctx.font = 'bold 21px "Poiret One", sans-serif';
+    ctx.font = 'bold 21px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.95);
-    ctx.fillText('AI RANK', x, trackY);
+    ctx.fillText(tr('vsai.aiRankTrack'), x, trackY);
 
     const grad = ctx.createLinearGradient(sx, trackY, sx + sw, trackY);
     grad.addColorStop(0, colorToCSS(Colors.radar_friendly_status, 0.75));
@@ -1223,11 +1235,11 @@ export class MainMenu {
     ctx.arc(knobX, trackY, 9, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.font = 'bold 24px "Poiret One", sans-serif';
+    ctx.font = 'bold 24px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.textAlign = 'left';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.95);
     ctx.fillText(`${rank}`, sx + sw + 18, trackY - 8);
-    ctx.font = '15px "Poiret One", sans-serif';
+    ctx.font = '15px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.78);
     ctx.fillText(`${rankedDifficultyName(rank)} / ${rankedApm(rank)} APM`, sx + sw + 18, trackY + 16);
 
@@ -1337,7 +1349,7 @@ export class MainMenu {
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-      ctx.font = '18px "Poiret One", sans-serif';
+      ctx.font = '18px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.95);
     const text = fmt ? fmt(value) : String(value);
     ctx.fillText(text, bodyRect.x + bodyRect.w / 2, y);
@@ -1410,7 +1422,7 @@ export class MainMenu {
     ctx.restore();
 
     // Value
-    ctx.font = '16px "Poiret One", sans-serif';
+    ctx.font = '16px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.85);
@@ -1522,7 +1534,7 @@ export class MainMenu {
   private drawRowLabel(
     ctx: CanvasRenderingContext2D, x: number, y: number, label: string,
   ): void {
-    ctx.font = '17px "Poiret One", sans-serif';
+    ctx.font = '17px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = colorToCSS(TextColors.normal, 0.9);
@@ -1535,7 +1547,7 @@ export class MainMenu {
     const hovered = pointInRect(this.mouseX(), this.mouseY(), rect);
     this.drawControlWell(ctx, rect, hovered, hovered ? 0.8 : 0);
 
-    ctx.font = '18px "Poiret One", sans-serif';
+    ctx.font = '18px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = colorToCSS(
@@ -1586,7 +1598,7 @@ export class MainMenu {
       ctx.lineWidth = 1;
       ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, rect.w - 1, rect.h - 1);
 
-      ctx.font = 'bold 14px "Poiret One", sans-serif';
+      ctx.font = 'bold 14px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = colorToCSS(TextColors.normal, hovered ? 1.0 : 0.85);
@@ -1857,7 +1869,7 @@ export class MainMenu {
       }
     });
     this.drawButtonRow(ctx, [
-      { label: 'Back', action: () => this.setState('lan_type') },
+      { label: tr('common.back'), action: () => this.setState('lan_type') },
       { label: 'Join Manually', action: () => this.setState('lan_join') },
       { label: 'Refresh LAN Games', emphasis: true, action: () => { void this.refreshLanDiscovery(); } },
     ], cx, h - 56);
@@ -1952,7 +1964,7 @@ export class MainMenu {
 
     // Buttons
     this.drawButtonRow(ctx, [
-      { label: 'Back', action: () => {
+      { label: tr('common.back'), action: () => {
         this.lanClient.disconnect();
         this.setState('lan_type');
       }},
@@ -2307,7 +2319,7 @@ export class MainMenu {
    * Returns the pending online (WebRTC) match-start data for game.ts to consume.
    * Also clears the stored reference so it is not double-consumed.
    */
-  takePendingOnlineMatchStart(): { transport: WebRtcTransport; matchStart: MsgMatchStart } | null {
+  takePendingOnlineMatchStart(): { transport: MultiplayerTransport; matchStart: MsgMatchStart } | null {
     const m = this._pendingOnlineMatchStart;
     this._pendingOnlineMatchStart = null;
     return m;
@@ -2402,7 +2414,7 @@ export class MainMenu {
 
     this.drawButtonRow(ctx, [
       { label: 'LAN Multiplayer Instead', action: () => this.setState('lan_type') },
-      { label: 'Back', action: () => this.setState('play') },
+      { label: tr('common.back'), action: () => this.setState('play') },
     ], cx, h - 56);
   }
 
@@ -2742,7 +2754,7 @@ export class MainMenu {
           this.joinOnlineGame(this._onlineRoomCode);
         },
       },
-      { label: 'Back', action: () => this.setState('online_multiplayer') },
+      { label: tr('common.back'), action: () => this.setState('online_multiplayer') },
     ], cx, h - 56);
   }
 
@@ -2817,35 +2829,17 @@ export class MainMenu {
 // ---------------------------------------------------------------------------
 
 function visualQualityLabel(v: VisualQuality): string {
-  switch (v) {
-    case 'ultraLow': return 'Ultra Low';
-    case 'low':    return 'Low';
-    case 'medium': return 'Medium';
-    case 'high':   return 'High';
-  }
+  return tr(`enum.quality.${v}`);
 }
 
 function researchUnlockLabel(v: ResearchUnlock): string {
-  switch (v) {
-    case 'none':          return 'None';
-    case 'basic_turrets': return 'Basic Turrets';
-    case 'all_turrets':   return 'All Turrets';
-    case 'full_tech':     return 'Full Tech';
-  }
+  return tr(`enum.research.${v}`);
 }
 
 function victoryLabel(v: VictoryCondition): string {
-  switch (v) {
-    case 'destroy_cp':     return 'Destroy Enemy CP';
-    case 'survive_waves':  return 'Survive Waves';
-    case 'sandbox':        return 'Sandbox';
-  }
+  return tr(`enum.victory.${v}`);
 }
 
 function defeatLabel(v: DefeatCondition): string {
-  switch (v) {
-    case 'cp_destroyed':   return 'CP Destroyed';
-    case 'ship_and_no_cp': return 'Ship + No CP';
-    case 'disabled':       return 'Disabled';
-  }
+  return tr(`enum.defeat.${v}`);
 }

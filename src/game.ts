@@ -52,7 +52,7 @@ import {
 } from './gameRender.js';
 import { renderBudget } from './renderBudget.js';
 import type { NetInputSnapshot, NetGameSnapshot } from './net/protocol.js';
-import type { WebRtcTransport } from './online/webrtcTransport.js';
+import type { MultiplayerTransport } from './net/transport.js';
 import { findClosestEnemy } from './combatUtils.js';
 import { injectFluidForces } from './fluidForces.js';
 import { injectCrystalDisturbances } from './fluidForces.js';
@@ -180,7 +180,7 @@ export class Game {
   // LAN multiplayer
   private lanClient: LanClient | null = null;
   /** Active online (WebRTC) transport, set when an online match is running. */
-  private onlineTransport: WebRtcTransport | null = null;
+  private onlineTransport: MultiplayerTransport | null = null;
   /** Slot assigned to this client (0 = host). */
   private lanMySlot: number = 0;
   /** Snapshot sequence counter for outgoing snapshots. */
@@ -1513,7 +1513,7 @@ export class Game {
    * transport callbacks instead of LAN client callbacks.
    */
   private startOnlineGame(
-    transport: WebRtcTransport,
+    transport: MultiplayerTransport,
     matchStart: MsgMatchStart,
     isHost: boolean,
   ): void {
@@ -2348,7 +2348,7 @@ export class Game {
   }
 
   private drawPracticeHUD(ctx: CanvasRenderingContext2D, _w: number, h: number): void {
-    ctx.font = '12px "Poiret One", sans-serif';
+    ctx.font = '12px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.7);

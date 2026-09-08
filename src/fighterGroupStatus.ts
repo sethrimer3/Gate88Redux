@@ -486,7 +486,7 @@ export class FighterGroupStatusUI {
       const countColor = entry.alive === 0
         ? colorToCSS(Colors.alert1, 0.75 * alpha)
         : colorToCSS(Colors.general_building, 0.82 * alpha);
-      ctx.font = '9px "Poiret One", sans-serif';
+      ctx.font = '9px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
       ctx.fillStyle = countColor;
@@ -503,7 +503,7 @@ export class FighterGroupStatusUI {
       // Numbered group: draw the group number as text
       const groupColors = [Colors.redgroup, Colors.greengroup, Colors.bluegroup];
       const groupColor = groupColors[groupNum] ?? Colors.general_building;
-      ctx.font = `bold 11px "Poiret One", sans-serif`;
+      ctx.font = `bold 11px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = colorToCSS(groupColor, 0.92 * alpha);

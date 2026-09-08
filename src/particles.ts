@@ -675,7 +675,7 @@ export class ParticleSystem {
       ctx.save();
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.font = `bold ${Math.max(12, 16 * camera.zoom)}px "Poiret One", sans-serif`;
+      ctx.font = `bold ${Math.max(12, 16 * camera.zoom)}px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif`;
       for (const ft of this.floatingTexts) {
         const alpha = Math.max(0, Math.min(1, ft.life / ft.maxLife));
         const screen = camera.worldToScreen(ft.pos);

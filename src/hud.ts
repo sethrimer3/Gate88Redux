@@ -2,6 +2,7 @@
 
 import { Colors, colorToCSS, Color } from './colors.js';
 import { gameFont, menuFont } from './fonts.js';
+import { t as tr } from './i18n.js';
 
 // ---------------------------------------------------------------------------
 // HUD message
@@ -98,7 +99,7 @@ export class HUD {
   draw(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
     if (this.messages.length === 0) return;
 
-    ctx.font = `${HUD_FONT_SIZE}px "Poiret One", sans-serif`;
+    ctx.font = `${HUD_FONT_SIZE}px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
@@ -140,7 +141,7 @@ export class HUD {
   drawAIChat(ctx: CanvasRenderingContext2D, screenW: number, screenH: number): void {
     if (this.chatEntries.length === 0) return;
 
-    ctx.font = `${CHAT_FONT_SIZE}px "Poiret One", sans-serif`;
+    ctx.font = `${CHAT_FONT_SIZE}px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif`;
     ctx.textBaseline = 'bottom';
     ctx.textAlign = 'right';
 
@@ -199,7 +200,7 @@ export class HUD {
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.68);
-    ctx.fillText(`(+${Math.round(incomePerSecond)}/sec)`, screenW - 10, screenH - 44);
+    ctx.fillText(tr('hud.income', { n: Math.round(incomePerSecond) }), screenW - 10, screenH - 44);
     const symbol = options.currencySymbol ?? '$';
     const amount = Math.floor(resources);
     ctx.shadowColor = HUD_GOLD + '0.55)';
@@ -275,16 +276,16 @@ export class HUD {
     if (labelAlpha > 0.04) {
       ctx.save();
       ctx.globalAlpha *= labelAlpha;
-      ctx.font = `${Math.floor(HUD_FONT_SIZE * 0.5)}px "Poiret One", sans-serif`;
+      ctx.font = `${Math.floor(HUD_FONT_SIZE * 0.5)}px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif`;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'bottom';
       ctx.fillStyle = labelColor;
-      ctx.fillText('ENERGY', x, energyY - 8);
+      ctx.fillText(tr('hud.energy'), x, energyY - 8);
       ctx.fillStyle = colorToCSS(Colors.healthbar, 0.9);
-      ctx.fillText('HP', x, hpBarY - 6);
+      ctx.fillText(tr('hud.hp'), x, hpBarY - 6);
       if (maxShield > 0) {
         ctx.fillStyle = colorToCSS(Colors.radar_allied_status, 0.86);
-        ctx.fillText('SHIELD', x, shieldBarY - 6);
+        ctx.fillText(tr('hud.shield'), x, shieldBarY - 6);
       }
       ctx.restore();
     }
@@ -330,14 +331,14 @@ export class HUD {
     const x = 10;
     const y = screenH - 142;
     const flash = 0.5 + 0.5 * Math.sin(this.animTime * 5);
-    ctx.font = `${HUD_FONT_SIZE}px "Poiret One", sans-serif`;
+    ctx.font = `${HUD_FONT_SIZE}px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.5 + 0.5 * flash);
     const label =
       unpoweredCount === 1
-        ? '1 building unpowered'
-        : `${unpoweredCount} buildings unpowered`;
+        ? tr('hud.buildingUnpowered', { count: unpoweredCount })
+        : tr('hud.buildingsUnpowered', { count: unpoweredCount });
     ctx.fillText(`⚠ ${label}`, x, y);
   }
 
@@ -353,11 +354,11 @@ export class HUD {
     const x = 242;
     const y = screenH - 24;
     const frac = Math.max(0, Math.min(1, current.progress / Math.max(0.001, current.timeNeeded)));
-    ctx.font = `${Math.floor(HUD_FONT_SIZE * 0.5)}px "Poiret One", sans-serif`;
+    ctx.font = `${Math.floor(HUD_FONT_SIZE * 0.5)}px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = colorToCSS(Colors.researchlab_detail, 0.75);
-    ctx.fillText('RESEARCH', x, y - barH - 8);
+    ctx.fillText(tr('hud.research'), x, y - barH - 8);
     const grad = ctx.createLinearGradient(x, 0, x + barW, 0);
     grad.addColorStop(0, colorToCSS(Colors.researchlab_detail, 0.58));
     grad.addColorStop(1, colorToCSS(Colors.radar_friendly_status, 0.88));

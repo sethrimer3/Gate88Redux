@@ -44,7 +44,7 @@ const DESC_BOX_GAP = 10;
 const DESC_BOX_PAD_X = 10;
 const DESC_BOX_PAD_Y = 8;
 const DESC_BOX_LINE_H = 16;
-const DESC_BOX_FONT = '13px "Poiret One", sans-serif';
+const DESC_BOX_FONT = '13px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
 
 /**
  * Short descriptions shown in the tooltip box for each research item.
@@ -162,10 +162,10 @@ function drawMenuBanner(
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'top';
-  ctx.font = '20px "Poiret One", sans-serif';
+  ctx.font = '20px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
   ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.9);
   drawDecodedText(ctx, primary, screenW * 0.5, y + 7, 20, openedAt, 'center');
-  ctx.font = '15px "Poiret One", sans-serif';
+  ctx.font = '15px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
   ctx.fillStyle = colorToCSS(Colors.general_building, 0.68);
   drawDecodedText(ctx, secondary, screenW * 0.5, y + 34, 15, openedAt, 'center');
   ctx.restore();
@@ -695,17 +695,17 @@ class HoldMenu {
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '15px "Poiret One", sans-serif';
+    ctx.font = '15px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.9);
     ctx.fillText(this.title, cx, cy - (this.stack.length > 1 ? 7 : 0));
     if (this.stack.length > 1) {
-      ctx.font = '8px "Poiret One", sans-serif';
+      ctx.font = '8px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
       ctx.fillText('RMB=back', cx, cy + 9);
     }
 
     if (items.length === 0) {
-      ctx.font = '10px "Poiret One", sans-serif';
+      ctx.font = '10px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
       ctx.fillText('(nothing available)', cx, cy - 75);
       return;
@@ -733,7 +733,7 @@ class HoldMenu {
       drawMenuOrb(ctx, ix, iy, ITEM_CIRCLE_R, hovered, !!item.disabled);
 
       // Label (split on '\n').
-      ctx.font = '10px "Poiret One", sans-serif';
+      ctx.font = '10px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = item.disabled
@@ -754,7 +754,7 @@ class HoldMenu {
       }
 
       if (item.sublabel) {
-        ctx.font = usesSynonymousSymbol(item.sublabel) ? `9px ${MENU_CANVAS_FONT}` : '9px "Poiret One", sans-serif';
+        ctx.font = usesSynonymousSymbol(item.sublabel) ? `9px ${MENU_CANVAS_FONT}` : '9px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
         ctx.fillStyle = item.disabled
           ? colorToCSS(Colors.radar_gridlines, 0.3)
           : hovered
@@ -765,7 +765,7 @@ class HoldMenu {
 
       // Sub-menu arrow indicator.
       if (item.children && item.children.length > 0) {
-        ctx.font = '10px "Poiret One", sans-serif';
+        ctx.font = '10px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
         ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.6);
         ctx.fillText('▸', ix + ITEM_CIRCLE_R - 13, iy - ITEM_CIRCLE_R + 15);
       }
@@ -884,7 +884,7 @@ class PaintMenu {
     state.grid.drawPaintCursor(ctx, camera, cell, mode);
 
     // Top-of-screen hint banner.
-    ctx.font = '12px "Poiret One", sans-serif';
+    ctx.font = '12px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.85);
@@ -894,7 +894,7 @@ class PaintMenu {
       24,
     );
     // Conduit count for feedback.
-    ctx.font = '15px "Poiret One", sans-serif';
+    ctx.font = '15px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.6);
     ctx.fillText(
       `conduits: ${state.grid.conduitCount()}  •  queued: ${state.grid.pendingConduitCount()}  •  cell ${cell.cx},${cell.cy}  •  resources: $${Math.floor(state.resources)}`,
@@ -1064,17 +1064,17 @@ class LeftHoldMenu {
     fillMenuPanel(ctx, x, y, w, panelH);
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.font = '21px "Poiret One", sans-serif';
+    ctx.font = '21px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.95);
     drawDecodedText(ctx, this.title, x + 18, y + 34, 21, this.openedAt);
     if (this.stack.length > 1) {
-      ctx.font = '15px "Poiret One", sans-serif';
+      ctx.font = '15px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
       ctx.fillText('RMB back', x + w - 104, y + 22);
     }
 
     if (items.length === 0) {
-      ctx.font = '15px "Poiret One", sans-serif';
+      ctx.font = '15px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.55);
       ctx.fillText('(nothing available)', x + 12, y + headerH);
       ctx.restore();
@@ -1087,7 +1087,7 @@ class LeftHoldMenu {
       const active = i === this.selectedIdx || i === this.hoveredIdx;
       this.rowRects.push({ index: i, x: x + 10, y: rowY, w: w - 20, h: rowH });
       drawMenuRow(ctx, x + 10, rowY, w - 20, rowH, active, !!item.disabled);
-      ctx.font = '15px "Poiret One", sans-serif';
+      ctx.font = '15px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = item.disabled
@@ -1098,7 +1098,7 @@ class LeftHoldMenu {
       drawDecodedText(ctx, item.label.replace(/\n/g, ' '), x + 20, rowY + rowH * 0.5, 15, this.openedAt);
       ctx.textAlign = 'right';
       if (item.sublabel) {
-        ctx.font = usesSynonymousSymbol(item.sublabel) ? `18px ${MENU_CANVAS_FONT}` : '18px "Poiret One", sans-serif';
+        ctx.font = usesSynonymousSymbol(item.sublabel) ? `18px ${MENU_CANVAS_FONT}` : '18px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
         ctx.fillStyle = item.disabled
           ? colorToCSS(item.infoOnly ? Colors.radar_gridlines : Colors.alert1, item.infoOnly ? 0.55 : 0.9)
           : active
@@ -1170,7 +1170,7 @@ class LeftHoldMenu {
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.62);
-      ctx.font = '15px "Poiret One", sans-serif';
+      ctx.font = '15px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
       ctx.fillText(entry.active ? 'active' : 'cancel', x + w - 18, rowY + rowH * 0.5);
       ctx.textAlign = 'left';
       ctx.textBaseline = 'top';
@@ -1274,7 +1274,7 @@ class ShipMenu {
 
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.font = '20px "Poiret One", sans-serif';
+    ctx.font = '20px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.general_building, 0.95);
     drawDecodedText(ctx, '[Z] Ship', x + 12, y + 12, 20, this.openedAt);
 
@@ -1294,7 +1294,7 @@ class ShipMenu {
         ? `Nanobots ${state.synonymous.getUnallocatedCount(Team.Player)} ${SYNONYMOUS_CURRENCY_SYMBOL}`
         : `Resources $${Math.floor(state.resources)}`,
     ];
-    ctx.font = '16px "Poiret One", sans-serif';
+    ctx.font = '16px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     for (let i = 0; i < stats.length; i++) {
       const sy = statsY + i * 18;
       drawMenuRow(ctx, x + 10, sy - 2, panelW - 20, 16, false, false);
@@ -1303,7 +1303,7 @@ class ShipMenu {
     }
 
     const upgradeY = statsY + stats.length * 18 + 12;
-    ctx.font = '18px "Poiret One", sans-serif';
+    ctx.font = '18px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
     drawDecodedText(ctx, 'Upgrades', x + 12, upgradeY, 18, this.openedAt);
     const upgrades = [
@@ -1323,7 +1323,7 @@ class ShipMenu {
           ]),
     ] as Array<[string, string]>;
     const unlockedUpgrades = upgrades.filter(([, key]) => state.researchedItems.has(key));
-    ctx.font = '16px "Poiret One", sans-serif';
+    ctx.font = '16px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     if (unlockedUpgrades.length === 0) {
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.7);
       drawDecodedText(ctx, 'No upgrades unlocked', x + 12, upgradeY + 26, 16, this.openedAt);
@@ -1338,7 +1338,7 @@ class ShipMenu {
     }
 
     const weaponsY = upgradeY + 38 + Math.max(1, unlockedUpgrades.length) * 17;
-    ctx.font = '18px "Poiret One", sans-serif';
+    ctx.font = '18px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.fillStyle = colorToCSS(Colors.alert2, 0.85);
     drawDecodedText(ctx, 'Weapons', x + 12, weaponsY, 18, this.openedAt);
     const factionWeapons = SHIP_WEAPON_OPTIONS.filter((w) =>
@@ -1352,17 +1352,17 @@ class ShipMenu {
       const unlocked = this.weaponUnlocked(state, weapon.id);
       this.weaponRects.push({ id: weapon.id, x: x + 10, y: wy, w: panelW - 20, h: rowH });
       drawMenuRow(ctx, x + 10, wy, panelW - 20, rowH, selected, !unlocked);
-      ctx.font = '16px "Poiret One", sans-serif';
+      ctx.font = '16px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
       ctx.fillStyle = unlocked ? colorToCSS(Colors.general_building, 0.95) : colorToCSS(Colors.radar_gridlines, 0.48);
       drawDecodedText(ctx, weapon.label, x + 20, wy + 7, 16, this.openedAt);
       if (rowH >= 42) {
-        ctx.font = '14px "Poiret One", sans-serif';
+        ctx.font = '14px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
         ctx.fillStyle = unlocked ? colorToCSS(Colors.radar_gridlines, 0.78) : colorToCSS(Colors.radar_gridlines, 0.44);
         drawDecodedText(ctx, unlocked ? weapon.description : 'Research required', x + 20, wy + 29, 14, this.openedAt);
       }
     }
 
-    ctx.font = '14px "Poiret One", sans-serif';
+    ctx.font = '14px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.7);
     drawDecodedText(ctx, 'click or mouse wheel changes weapon', x + panelW * 0.5, y + panelH - 18, 14, this.openedAt, 'center');
@@ -1847,14 +1847,14 @@ class QuickBuildMenu {
       ctx.restore();
     }
 
-    ctx.font = '10px "Poiret One", sans-serif';
+    ctx.font = '10px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
     ctx.fillStyle = color;
     const buildLabel = isPlayerSynonymous(state) && def.key === 'bomberyard' ? 'Nova Bombers' : def.label;
     ctx.fillText(`${buildLabel} ${def.footprintCells}x${def.footprintCells}`, screen.x, screen.y - sizePx / 2 - 4);
     if (!status.valid) {
-      ctx.font = '20px "Poiret One", sans-serif';
+      ctx.font = '20px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
       ctx.textBaseline = 'top';
       ctx.fillText(status.reason, screen.x, screen.y + sizePx / 2 + 4);
     }
@@ -1894,7 +1894,7 @@ class QuickBuildMenu {
     const contentH = palette.reduce((sum, item) => sum + (item.type === 'header' ? headerH : itemH) + gap, 0);
     const panelH = Math.max(1, contentH) + 12;
     fillMenuPanel(ctx, x - 8, y0 - 10, w + 16, panelH);
-    ctx.font = '15px "Poiret One", sans-serif';
+    ctx.font = '15px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     let y = y0;
@@ -1921,10 +1921,10 @@ class QuickBuildMenu {
       drawDecodedText(ctx, label, x + 8, y + itemH * 0.5, 15, this.openedAt);
       ctx.textAlign = 'right';
       const price = item.type === 'shape' ? 'free' : formatCost(cost, state);
-      ctx.font = usesSynonymousSymbol(price) ? `15px ${MENU_CANVAS_FONT}` : '15px "Poiret One", sans-serif';
+      ctx.font = usesSynonymousSymbol(price) ? `15px ${MENU_CANVAS_FONT}` : '15px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
       if (usesSynonymousSymbol(price)) ctx.fillText(price, x + w - 8, y + itemH * 0.5);
       else drawDecodedText(ctx, price, x + w - 8, y + itemH * 0.5, 15, this.openedAt, 'right');
-      ctx.font = '15px "Poiret One", sans-serif';
+      ctx.font = '15px "Poiret One", "Noto Sans", "Noto Sans CJK SC", "Noto Sans CJK JP", "Microsoft YaHei", "PingFang SC", "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", "Segoe UI", sans-serif';
       ctx.textAlign = 'left';
       y += itemH + gap;
     }
