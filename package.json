@@ -1,7 +1,7 @@
 {
   "name": "sign99rts",
   "version": "1.0.0",
-  "description": "Sign99RTS - HTML5/TypeScript port of the 2005 game by Jonathan Mak",
+  "description": "Sign99RTS - RTS space-battles game, lightly inspired by Gate 88, the 2005 RTS by Jonathan Mak",
   "type": "module",
   "scripts": {
     "dev": "vite",
