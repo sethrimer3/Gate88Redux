@@ -1057,12 +1057,17 @@ export class GameState {
       this.ringEffects.spawn('build_complete_wave', new Vec2((first.cx + 0.5) * GRID_CELL_SIZE, (first.cy + 0.5) * GRID_CELL_SIZE), 8, 70, 0.55, 0.55);
     }
     let nearestDist = Infinity;
+    let nearestPos = this.player.position;
     for (const { cx, cy } of ready) {
       const x = (cx + 0.5) * GRID_CELL_SIZE;
       const y = (cy + 0.5) * GRID_CELL_SIZE;
-      nearestDist = Math.min(nearestDist, Math.hypot(this.player.position.x - x, this.player.position.y - y));
+      const d = Math.hypot(this.player.position.x - x, this.player.position.y - y);
+      if (d < nearestDist) {
+        nearestDist = d;
+        nearestPos = new Vec2(x, y);
+      }
     }
-    Audio.playSoundAt('build', nearestDist);
+    Audio.playSoundAt('build', nearestPos);
   }
 
   private tickAdvancedRegenConduitRepair(dt: number): void {
@@ -1073,6 +1078,7 @@ export class GameState {
 
     let repaired = 0;
     let nearestRepairDist = Infinity;
+    let nearestRepairPos = this.player.position;
     for (const b of this.buildings) {
       if (!b.alive || b.team !== Team.Player || !(b instanceof TurretBase)) continue;
       if (b.type !== EntityType.RegenTurret || b.buildProgress < 1 || !b.powered) continue;
@@ -1082,7 +1088,11 @@ export class GameState {
       conduit.erased = true;
       repaired++;
       const pos = new Vec2((conduit.cx + 0.5) * GRID_CELL_SIZE, (conduit.cy + 0.5) * GRID_CELL_SIZE);
-      nearestRepairDist = Math.min(nearestRepairDist, this.player.position.distanceTo(pos));
+      const repairDist = this.player.position.distanceTo(pos);
+      if (repairDist < nearestRepairDist) {
+        nearestRepairDist = repairDist;
+        nearestRepairPos = pos;
+      }
       b.turretAngle = b.position.angleTo(pos);
       b.showBeam(pos);
       this.particles.emitHealing(pos);
@@ -1091,7 +1101,7 @@ export class GameState {
     if (repaired === 0) return;
     compactKeep(this.destroyedConduits, (c) => !c.erased);
     this.power.markDirty();
-    Audio.playSoundAt('build', nearestRepairDist);
+    Audio.playSoundAt('build', nearestRepairPos);
   }
 
   private findDestroyedConduitForRegenTurret(turret: TurretBase): DestroyedConduitRecord | null {
@@ -1161,7 +1171,6 @@ export class GameState {
       const hitAngle = Math.atan2(proj.velocity.y, proj.velocity.x);
       this.emitBuildingDamageSparks(target, proj.position);
       this.particles.emitImpact(target.position, hitAngle);
-      const playerDist = this.player.position.distanceTo(target.position);
       Audio.playSoundAt('bhit0', target.position);
     }
   }
@@ -1194,8 +1203,7 @@ export class GameState {
     this.pendingCrystalExplosions.push({ x: pos.x, y: pos.y, radius: blastRadius * 1.6 });
     // Larger blasts contribute more shake
     this.pendingShakeMagnitude = Math.min(Camera.MAX_SHAKE, this.pendingShakeMagnitude + Math.min(7, blastRadius * 0.07));
-    const playerDist = this.player.position.distanceTo(pos);
-    Audio.playSoundAt(blastRadius > 70 ? 'explode2' : 'explode1', playerDist);
+    Audio.playSoundAt(blastRadius > 70 ? 'explode2' : 'explode1', pos);
   }
 
   private spawnExplosionGlow(pos: Vec2, blastRadius: number): void {
@@ -1341,7 +1349,7 @@ export class GameState {
       else this.emitBuildingDamageSparks(e, proj.position);
     }
     this.ringEffects.spawn('shockwave', proj.position.clone(), radius * 0.35, radius, 0.22, 1.1);
-    Audio.playSoundAt('explode1', this.player.position.distanceTo(proj.position));
+    Audio.playSoundAt('explode1', proj.position);
   }
 
   private applyAdvancedFighterHazardAvoidance(fighter: FighterShip, dt: number): void {

@@ -307,7 +307,7 @@ export class CrossLaserMine extends ProjectileBase {
     this.burstTimer = 0;
     this.fireBurstStep();
 
-    Audio.playSound('fire');
+    Audio.playSoundAt('fire', this.position, 1400);
 
     // Zero the blast radius so the game loop does NOT emit a second explosion
     // when it detects the mine has died (only the missile should explode).

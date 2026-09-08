@@ -50,7 +50,7 @@ export interface SteamTransportConfig {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-function frame(type: number, obj: unknown): number[] {
+export function frame(type: number, obj: unknown): number[] {
   const body = encoder.encode(JSON.stringify(obj));
   const out = new Array<number>(body.length + 1);
   out[0] = type;
@@ -58,7 +58,9 @@ function frame(type: number, obj: unknown): number[] {
   return out;
 }
 
-function unframe(bytes: number[]): { type: number; obj: unknown } | null {
+export const STEAM_MSG = { input: MSG_INPUT, snapshot: MSG_SNAPSHOT, control: MSG_CONTROL } as const;
+
+export function unframe(bytes: number[]): { type: number; obj: unknown } | null {
   if (bytes.length < 1) return null;
   const type = bytes[0];
   try {

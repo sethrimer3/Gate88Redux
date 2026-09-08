@@ -616,7 +616,10 @@ export class Game {
     this.distantSuns.update(DT);
 
     // Camera follows the living ship, or the ghost spectator while dead.
-    this.camera.update(this.playerRespawn.ghostPos ?? this.state.player.position, DT);
+    const listenPos = this.playerRespawn.ghostPos ?? this.state.player.position;
+    this.camera.update(listenPos, DT);
+    // Sound effects are panned/dampened relative to where the player hears from.
+    Audio.setListener(listenPos.x, listenPos.y);
 
     // Drain accumulated shake requests from the game state and apply to camera
     // if the current quality preset has camera shake enabled.

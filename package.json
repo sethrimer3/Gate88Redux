@@ -13,7 +13,9 @@
     "typecheck": "npx tsc --noEmit",
     "typecheck:server": "npx tsc --project tsconfig.server.json --noEmit",
     "lan:server": "tsx server/lanServer.ts",
-    "dev:lan": "concurrently \"npm run dev\" \"npm run lan:server\""
+    "dev:lan": "concurrently \"npm run dev\" \"npm run lan:server\"",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

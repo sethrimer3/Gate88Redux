@@ -409,10 +409,15 @@ class AudioManager {
    *                for legacy callers (distance-only culling, no panning).
    * @param maxDist - Maximum audible distance (default 800).
    */
-  playSoundAt(name: SoundName, at: SoundPosition | number, maxDist: number = 800): void {
+  playSoundAt(
+    name: SoundName,
+    at: SoundPosition | number,
+    maxDist: number = 800,
+    volumeScale: number = 1,
+  ): void {
     const spatial = this.resolveSpatial(at, maxDist);
     if (!spatial) return;
-    this.playSound(name, 1, spatial);
+    this.playSound(name, volumeScale, spatial);
   }
 
   playLimitedSoundAt(

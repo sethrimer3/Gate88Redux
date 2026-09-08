@@ -62,7 +62,7 @@ export function updateFighterWeaponFire(state: GameState, spaceFluid: SpaceFluid
       f.consumeShot(f.fireRate);
       state.addEntity(new SwarmFighterLaser(f.team, f.position.clone(), end, f));
       damageLaserLineLimited(state, spaceFluid, f.position.clone(), end, f.weaponDamage, 1, 1, f);
-      Audio.playSound('laser', 1 / 3);
+      Audio.playSoundAt('laser', f.position, 1400, 1 / 3);
       recordCombatAimSample({
         shooterId: f.id,
         targetId: target.id,
@@ -94,14 +94,14 @@ export function updateFighterWeaponFire(state: GameState, spaceFluid: SpaceFluid
           f.team, f.position.clone(), novaFireAngle,
           charged.aoeRadius, charged.damage, charged.travel, f,
         ));
-        Audio.playSound('laser');
+        Audio.playSoundAt('laser', f.position, 1400);
       } else {
         f.beginNovaCharge(target.position);
       }
     } else if (f instanceof BomberShip) {
       f.consumeShot(WEAPON_STATS.bigmissile.fireRate);
       state.addEntity(new BomberMissile(f.team, f.position.clone(), angle, f));
-      Audio.playSound('missile');
+      Audio.playSoundAt('missile', f.position, 1400);
     } else if (f instanceof SynonymousFighterShip) {
       f.markCombatSplit();
       f.consumeShot(f.fireRate);
@@ -112,7 +112,7 @@ export function updateFighterWeaponFire(state: GameState, spaceFluid: SpaceFluid
         state.addEntity(new SynonymousDroneLaser(f.team, start, end, f));
         damageLaserLineLimited(state, spaceFluid, start, end, f.weaponDamage, 3, 2, f);
       }
-      Audio.playSound('laser');
+      Audio.playSoundAt('laser', f.position, 1400);
     } else {
       f.consumeShot(WEAPON_STATS.fire.fireRate);
       const bullet = new Bullet(f.team, f.position.clone(), angle, f, target);
