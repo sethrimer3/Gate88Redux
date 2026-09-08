@@ -1,5 +1,5 @@
 /**
- * Crystal Nebula Clouds for Gate88.
+ * Crystal Nebula Clouds for Sign99.
  *
  * Lightweight, pooled, viewport-aware particle-field system that sits between
  * the baked nebula/starfield and the gameplay layer.  Ships, projectiles, and

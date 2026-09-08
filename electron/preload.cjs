@@ -1,5 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('gate88Lan', {
-  ensureHelper: () => ipcRenderer.invoke('gate88:ensure-lan-helper'),
+contextBridge.exposeInMainWorld('sign99Lan', {
+  ensureHelper: () => ipcRenderer.invoke('sign99:ensure-lan-helper'),
 });

@@ -248,7 +248,7 @@ export const VISUAL_QUALITY_PRESETS: Record<VisualQuality, VisualQualityPreset> 
 
 export const DEFAULT_VISUAL_QUALITY: VisualQuality = 'high';
 
-const VISUAL_QUALITY_STORAGE_KEY = 'gate88_visual_quality';
+const VISUAL_QUALITY_STORAGE_KEY = 'sign99_visual_quality';
 
 /** Load the persisted visual quality from localStorage, falling back to the default. */
 export function loadVisualQuality(): VisualQuality {

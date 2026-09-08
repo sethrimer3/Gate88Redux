@@ -1,6 +1,6 @@
 export type CinematicLevel = -3 | -2 | -1 | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
-const CINEMATIC_LEVEL_STORAGE_KEY = 'gate88_cinematic_level';
+const CINEMATIC_LEVEL_STORAGE_KEY = 'sign99_cinematic_level';
 
 let cinematicLevel: CinematicLevel = 1;
 

@@ -1,5 +1,5 @@
 /**
- * Main menu, pause menu, and pre-match setup screens for Gate 88.
+ * Main menu, pause menu, and pre-match setup screens for Sign99.
  *
  * All menus are fully clickable: every visible menu element exposes a
  * hit rectangle, hovered items glow, clicked items pulse and play a
@@ -1134,7 +1134,7 @@ export class MainMenu {
     ctx.textBaseline = 'middle';
     ctx.font = 'bold 22px "Poiret One", sans-serif';
     ctx.fillStyle = '#ffffff';
-    ctx.fillText('JOIN THE GATE 88 DISCORD', cx, y - 7);
+    ctx.fillText('JOIN THE SIGN99 DISCORD', cx, y - 7);
     ctx.font = '14px "Poiret One", sans-serif';
     ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
     ctx.fillText('Community  •  Matches  •  Updates', cx, y + 17);
@@ -1609,7 +1609,7 @@ export class MainMenu {
     const helperAvailable = await this.checkLocalLanHelper();
     if (!helperAvailable) {
       this.lanClient.disconnect();
-      this.lanClient.lastError = 'LAN helper did not start. Close extra Gate88 windows, allow Node.js in Windows Firewall, then retry.';
+      this.lanClient.lastError = 'LAN helper did not start. Close extra Sign99 windows, allow Node.js in Windows Firewall, then retry.';
       return;
     }
     await this.resetLocalLanLobby();
@@ -1656,8 +1656,8 @@ export class MainMenu {
 
   private async ensureElectronLanHelper(): Promise<boolean> {
     const api = (window as Window & {
-      gate88Lan?: { ensureHelper?: () => Promise<{ ok?: boolean }> };
-    }).gate88Lan;
+      sign99Lan?: { ensureHelper?: () => Promise<{ ok?: boolean }> };
+    }).sign99Lan;
     if (!api?.ensureHelper) return false;
     try {
       const res = await api.ensureHelper();
@@ -1755,7 +1755,7 @@ export class MainMenu {
     if (st !== 'lobby') {
       ctx.font = gameFont(11);
       ctx.fillStyle = colorToCSS(Colors.radar_gridlines, 0.65);
-      ctx.fillText('Electron starts the LAN helper automatically. If this stays here, close extra Gate88 windows and retry.', cx, 118);
+      ctx.fillText('Electron starts the LAN helper automatically. If this stays here, close extra Sign99 windows and retry.', cx, 118);
     }
 
     // Slots table
@@ -1809,7 +1809,7 @@ export class MainMenu {
       this._discoveredLobbies = Array.isArray(data.lobbies) ? data.lobbies : [];
     } catch {
       this._discoveredLobbies = [];
-      this._lanDiscoveryError = 'Automatic LAN discovery could not reach the local Gate88 LAN helper. You can still enter the host URL manually.';
+      this._lanDiscoveryError = 'Automatic LAN discovery could not reach the local Sign99 LAN helper. You can still enter the host URL manually.';
     }
   }
 

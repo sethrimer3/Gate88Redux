@@ -1,5 +1,5 @@
 /**
- * Gate88Redux LAN WebSocket Server
+ * Sign99RTS LAN WebSocket Server
  *
  * Run with:  npm run lan:server
  *            (or tsx server/lanServer.ts)
@@ -180,7 +180,7 @@ setInterval(() => {
   const now = Date.now();
   for (const [clientId, client] of clients) {
     if (now - client.lastMessageAt > CLIENT_TIMEOUT_MS) {
-      console.log(`[Gate88 LAN] Client ${clientId} timed out (no message for ${CLIENT_TIMEOUT_MS / 1000}s)`);
+      console.log(`[Sign99 LAN] Client ${clientId} timed out (no message for ${CLIENT_TIMEOUT_MS / 1000}s)`);
       client.ws.terminate();
       handleClientDisconnect(clientId);
     }
@@ -193,7 +193,7 @@ setInterval(() => {
 
 const wss = new WebSocketServer({ port: PORT });
 
-console.log(`[Gate88 LAN] Server listening on ws://0.0.0.0:${PORT}`);
+console.log(`[Sign99 LAN] Server listening on ws://0.0.0.0:${PORT}`);
 
 const lanDiscovery = createLanDiscovery({
   lanPort: PORT,
@@ -215,7 +215,7 @@ function resetLobbyForFreshHost(): void {
   hostClientId = null;
   matchStarted = false;
   matchSeed = 0;
-  console.log('[Gate88 LAN] Local host requested a fresh lobby reset.');
+  console.log('[Sign99 LAN] Local host requested a fresh lobby reset.');
 }
 
 wss.on('connection', (ws: WebSocket) => {
@@ -241,7 +241,7 @@ wss.on('connection', (ws: WebSocket) => {
     send(ws, reject);
     ws.close();
     clients.delete(clientId);
-    console.log(`[Gate88 LAN] Late-join rejected: ${clientId}`);
+    console.log(`[Sign99 LAN] Late-join rejected: ${clientId}`);
     return;
   }
 
@@ -259,13 +259,13 @@ wss.on('connection', (ws: WebSocket) => {
       lobby: getLobbyState(),
     };
     send(ws, welcome);
-    console.log(`[Gate88 LAN] Host connected: ${clientId}`);
+    console.log(`[Sign99 LAN] Host connected: ${clientId}`);
   } else {
     // Non-host clients receive only their clientId first.
     // They must send join_request to get a slot and a welcome.
     const sc: MsgServerConnected = { type: 'server_connected', clientId };
     send(ws, sc);
-    console.log(`[Gate88 LAN] Client connected (awaiting join_request): ${clientId}`);
+    console.log(`[Sign99 LAN] Client connected (awaiting join_request): ${clientId}`);
   }
 
   // ---------------------------------------------------------------------------
@@ -318,7 +318,7 @@ wss.on('connection', (ws: WebSocket) => {
         };
         send(ws, welcome);
         broadcastLobbyUpdate();
-        console.log(`[Gate88 LAN] ${playerName} joined slot ${slotIdx}`);
+        console.log(`[Sign99 LAN] ${playerName} joined slot ${slotIdx}`);
         break;
       }
 
@@ -415,7 +415,7 @@ wss.on('connection', (ws: WebSocket) => {
         kickSlot.playerName = undefined;
         kickSlot.ready = false;
         clients.delete(kickedId);
-        console.log(`[Gate88 LAN] Host kicked client ${kickedId} from slot ${kickSlotIdx}`);
+        console.log(`[Sign99 LAN] Host kicked client ${kickedId} from slot ${kickSlotIdx}`);
         broadcastLobbyUpdate();
         break;
       }
@@ -453,7 +453,7 @@ wss.on('connection', (ws: WebSocket) => {
           };
           send(c.ws, ms);
         }
-        console.log(`[Gate88 LAN] Match started (seed=${matchSeed})`);
+        console.log(`[Sign99 LAN] Match started (seed=${matchSeed})`);
         break;
       }
 
@@ -487,7 +487,7 @@ wss.on('connection', (ws: WebSocket) => {
           if (cid !== clientId) {
             const sent = sendWithBackpressure(c.ws, snapshot);
             if (!sent && c.ws.bufferedAmount > BACKPRESSURE_LIMIT) {
-              console.warn(`[Gate88 LAN] Dropping snapshot for lagging client ${cid} (buffered=${c.ws.bufferedAmount})`);
+              console.warn(`[Sign99 LAN] Dropping snapshot for lagging client ${cid} (buffered=${c.ws.bufferedAmount})`);
             }
           }
         }
@@ -516,7 +516,7 @@ wss.on('connection', (ws: WebSocket) => {
   });
 
   ws.on('error', (err) => {
-    console.error(`[Gate88 LAN] WS error for ${clientId}:`, err.message);
+    console.error(`[Sign99 LAN] WS error for ${clientId}:`, err.message);
   });
 });
 
@@ -524,7 +524,7 @@ function handleClientDisconnect(clientId: string): void {
   const client = clients.get(clientId);
   if (!client) return;
 
-  console.log(`[Gate88 LAN] Disconnected: ${clientId} (${client.playerName}, slot ${client.slotIndex})`);
+  console.log(`[Sign99 LAN] Disconnected: ${clientId} (${client.playerName}, slot ${client.slotIndex})`);
   releaseSlot(clientId);
   clients.delete(clientId);
 
@@ -541,15 +541,15 @@ function handleClientDisconnect(clientId: string): void {
     hostClientId = null;
     lobbySlots = initSlots();
     clients.clear();
-    console.log('[Gate88 LAN] Host disconnected — all clients kicked, lobby reset.');
+    console.log('[Sign99 LAN] Host disconnected — all clients kicked, lobby reset.');
   } else {
     broadcastLobbyUpdate();
-    console.log(`[Gate88 LAN] Client removed — lobby updated.`);
+    console.log(`[Sign99 LAN] Client removed — lobby updated.`);
   }
 }
 
 process.on('SIGINT', () => {
-  console.log('\n[Gate88 LAN] Shutting down.');
+  console.log('\n[Sign99 LAN] Shutting down.');
   lanDiscovery.stop();
   wss.close();
   process.exit(0);

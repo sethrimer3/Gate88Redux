@@ -1,4 +1,4 @@
-/** Color definitions parsed from the original Gate88 colours.conf and textcolours.conf */
+/** Color definitions parsed from the original Sign99 colours.conf and textcolours.conf */
 
 export interface Color {
   r: number;

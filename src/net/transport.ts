@@ -1,5 +1,5 @@
 /**
- * Gate88Redux — Multiplayer Transport Abstraction (Phase 1)
+ * Sign99RTS — Multiplayer Transport Abstraction (Phase 1)
  *
  * This interface decouples game replication code from the underlying transport
  * (LAN WebSocket relay, future WebRTC DataChannels, or any other mechanism).

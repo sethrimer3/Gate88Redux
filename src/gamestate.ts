@@ -1,4 +1,4 @@
-/** Central game state manager for Gate88 */
+/** Central game state manager for Sign99 */
 
 import { pointToSegmentDistance, Vec2 } from './math.js';
 import { Entity, Team, EntityType } from './entities.js';

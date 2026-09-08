@@ -14,17 +14,17 @@ const APP_ICON_PATH = path.resolve(REPO_ROOT, 'ASSETS', 'icon', 'Sign99_Icon.ico
 const LAN_PORT = parseInt(process.env.LAN_PORT ?? '8787', 10);
 const LAN_DISCOVERY_HTTP_PORT = parseInt(process.env.LAN_DISCOVERY_HTTP_PORT ?? '8788', 10);
 const SHOULD_AUTO_START_LAN_HELPER =
-  process.env.GATE88_AUTO_START_LAN_HELPER !== '0' &&
-  process.env.GATE88_AUTO_START_LAN_HELPER !== 'false';
+  process.env.SIGN99_AUTO_START_LAN_HELPER !== '0' &&
+  process.env.SIGN99_AUTO_START_LAN_HELPER !== 'false';
 const OPEN_DEVTOOLS =
   process.argv.includes('--devtools') ||
   process.env.ELECTRON_DEBUG === '1' ||
   process.env.ELECTRON_DEBUG === 'true';
-const ELECTRON_DEV_URL = process.env.GATE88_ELECTRON_DEV_URL ?? '';
+const ELECTRON_DEV_URL = process.env.SIGN99_ELECTRON_DEV_URL ?? '';
 const IS_DEV_RENDERER = ELECTRON_DEV_URL.length > 0;
 const DISABLE_GPU =
-  process.env.GATE88_DISABLE_GPU === '1' ||
-  process.env.GATE88_DISABLE_GPU === 'true';
+  process.env.SIGN99_DISABLE_GPU === '1' ||
+  process.env.SIGN99_DISABLE_GPU === 'true';
 
 /** @type {import('node:child_process').ChildProcessWithoutNullStreams | null} */
 let lanHelperProcess = null;
@@ -100,7 +100,7 @@ function resolveTsxCommand() {
 
 async function ensureLanHelperRunning() {
   if (!SHOULD_AUTO_START_LAN_HELPER) {
-    console.log('[Gate88 Electron] LAN helper auto-start disabled by GATE88_AUTO_START_LAN_HELPER.');
+    console.log('[Sign99 Electron] LAN helper auto-start disabled by SIGN99_AUTO_START_LAN_HELPER.');
     return false;
   }
   if (lanHelperProcess && !lanHelperProcess.killed) return true;
@@ -109,29 +109,29 @@ async function ensureLanHelperRunning() {
   lanHelperStarting = true;
   try {
     if (await probeLanHelperHttp()) {
-      console.log('[Gate88 Electron] Existing LAN helper detected on localhost.');
+      console.log('[Sign99 Electron] Existing LAN helper detected on localhost.');
       return true;
     }
 
     const portInUse = await probeTcpPort(LAN_PORT);
     if (portInUse) {
-      console.warn(`[Gate88 Electron] LAN port ${LAN_PORT} is already in use, but the discovery helper on ${LAN_DISCOVERY_HTTP_PORT} did not answer. Not starting another helper.`);
+      console.warn(`[Sign99 Electron] LAN port ${LAN_PORT} is already in use, but the discovery helper on ${LAN_DISCOVERY_HTTP_PORT} did not answer. Not starting another helper.`);
       return false;
     }
 
     if (!fs.existsSync(LAN_SERVER_ENTRY)) {
-      console.warn(`[Gate88 Electron] LAN helper entry not found: ${LAN_SERVER_ENTRY}`);
+      console.warn(`[Sign99 Electron] LAN helper entry not found: ${LAN_SERVER_ENTRY}`);
       return false;
     }
 
     const { command, args, shell } = resolveTsxCommand();
-    console.log(`[Gate88 Electron] Starting LAN helper: ${command} ${args.join(' ')}`);
+    console.log(`[Sign99 Electron] Starting LAN helper: ${command} ${args.join(' ')}`);
 
     lanHelperProcess = spawn(command, args, {
       cwd: REPO_ROOT,
       env: {
         ...process.env,
-        GATE88_ELECTRON_LAN_HELPER: '1',
+        SIGN99_ELECTRON_LAN_HELPER: '1',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
@@ -139,17 +139,17 @@ async function ensureLanHelperRunning() {
     });
 
     lanHelperProcess.stdout.on('data', (data) => {
-      process.stdout.write(`[Gate88 LAN helper] ${data}`);
+      process.stdout.write(`[Sign99 LAN helper] ${data}`);
     });
     lanHelperProcess.stderr.on('data', (data) => {
-      process.stderr.write(`[Gate88 LAN helper] ${data}`);
+      process.stderr.write(`[Sign99 LAN helper] ${data}`);
     });
     lanHelperProcess.once('exit', (code, signal) => {
-      console.log(`[Gate88 Electron] LAN helper exited with code=${code ?? 'null'} signal=${signal ?? 'null'}.`);
+      console.log(`[Sign99 Electron] LAN helper exited with code=${code ?? 'null'} signal=${signal ?? 'null'}.`);
       lanHelperProcess = null;
     });
     lanHelperProcess.once('error', (err) => {
-      console.error('[Gate88 Electron] Failed to start LAN helper:', err);
+      console.error('[Sign99 Electron] Failed to start LAN helper:', err);
       lanHelperProcess = null;
     });
 
@@ -159,14 +159,14 @@ async function ensureLanHelperRunning() {
   }
 }
 
-ipcMain.handle('gate88:ensure-lan-helper', async () => {
+ipcMain.handle('sign99:ensure-lan-helper', async () => {
   const ok = await ensureLanHelperRunning();
   return { ok };
 });
 
 function stopLanHelper() {
   if (!lanHelperProcess || lanHelperProcess.killed) return;
-  console.log('[Gate88 Electron] Stopping LAN helper.');
+  console.log('[Sign99 Electron] Stopping LAN helper.');
   lanHelperProcess.kill('SIGINT');
   setTimeout(() => {
     if (lanHelperProcess && !lanHelperProcess.killed) {

@@ -1,11 +1,11 @@
-# Gate88Redux Online Multiplayer
+# Sign99RTS Online Multiplayer
 
 This document covers the setup and current implementation shape for online
-multiplayer in Gate88Redux.
+multiplayer in Sign99RTS.
 
 ## Architecture
 
-Gate88Redux uses a host-authoritative snapshot model for multiplayer. The host
+Sign99RTS uses a host-authoritative snapshot model for multiplayer. The host
 browser owns the simulation. Remote clients send input snapshots and receive
 authoritative game snapshots.
 
@@ -83,13 +83,13 @@ schedule:
 
 ```sql
 select cron.schedule(
-  'gate88-clean-stale-lobbies',
+  'sign99-clean-stale-lobbies',
   '* * * * *',
   $$select private.clean_stale_lobbies();$$
 );
 
 select cron.schedule(
-  'gate88-clean-old-signals',
+  'sign99-clean-old-signals',
   '* * * * *',
   $$select private.clean_old_signals();$$
 );

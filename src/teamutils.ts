@@ -1,5 +1,5 @@
 /**
- * Team utility helpers for Gate88Redux.
+ * Team utility helpers for Sign99RTS.
  *
  * Centralises all team-logic so game systems don't hard-code comparisons
  * like `team === Team.Player` or `team !== target.team`.

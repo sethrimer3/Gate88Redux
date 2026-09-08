@@ -1,4 +1,4 @@
-/** Camera system for Gate88 */
+/** Camera system for Sign99 */
 
 import { Vec2, clamp } from './math.js';
 

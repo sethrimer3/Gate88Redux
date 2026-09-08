@@ -1,6 +1,6 @@
-# Gate 88 — LAN Multiplayer Guide
+# Sign99 — LAN Multiplayer Guide
 
-Gate 88 supports local-area-network (LAN) multiplayer for up to 8 players.
+Sign99 supports local-area-network (LAN) multiplayer for up to 8 players.
 One player runs the **Node LAN helper** on their machine; all players open
 the game in a browser and connect to that relay.
 
@@ -33,14 +33,14 @@ Environment variables:
 
 Browser pages cannot reliably receive raw UDP broadcast packets, so discovery is handled by Node:
 
-1. Host helper broadcasts `gate88_lan_advertise` UDP JSON packets on LAN.
+1. Host helper broadcasts `sign99_lan_advertise` UDP JSON packets on LAN.
 2. Joiner helper listens for advertisements and caches recent lobbies.
 3. Browser UI calls local endpoint `GET http://localhost:8788/lan/discovered`.
 4. **Play → LAN Multiplayer → Find LAN Games** shows discovered lobbies.
 
 If local discovery endpoint is unavailable, UI falls back gracefully:
 
-> Automatic LAN discovery requires running the local Gate88 LAN helper. You can still enter the host URL manually.
+> Automatic LAN discovery requires running the local Sign99 LAN helper. You can still enter the host URL manually.
 
 ## Host / join workflow
 

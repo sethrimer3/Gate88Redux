@@ -1,5 +1,5 @@
 /**
- * Lightweight ring-pulse effects for Gate 88.
+ * Lightweight ring-pulse effects for Sign99.
  *
  * Two visual events:
  *   • {@link RingPulse} — an expanding ring drawn outward from a centre.

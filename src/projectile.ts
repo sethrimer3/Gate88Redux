@@ -1,4 +1,4 @@
-/** Projectile types for Gate88 */
+/** Projectile types for Sign99 */
 
 import { Vec2, wrapAngle } from './math.js';
 import { Camera } from './camera.js';

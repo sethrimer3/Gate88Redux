@@ -1,5 +1,5 @@
 /**
- * Asteroid Field for Gate88.
+ * Asteroid Field for Sign99.
  *
  * Procedural multi-layer asteroid field with warm rim lighting and an
  * optional warm amber dust haze rendered from a baked offscreen canvas.

@@ -4,7 +4,7 @@ setlocal
 pushd "%~dp0"
 
 if not exist "package.json" (
-  echo Missing package.json. Run this launcher from the Gate88Redux repository root.
+  echo Missing package.json. Run this launcher from the Sign99RTS repository root.
   goto error
 )
 
@@ -48,12 +48,12 @@ if not exist "node_modules\.bin\tsx.cmd" (
   if errorlevel 1 goto error
 )
 
-echo Starting Gate88Redux desktop build...
+echo Starting Sign99RTS desktop build...
 call npm run build
 if errorlevel 1 goto error
 
-echo Launching Gate88Redux desktop with LAN helper auto-start enabled...
-set "GATE88_AUTO_START_LAN_HELPER=1"
+echo Launching Sign99RTS desktop with LAN helper auto-start enabled...
+set "SIGN99_AUTO_START_LAN_HELPER=1"
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%CD%\node_modules\.bin\electron.cmd' -ArgumentList @('electron\main.cjs') -WorkingDirectory '%CD%' -WindowStyle Hidden"
 if errorlevel 1 goto error
 
@@ -63,7 +63,7 @@ exit /b 0
 
 :error
 echo.
-echo Gate88Redux desktop launch failed. Check the error above.
+echo Sign99RTS desktop launch failed. Check the error above.
 popd
 pause
 exit /b 1

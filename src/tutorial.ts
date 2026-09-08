@@ -1,4 +1,4 @@
-/** Tutorial mode for Gate88 — peaceful learning environment */
+/** Tutorial mode for Sign99 — peaceful learning environment */
 
 import { Colors } from './colors.js';
 import { HUD } from './hud.js';

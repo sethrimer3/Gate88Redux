@@ -1,4 +1,4 @@
-# Gate 88 — Agent / Contributor Instructions
+# Sign99 — Agent / Contributor Instructions
 
 These notes apply to anyone (humans or AI agents) making changes to this
 repository. They are intentionally short. Read them before you start.

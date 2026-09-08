@@ -1,5 +1,5 @@
 /**
- * Enemy-side construction drones for Gate 88.
+ * Enemy-side construction drones for Sign99.
  *
  * These extend FighterShip so they live in `state.fighters` and inherit
  * physics, damage, and rendering hooks for free. Their behaviour is

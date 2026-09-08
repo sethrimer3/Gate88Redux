@@ -1,5 +1,5 @@
 /**
- * Enemy strategic AI for Gate88 (PR6).
+ * Enemy strategic AI for Sign99 (PR6).
  *
  * Drives one enemy team:
  *   • Periodically (every TICK_INTERVAL_S) walks the heat map and tries to

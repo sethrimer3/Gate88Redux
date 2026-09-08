@@ -56,11 +56,11 @@ export function createLanDiscovery(opts: {
     const aiSlots = slots.filter(s => s.type === 'ai').length;
     const openSlots = slots.filter(s => s.type === 'open').length;
     return {
-      type: 'gate88_lan_advertise',
+      type: 'sign99_lan_advertise',
       protocolVersion: DISCOVERY_PROTOCOL_VERSION,
-      game: 'Gate88Redux',
+      game: 'Sign99RTS',
       lobbyId: opts.lobbyId,
-      hostName: sanitizeText(os.hostname() || 'Gate88 Host', 40),
+      hostName: sanitizeText(os.hostname() || 'Sign99 Host', 40),
       wsUrl: `ws://${ip}:${opts.lanPort}`,
       httpUrl: `http://${ip}:5173`,
       lanPort: opts.lanPort,
@@ -77,16 +77,16 @@ export function createLanDiscovery(opts: {
   function parseAdvert(raw: Buffer, remoteAddress: string): LanDiscoveredLobby | null {
     try {
       const parsed = JSON.parse(raw.toString('utf8')) as Partial<LanDiscoveryAdvertisement>;
-      if (parsed.type !== 'gate88_lan_advertise' || parsed.game !== 'Gate88Redux') return null;
+      if (parsed.type !== 'sign99_lan_advertise' || parsed.game !== 'Sign99RTS') return null;
       if (parsed.protocolVersion !== DISCOVERY_PROTOCOL_VERSION) return null;
       if (typeof parsed.wsUrl !== 'string' || typeof parsed.lobbyId !== 'string') return null;
       const now = Date.now();
       return {
-        type: 'gate88_lan_advertise',
+        type: 'sign99_lan_advertise',
         protocolVersion: DISCOVERY_PROTOCOL_VERSION,
-        game: 'Gate88Redux',
+        game: 'Sign99RTS',
         lobbyId: parsed.lobbyId,
-        hostName: sanitizeText(parsed.hostName ?? 'Gate88 Host', 40),
+        hostName: sanitizeText(parsed.hostName ?? 'Sign99 Host', 40),
         wsUrl: parsed.wsUrl,
         httpUrl: typeof parsed.httpUrl === 'string' ? parsed.httpUrl : '',
         lanPort: Number(parsed.lanPort) || opts.lanPort,
@@ -148,10 +148,10 @@ export function createLanDiscovery(opts: {
   function start(): void {
     socket.bind(UDP_PORT, () => {
       socket.setBroadcast(true);
-      console.log(`[Gate88 LAN Discovery] UDP listening on 0.0.0.0:${UDP_PORT}`);
+      console.log(`[Sign99 LAN Discovery] UDP listening on 0.0.0.0:${UDP_PORT}`);
     });
     httpServer.listen(HTTP_PORT, '0.0.0.0', () => {
-      console.log(`[Gate88 LAN Discovery] HTTP endpoint at http://localhost:${HTTP_PORT}/lan/discovered`);
+      console.log(`[Sign99 LAN Discovery] HTTP endpoint at http://localhost:${HTTP_PORT}/lan/discovered`);
     });
     timer = setInterval(() => {
       pruneStale();

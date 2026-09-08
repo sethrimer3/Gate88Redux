@@ -1,7 +1,7 @@
 import { getCinematicLevel } from './cinematic.js';
 
 /**
- * spacefluid.ts — Euler fluid background for Gate88 space.
+ * spacefluid.ts — Euler fluid background for Sign99 space.
  *
  * Ported and adapted from Chapter 3 EulerFluidEffect.js in
  * sethrimer3/Thero_Idle_TD.  The core particle advection and batched trail

@@ -1,4 +1,4 @@
-# Running Gate88Redux in Electron
+# Running Sign99RTS in Electron
 
 This repo remains a Vite browser game first. The Electron setup is a local desktop shell around the built `dist` output; it does not replace the browser dev server or GitHub Pages build.
 
@@ -38,7 +38,7 @@ Vite is configured with `base: './'`, which keeps built script, CSS, image, audi
 
 The shared browser `index.html` intentionally does not include a CSP meta tag. GitHub Pages keeps using the normal Vite output without Electron-specific headers or routing changes.
 
-Electron installs its CSP in `electron/main.cjs` with `session.defaultSession.webRequest.onHeadersReceived`. The production policy is used when Electron loads the built `dist/index.html` and does not include `'unsafe-eval'`. A separate development policy is available when launching Electron against a Vite server with `GATE88_ELECTRON_DEV_URL`; that policy allows localhost, websocket connections, and `'unsafe-eval'` for dev tooling.
+Electron installs its CSP in `electron/main.cjs` with `session.defaultSession.webRequest.onHeadersReceived`. The production policy is used when Electron loads the built `dist/index.html` and does not include `'unsafe-eval'`. A separate development policy is available when launching Electron against a Vite server with `SIGN99_ELECTRON_DEV_URL`; that policy allows localhost, websocket connections, and `'unsafe-eval'` for dev tooling.
 
 ## Troubleshooting
 

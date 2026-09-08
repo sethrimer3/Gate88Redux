@@ -1,4 +1,4 @@
-/** Input manager – tracks keyboard and mouse state for Gate88 */
+/** Input manager – tracks keyboard and mouse state for Sign99 */
 
 import { Vec2 } from './math.js';
 

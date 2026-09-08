@@ -8,8 +8,8 @@
 import type { DifficultyName } from './practiceconfig.js';
 import type { RaceSelection } from './confluence.js';
 
-export const VSAI_RANKED_SCORE_KEY = 'gate88.vsai.rankedHighestScore';
-export const SURVIVAL_RANKED_SCORE_KEY = 'gate88.survival.rankedHighestScore';
+export const VSAI_RANKED_SCORE_KEY = 'sign99.vsai.rankedHighestScore';
+export const SURVIVAL_RANKED_SCORE_KEY = 'sign99.survival.rankedHighestScore';
 export const RANKED_MAX_RANK = 3000;
 
 export interface VsAIConfig {

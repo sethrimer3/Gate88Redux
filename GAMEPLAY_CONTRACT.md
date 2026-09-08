@@ -1,6 +1,6 @@
 # Gameplay Contract
 
-This build targets a small playable Gate 88 loop: direct ship control, grid-snapped base construction, conduits, research unlocks, shipyards, turrets, and command post destruction.
+This build targets a small playable Sign99 loop: direct ship control, grid-snapped base construction, conduits, research unlocks, shipyards, turrets, and command post destruction.
 
 ## Races
 

@@ -1,4 +1,4 @@
-/** Building types for Gate88 */
+/** Building types for Sign99 */
 
 import { Vec2 } from './math.js';
 import { Camera } from './camera.js';

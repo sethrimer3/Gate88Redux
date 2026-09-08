@@ -1,5 +1,5 @@
 /**
- * Central build / version metadata for Gate 88.
+ * Central build / version metadata for Sign99.
  *
  * Bump `BUILD_NUMBER` once per completed feature branch / PR. Trivial
  * fix-up commits inside a branch should *not* bump the build number.

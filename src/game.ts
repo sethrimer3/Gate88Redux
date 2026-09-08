@@ -1,4 +1,4 @@
-/** Main game coordinator for Gate88 */
+/** Main game coordinator for Sign99 */
 
 import { Vec2 } from './math.js';
 import { Input } from './input.js';
@@ -100,8 +100,8 @@ type PersistentGroupOrder = 'waypoint' | 'follow' | 'protect';
 
 const PLAYER_FIRE_COOLDOWN = WEAPON_STATS.fire.fireRate * DT;
 const MAX_FIXED_UPDATES_PER_FRAME = 5;
-const GAME_ZOOM_KEY = 'gate88.gameZoom';
-const UI_ZOOM_KEY = 'gate88.uiZoom';
+const GAME_ZOOM_KEY = 'sign99.gameZoom';
+const UI_ZOOM_KEY = 'sign99.uiZoom';
 const MIN_ZOOM = 0.75;
 const MAX_ZOOM = 1.75;
 

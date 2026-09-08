@@ -1,4 +1,4 @@
-# Gate88Redux — Next Steps
+# Sign99RTS — Next Steps
 
 ---
 
@@ -277,7 +277,7 @@ base-construction system.
 `traceLine()` previously used Bresenham's line algorithm without guarding
 against diagonal steps.  When the algorithm's error term crossed zero in both
 axes in the same iteration, both x *and* y changed, producing a step where
-consecutive cells shared only a corner — not an edge.  Gate88's power graph
+consecutive cells shared only a corner — not an edge.  Sign99's power graph
 propagates energy only through 4-adjacent (orthogonal) neighbours, so these
 diagonal steps silently broke power flow through every ring and every spoke.
 

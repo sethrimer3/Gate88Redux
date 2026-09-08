@@ -1,5 +1,5 @@
 /**
- * Universal world grid for Gate88.
+ * Universal world grid for Sign99.
  *
  * The grid is a coarse Cartesian decomposition of the world into square cells.
  * It backs:

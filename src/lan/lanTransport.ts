@@ -1,5 +1,5 @@
 /**
- * Gate88Redux — LAN Transport Adapter (Phase 1)
+ * Sign99RTS — LAN Transport Adapter (Phase 1)
  *
  * Wraps LanClient to implement the MultiplayerTransport interface.
  * Game code that uses MultiplayerTransport does not need to know whether the

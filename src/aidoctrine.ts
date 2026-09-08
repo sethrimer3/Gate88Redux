@@ -1,5 +1,5 @@
 /**
- * AI doctrine personalities for Gate 88's enemy base planner.
+ * AI doctrine personalities for Sign99's enemy base planner.
  *
  * Each doctrine changes:
  *   • Ring building recipes (what structures appear in each ring).

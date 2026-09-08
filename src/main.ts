@@ -1,4 +1,4 @@
-/** Entry point for Gate88 */
+/** Entry point for Sign99 */
 
 import { Game } from './game.js';
 import { loadGameFonts } from './fonts.js';

@@ -1,5 +1,5 @@
 /**
- * Gate88Redux — Versioned Network Protocol Types (Phase 2)
+ * Sign99RTS — Versioned Network Protocol Types (Phase 2)
  *
  * These types define the compact over-the-wire format for gameplay messages.
  * They are transport-agnostic: the same types are used by LAN (WebSocket),

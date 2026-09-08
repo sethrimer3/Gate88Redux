@@ -1,5 +1,5 @@
 /**
- * LAN multiplayer protocol message types for Gate88Redux.
+ * LAN multiplayer protocol message types for Sign99RTS.
  *
  * All messages are JSON-serialised over a WebSocket connection.
  * The Node LAN server (server/lanServer.ts) acts as the relay hub.
@@ -308,9 +308,9 @@ export const DEFAULT_LAN_PORT = 8787;
 export const DISCOVERY_PROTOCOL_VERSION = 1;
 
 export interface LanDiscoveryAdvertisement {
-  type: 'gate88_lan_advertise';
+  type: 'sign99_lan_advertise';
   protocolVersion: number;
-  game: 'Gate88Redux';
+  game: 'Sign99RTS';
   lobbyId: string;
   hostName: string;
   wsUrl: string;

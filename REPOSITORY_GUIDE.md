@@ -15,7 +15,7 @@ This document maps the repository structure and gives a concise, broad summary o
 - `public/`: static assets served by Vite
 - `ASSETS/`: source asset library (music, sound, fonts)
 - `docs/`: project documentation
-- `ORIGINAL/`: preserved original Gate88 distribution artifacts
+- `ORIGINAL/`: preserved original Sign99 distribution artifacts
 - Root configs/docs: build tooling, specs, and project metadata
 
 ## Full File Inventory
@@ -69,28 +69,28 @@ This document maps the repository structure and gives a concise, broad summary o
 | `ASSETS/sound/shortbullet.wav` | Source asset file (audio/font/license) used to populate public assets. | Encoded audio waveform data; no source code. |
 | `FEATURES.md` | Markdown project documentation/spec. | Headings, prose guidance, constraints, and reference details for contributors/users. |
 | `GAMEPLAY_CONTRACT.md` | Markdown project documentation/spec. | Headings, prose guidance, constraints, and reference details for contributors/users. |
-| `ORIGINAL/Gate88_Mar19_05/Colour Test.bat` | Original legacy Gate88 distribution/reference artifact. | Windows shell commands for launching utilities. |
-| `ORIGINAL/Gate88_Mar19_05/Dedicated Server.bat` | Original legacy Gate88 distribution/reference artifact. | Windows shell commands for launching utilities. |
-| `ORIGINAL/Gate88_Mar19_05/LGPL_license.txt` | Original legacy Gate88 distribution/reference artifact. | Human-readable text such as licenses/readme/guidelines. |
-| `ORIGINAL/Gate88_Mar19_05/SDL.dll` | Original legacy Gate88 distribution/reference artifact. | Compiled binary artifact. |
-| `ORIGINAL/Gate88_Mar19_05/SDL_mixer.dll` | Original legacy Gate88 distribution/reference artifact. | Compiled binary artifact. |
-| `ORIGINAL/Gate88_Mar19_05/SDL_net.dll` | Original legacy Gate88 distribution/reference artifact. | Compiled binary artifact. |
-| `ORIGINAL/Gate88_Mar19_05/audio.conf` | Original legacy Gate88 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
-| `ORIGINAL/Gate88_Mar19_05/coloreditor.exe` | Original legacy Gate88 distribution/reference artifact. | Compiled binary artifact. |
-| `ORIGINAL/Gate88_Mar19_05/colours.conf` | Original legacy Gate88 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
-| `ORIGINAL/Gate88_Mar19_05/debug.conf` | Original legacy Gate88 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
-| `ORIGINAL/Gate88_Mar19_05/gate88.exe` | Original legacy Gate88 distribution/reference artifact. | Compiled binary artifact. |
-| `ORIGINAL/Gate88_Mar19_05/irc_client.conf` | Original legacy Gate88 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
-| `ORIGINAL/Gate88_Mar19_05/irc_connection.conf` | Original legacy Gate88 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
-| `ORIGINAL/Gate88_Mar19_05/license.txt` | Original legacy Gate88 distribution/reference artifact. | Human-readable text such as licenses/readme/guidelines. |
-| `ORIGINAL/Gate88_Mar19_05/manual.html` | Original legacy Gate88 distribution/reference artifact. | HTML markup defining document structure/content. |
-| `ORIGINAL/Gate88_Mar19_05/masterserver.conf` | Original legacy Gate88 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
-| `ORIGINAL/Gate88_Mar19_05/multiplayer.conf` | Original legacy Gate88 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
-| `ORIGINAL/Gate88_Mar19_05/practice.conf` | Original legacy Gate88 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
-| `ORIGINAL/Gate88_Mar19_05/readme.txt` | Original legacy Gate88 distribution/reference artifact. | Human-readable text such as licenses/readme/guidelines. |
-| `ORIGINAL/Gate88_Mar19_05/server.conf` | Original legacy Gate88 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
-| `ORIGINAL/Gate88_Mar19_05/textcolours.conf` | Original legacy Gate88 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
-| `ORIGINAL/Gate88_Mar19_05/video.conf` | Original legacy Gate88 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
+| `ORIGINAL/Sign99_Mar19_05/Colour Test.bat` | Original legacy Sign99 distribution/reference artifact. | Windows shell commands for launching utilities. |
+| `ORIGINAL/Sign99_Mar19_05/Dedicated Server.bat` | Original legacy Sign99 distribution/reference artifact. | Windows shell commands for launching utilities. |
+| `ORIGINAL/Sign99_Mar19_05/LGPL_license.txt` | Original legacy Sign99 distribution/reference artifact. | Human-readable text such as licenses/readme/guidelines. |
+| `ORIGINAL/Sign99_Mar19_05/SDL.dll` | Original legacy Sign99 distribution/reference artifact. | Compiled binary artifact. |
+| `ORIGINAL/Sign99_Mar19_05/SDL_mixer.dll` | Original legacy Sign99 distribution/reference artifact. | Compiled binary artifact. |
+| `ORIGINAL/Sign99_Mar19_05/SDL_net.dll` | Original legacy Sign99 distribution/reference artifact. | Compiled binary artifact. |
+| `ORIGINAL/Sign99_Mar19_05/audio.conf` | Original legacy Sign99 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
+| `ORIGINAL/Sign99_Mar19_05/coloreditor.exe` | Original legacy Sign99 distribution/reference artifact. | Compiled binary artifact. |
+| `ORIGINAL/Sign99_Mar19_05/colours.conf` | Original legacy Sign99 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
+| `ORIGINAL/Sign99_Mar19_05/debug.conf` | Original legacy Sign99 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
+| `ORIGINAL/Sign99_Mar19_05/sign99.exe` | Original legacy Sign99 distribution/reference artifact. | Compiled binary artifact. |
+| `ORIGINAL/Sign99_Mar19_05/irc_client.conf` | Original legacy Sign99 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
+| `ORIGINAL/Sign99_Mar19_05/irc_connection.conf` | Original legacy Sign99 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
+| `ORIGINAL/Sign99_Mar19_05/license.txt` | Original legacy Sign99 distribution/reference artifact. | Human-readable text such as licenses/readme/guidelines. |
+| `ORIGINAL/Sign99_Mar19_05/manual.html` | Original legacy Sign99 distribution/reference artifact. | HTML markup defining document structure/content. |
+| `ORIGINAL/Sign99_Mar19_05/masterserver.conf` | Original legacy Sign99 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
+| `ORIGINAL/Sign99_Mar19_05/multiplayer.conf` | Original legacy Sign99 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
+| `ORIGINAL/Sign99_Mar19_05/practice.conf` | Original legacy Sign99 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
+| `ORIGINAL/Sign99_Mar19_05/readme.txt` | Original legacy Sign99 distribution/reference artifact. | Human-readable text such as licenses/readme/guidelines. |
+| `ORIGINAL/Sign99_Mar19_05/server.conf` | Original legacy Sign99 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
+| `ORIGINAL/Sign99_Mar19_05/textcolours.conf` | Original legacy Sign99 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
+| `ORIGINAL/Sign99_Mar19_05/video.conf` | Original legacy Sign99 distribution/reference artifact. | Key/value or section-based legacy runtime configuration parameters. |
 | `docs/LAN.md` | Project documentation. | Headings, prose guidance, constraints, and reference details for contributors/users. |
 | `docs/ONLINE_MULTIPLAYER.md` | Online multiplayer architecture, Supabase setup, WebRTC notes, and testing checklist. | Describes host-authoritative snapshot model, phase status table, Supabase SQL schema, and nextStep guidance. |
 | `docs/visual-polish.md` | Project documentation. | Headings, prose guidance, constraints, and reference details for contributors/users. |

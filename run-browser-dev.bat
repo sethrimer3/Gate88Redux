@@ -4,7 +4,7 @@ setlocal
 pushd "%~dp0"
 
 if not exist "package.json" (
-  echo Missing package.json. Run this launcher from the Gate88Redux repository root.
+  echo Missing package.json. Run this launcher from the Sign99RTS repository root.
   goto error
 )
 
@@ -14,7 +14,7 @@ if not exist "node_modules\" (
   if errorlevel 1 goto error
 )
 
-echo Starting Gate88Redux browser dev server...
+echo Starting Sign99RTS browser dev server...
 call npm run dev
 if errorlevel 1 goto error
 
@@ -23,7 +23,7 @@ exit /b 0
 
 :error
 echo.
-echo Gate88Redux browser dev server failed. Check the error above.
+echo Sign99RTS browser dev server failed. Check the error above.
 popd
 pause
 exit /b 1

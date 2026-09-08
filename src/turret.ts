@@ -1,4 +1,4 @@
-/** Turret types for Gate88 */
+/** Turret types for Sign99 */
 
 import { Vec2, wrapAngle } from './math.js';
 import { Camera } from './camera.js';

@@ -1,5 +1,5 @@
 /**
- * Adaptive render-performance budget for Gate88.
+ * Adaptive render-performance budget for Sign99.
  *
  * Tracks smoothed moving averages of frame timing and exposes a
  * `renderLoadScale` that ranges from 1.0 (fully healthy) down to

@@ -1,5 +1,5 @@
 /**
- * Browser-side WebSocket client for Gate88Redux LAN multiplayer.
+ * Browser-side WebSocket client for Sign99RTS LAN multiplayer.
  *
  * Usage:
  *   const client = new LanClient('ws://192.168.1.10:8787');

@@ -1,4 +1,4 @@
-/** Heads-up display for Gate88 — minimal, message-based */
+/** Heads-up display for Sign99 — minimal, message-based */
 
 import { Colors, colorToCSS, Color } from './colors.js';
 import { gameFont, menuFont } from './fonts.js';

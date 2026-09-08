@@ -1,5 +1,5 @@
 /**
- * Central building definitions for Gate88.
+ * Central building definitions for Sign99.
  *
  * Single source of truth for everything the menu, HUD, placement, and AI
  * need to know about each placeable building type. Replaces the scattered

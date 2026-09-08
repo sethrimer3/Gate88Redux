@@ -1,5 +1,5 @@
 /**
- * Special-ability framework for Gate88.
+ * Special-ability framework for Sign99.
  *
  * The player ship has one "special ability" slot, fired with the right mouse
  * button. Each ability is registered here and handles its own targeting, cost,

@@ -1,5 +1,5 @@
 /**
- * Distant Suns / Solar Backdrop for Gate88.
+ * Distant Suns / Solar Backdrop for Sign99.
  *
  * Renders one enormous warm sun far behind the battlefield, bathing the
  * scene in golden-orange solar light — molten gold core, amber halo,

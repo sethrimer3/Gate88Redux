@@ -1,4 +1,4 @@
-/** Particle system for Gate88 */
+/** Particle system for Sign99 */
 
 import { Vec2, randomRange } from './math.js';
 import { Camera } from './camera.js';

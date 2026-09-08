@@ -1,4 +1,4 @@
-/** Practice mode game logic for Gate 88. */
+/** Practice mode game logic for Sign99. */
 
 import { Vec2, randomRange } from './math.js';
 import { Team, EntityType, ShipGroup, Entity } from './entities.js';

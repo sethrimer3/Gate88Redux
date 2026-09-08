@@ -40,7 +40,7 @@ export function angularDistanceRadians(a: number, b: number): number {
  * Uses Bresenham's line algorithm but inserts an intermediate orthogonal cell
  * whenever a step would change both x and y simultaneously (diagonal step).
  * This guarantees that every consecutive pair of returned cells shares an edge
- * (Manhattan distance exactly 1), which is required for Gate88 power-graph
+ * (Manhattan distance exactly 1), which is required for Sign99 power-graph
  * propagation where energy only flows through 4-adjacent neighbours.
  *
  * Example — (0,0) → (2,1) without fix:  (0,0)→(1,1)→(2,1)  [diagonal!]

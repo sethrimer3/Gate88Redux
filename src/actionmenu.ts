@@ -1,5 +1,5 @@
 /**
- * Phase-2 hold-to-open radial menus for Gate88.
+ * Phase-2 hold-to-open radial menus for Sign99.
  *
  * Three menus, each opened by holding a key:
  *   Z -> Ship       (ship stats, upgrades, and weapon selection)

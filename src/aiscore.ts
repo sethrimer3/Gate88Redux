@@ -1,5 +1,5 @@
 /**
- * Strategic heat map for the Gate88 AI (PR6).
+ * Strategic heat map for the Sign99 AI (PR6).
  *
  * The heat map scores each grid cell by how dangerous it is to be at for an
  * AI-controlled team. Higher score = more threat. The AI uses it to:

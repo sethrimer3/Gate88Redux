@@ -41,7 +41,7 @@ uniform float u_time;
 uniform vec2  u_resolution;
 uniform vec2  u_camOffset;   // camera world position * parallax scale
 
-// --- Star Nest constants (tuned for Gate88 deep-space aesthetic) ---
+// --- Star Nest constants (tuned for Sign99 deep-space aesthetic) ---
 #define BRIGHTNESS   0.0016
 #define DARKMATTER   0.300
 #define DISTFADING   0.730

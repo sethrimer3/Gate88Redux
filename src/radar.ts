@@ -1,4 +1,4 @@
-/** Radar system for Gate88 — edge indicators and full-screen overlay */
+/** Radar system for Sign99 — edge indicators and full-screen overlay */
 
 import { Vec2, clamp } from './math.js';
 import { Camera } from './camera.js';

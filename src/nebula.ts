@@ -1,5 +1,5 @@
 /**
- * Nebula background layer for Gate88.
+ * Nebula background layer for Sign99.
  *
  * Overlapping radial-gradient clouds are baked into a small screen-space canvas
  * whenever the viewport changes. The cached layer is stretched over the full

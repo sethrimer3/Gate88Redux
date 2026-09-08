@@ -1,4 +1,4 @@
-/** Math utilities for Gate88 */
+/** Math utilities for Sign99 */
 
 export class Vec2 {
   constructor(public x: number = 0, public y: number = 0) {}

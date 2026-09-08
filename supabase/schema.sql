@@ -1,4 +1,4 @@
--- Gate88Redux online multiplayer setup.
+-- Sign99RTS online multiplayer setup.
 -- Run this file in the Supabase SQL editor for a project with Anonymous Auth enabled.
 
 create extension if not exists pgcrypto;

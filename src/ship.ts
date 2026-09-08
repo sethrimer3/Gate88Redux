@@ -1,4 +1,4 @@
-/** Player ship implementation for Gate88 */
+/** Player ship implementation for Sign99 */
 
 import { Vec2, wrapAngle } from './math.js';
 import { Camera } from './camera.js';

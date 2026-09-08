@@ -4,7 +4,7 @@ setlocal
 pushd "%~dp0"
 
 if not exist "package.json" (
-  echo Missing package.json. Run this launcher from the Gate88Redux repository root.
+  echo Missing package.json. Run this launcher from the Sign99RTS repository root.
   goto error
 )
 
@@ -42,7 +42,7 @@ if not exist "node_modules\.bin\vite.cmd" (
   if errorlevel 1 goto error
 )
 
-echo Building Gate88Redux...
+echo Building Sign99RTS...
 call npm run build
 if errorlevel 1 goto error
 
@@ -51,7 +51,7 @@ exit /b 0
 
 :error
 echo.
-echo Gate88Redux build failed. Check the error above.
+echo Sign99RTS build failed. Check the error above.
 popd
 pause
 exit /b 1

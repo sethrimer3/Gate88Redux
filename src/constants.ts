@@ -1,4 +1,4 @@
-/** Game constants for Gate88 */
+/** Game constants for Sign99 */
 
 export const TICK_RATE = 60;
 export const DT = 1 / TICK_RATE;

@@ -1,5 +1,5 @@
 /**
- * Background starfield rendering for Gate88.
+ * Background starfield rendering for Sign99.
  *
  * Improvements over the original implementation:
  *  - 2400 stars across multiple depth layers for a rich parallax effect.

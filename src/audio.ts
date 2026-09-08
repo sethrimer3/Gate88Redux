@@ -1,4 +1,4 @@
-/** Audio manager for Gate88 – Web Audio API */
+/** Audio manager for Sign99 – Web Audio API */
 
 const SOUND_NAMES = [
   'fire', 'laser', 'missile', 'missile2', 'bigfire', 'bigmissile',
@@ -166,11 +166,10 @@ class AudioManager {
   }
 
   private pickNextInGameTrack(): string {
-    // With 3+ songs, excluding the last two guarantees two different songs
-    // between repeats. Smaller libraries necessarily relax that constraint.
-    const excluded = IN_GAME_MUSIC_TRACKS.length >= 3
-      ? new Set(this.recentInGameTracks.slice(-2))
-      : new Set<string>();
+    // Exclude as much of the two-song history as the library permits. Three or
+    // more tracks guarantee the full gap; two tracks alternate; one must repeat.
+    const historySize = Math.min(2, IN_GAME_MUSIC_TRACKS.length - 1);
+    const excluded = new Set(historySize > 0 ? this.recentInGameTracks.slice(-historySize) : []);
     const choices = IN_GAME_MUSIC_TRACKS.filter((track) => !excluded.has(track));
     return choices[Math.floor(Math.random() * choices.length)];
   }

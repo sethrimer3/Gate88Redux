@@ -1,5 +1,5 @@
 /**
- * Raid planner for the Gate 88 enemy AI.
+ * Raid planner for the Sign99 enemy AI.
  *
  * The raid planner assembles groups of fighters from powered enemy shipyards
  * and dispatches them toward strategic objectives. It runs on a cooldown so

@@ -1,4 +1,4 @@
-/** AI-controlled fighter and bomber ships for Gate88 */
+/** AI-controlled fighter and bomber ships for Sign99 */
 
 import { Vec2, wrapAngle, randomRange } from './math.js';
 import { Camera } from './camera.js';

@@ -1,6 +1,6 @@
-# Gate 88 — TypeScript Port: Planned Features
+# Sign99 — TypeScript Port: Planned Features
 
-This document tracks features planned for the Gate 88 TypeScript port.
+This document tracks features planned for the Sign99 TypeScript port.
 Items are roughly ordered by priority; checked items are complete.
 
 ---

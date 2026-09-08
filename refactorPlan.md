@@ -1,4 +1,4 @@
-# Gate88Redux — Refactor Plan
+# Sign99RTS — Refactor Plan
 
 This document tracks monolithic source files and the recommended strategy for
 splitting them into more focused modules.  Update this file whenever a
