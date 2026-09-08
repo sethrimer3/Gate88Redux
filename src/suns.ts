@@ -228,6 +228,7 @@ export class DistantSuns {
     screenH: number,
   ): void {
     if (!this.enabled) return;
+    if (getCinematicLevel() < 0) return;
 
     // Rebuild baked glow when screen changes.
     const currentCinematicLevel = getCinematicLevel();
@@ -372,7 +373,8 @@ export class DistantSuns {
 
     const cx = w * SUN_PLACEMENT.cx;
     const cy = h * SUN_PLACEMENT.cy;
-    const level = getCinematicLevel();
+    const detailLevel = getCinematicLevel();
+    const level = Math.min(2, detailLevel);
     // Radius generous enough to bathe the whole screen in warmth.
     const r  = Math.hypot(w, h) * (level === 0 ? 1.18 : level === 1 ? 1.28 : level === 2 ? 1.38 : level === 3 ? 1.48 : level === 4 ? 1.55 : level === 5 ? 1.62 : level === 6 ? 1.68 : level === 7 ? 1.74 : level === 8 ? 1.80 : 1.86);
 
@@ -387,7 +389,7 @@ export class DistantSuns {
       grad.addColorStop(0.460, 'rgba(88,14,88,0.07)');
       grad.addColorStop(0.720, 'rgba(42,7,62,0.03)');
     } else {
-      const boost = level >= 9 ? 1.84 : level >= 8 ? 1.72 : level >= 7 ? 1.62 : level >= 6 ? 1.52 : level >= 5 ? 1.44 : level >= 4 ? 1.38 : level >= 3 ? 1.28 : level === 2 ? 1.18 : 1;
+      const boost = level === 2 ? 1.18 : 1;
       grad.addColorStop(0.000, `rgba(255,218,166,${Math.min(1, 0.98 * boost).toFixed(3)})`);
       grad.addColorStop(0.014, `rgba(227,138,74,${Math.min(1, 0.96 * boost).toFixed(3)})`);
       grad.addColorStop(0.040, `rgba(198,90,46,${Math.min(1, 0.92 * boost).toFixed(3)})`);
@@ -403,11 +405,11 @@ export class DistantSuns {
     ctx.fillRect(0, 0, w, h);
 
     // At level 3+, also bake the secondary (cool) star glow.
-    if (level >= 3) {
+    if (detailLevel >= 3) {
       this.bakeSecondaryStarGlow();
     }
     // At level 4, also bake the tertiary (ember) star glow.
-    if (level >= 4) {
+    if (detailLevel >= 4) {
       this.bakeThirdStarGlow();
     }
   }
@@ -431,7 +433,7 @@ export class DistantSuns {
     ctx.save();
     ctx.globalCompositeOperation = 'screen';
 
-    const level = getCinematicLevel();
+    const level = Math.min(2, getCinematicLevel());
     const r = Math.hypot(w, h) * (level === 0 ? 0.98 : level === 1 ? 1.08 : level === 2 ? 1.22 : level === 3 ? 1.36 : 1.50);
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
     if (level === 0) {
@@ -439,7 +441,7 @@ export class DistantSuns {
       grad.addColorStop(0.30, 'rgba(220,122,40,0.042)');
       grad.addColorStop(0.65, 'rgba(160,58,18,0.022)');
     } else {
-      const boost = level >= 9 ? 2.38 : level >= 8 ? 2.20 : level >= 7 ? 2.04 : level >= 6 ? 1.88 : level >= 5 ? 1.74 : level >= 4 ? 1.65 : level >= 3 ? 1.50 : level === 2 ? 1.34 : 1;
+      const boost = level === 2 ? 1.34 : 1;
       grad.addColorStop(0.00, `rgba(227,138,74,${(0.165 * boost).toFixed(3)})`);
       grad.addColorStop(0.24, `rgba(198,90,46,${(0.112 * boost).toFixed(3)})`);
       grad.addColorStop(0.56, `rgba(163,71,40,${(0.066 * boost).toFixed(3)})`);
@@ -539,7 +541,7 @@ export class DistantSuns {
     h: number,
     count: number,
   ): void {
-    const level = getCinematicLevel();
+    const level = Math.min(2, getCinematicLevel());
     const len = Math.hypot(w, h) * (level === 0 ? 0.82 : level === 1 ? 1.14 : level === 2 ? 1.30 : level === 3 ? 1.42 : level === 4 ? 1.54 : level === 5 ? 1.62 : level === 6 ? 1.70 : 1.78);
     const rot = this.time * 0.007;   // very slow global rotation
 

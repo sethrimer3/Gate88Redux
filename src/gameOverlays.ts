@@ -66,6 +66,8 @@ function fighterMaxSpeed(fighter: FighterShip): number {
     : SHIP_STATS.fighter.speed;
 }
 
+let ghostLensCanvas: HTMLCanvasElement | null = null;
+
 // ---------------------------------------------------------------------------
 // Public drawing functions
 // ---------------------------------------------------------------------------
@@ -85,77 +87,107 @@ export function drawGhostSpectator(
 ): void {
   if (state.player.alive || !ghostSpectatorPos) return;
   const screen = camera.worldToScreen(ghostSpectatorPos);
-  const pulse = 0.55 + 0.25 * Math.sin(state.gameTime * 5);
-  const drift = Math.sin(state.gameTime * 2.4);
-  const r = 18 * camera.zoom;
-  const facing = state.player.angle + Math.sin(state.gameTime * 1.7) * 0.06;
+  const aimWorld = camera.screenToWorld(Input.mousePos);
+  const facing = ghostSpectatorPos.angleTo(aimWorld);
+  const pulse = 0.5 + 0.5 * Math.sin(state.gameTime * 2.8);
+  const shimmer = 0.5 + 0.5 * Math.sin(state.gameTime * 6.1);
+  const r = Math.max(12, 22 * camera.zoom);
+
+  // Sample the scene that has already been rendered and refract it through the
+  // hull. This makes stars and lights visibly bend inside the ghost instead of
+  // painting an opaque sketch over them.
+  const sourceRadius = Math.ceil(r * 1.7);
+  const sourceX = Math.max(0, Math.floor(screen.x - sourceRadius));
+  const sourceY = Math.max(0, Math.floor(screen.y - sourceRadius));
+  const sourceW = Math.min(ctx.canvas.width - sourceX, sourceRadius * 2);
+  const sourceH = Math.min(ctx.canvas.height - sourceY, sourceRadius * 2);
+  if (sourceW > 0 && sourceH > 0) {
+    const lens = ghostLensCanvas ?? (ghostLensCanvas = document.createElement('canvas'));
+    if (lens.width !== sourceW) lens.width = sourceW;
+    if (lens.height !== sourceH) lens.height = sourceH;
+    const lensCtx = lens.getContext('2d');
+    if (lensCtx) {
+      lensCtx.clearRect(0, 0, sourceW, sourceH);
+      lensCtx.drawImage(ctx.canvas, sourceX, sourceY, sourceW, sourceH, 0, 0, sourceW, sourceH);
+      ctx.save();
+      ctx.translate(screen.x, screen.y);
+      ctx.rotate(facing);
+      ctx.beginPath();
+      ctx.moveTo(r * 1.38, 0);
+      ctx.quadraticCurveTo(r * 0.48, -r * 0.68, -r * 0.9, -r * 0.72);
+      ctx.lineTo(-r * 0.52, 0);
+      ctx.lineTo(-r * 0.9, r * 0.72);
+      ctx.quadraticCurveTo(r * 0.48, r * 0.68, r * 1.38, 0);
+      ctx.clip();
+      ctx.rotate(-facing);
+      ctx.globalAlpha = 0.72;
+      for (let sourceBandY = 0; sourceBandY < sourceH; sourceBandY += 4) {
+        const localY = sourceY + sourceBandY - screen.y;
+        const bend = Math.sin(localY / Math.max(1, r) * Math.PI) * (3.5 + shimmer * 2);
+        ctx.drawImage(
+          lens,
+          0, sourceBandY, sourceW, Math.min(4, sourceH - sourceBandY),
+          sourceX - screen.x + bend, localY, sourceW * 1.035, 4.5,
+        );
+      }
+      ctx.restore();
+    }
+  }
 
   ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
   ctx.translate(screen.x, screen.y);
   ctx.rotate(facing);
 
-  ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.10 + pulse * 0.07);
-  ctx.strokeStyle = colorToCSS(Colors.radar_friendly_status, 0.28 + pulse * 0.26);
-  ctx.lineWidth = Math.max(1, 1.4 * camera.zoom);
+  const glass = ctx.createLinearGradient(-r, -r, r, r);
+  glass.addColorStop(0, 'rgba(110, 235, 255, 0.04)');
+  glass.addColorStop(0.42, `rgba(225, 252, 255, ${0.10 + pulse * 0.06})`);
+  glass.addColorStop(0.58, 'rgba(100, 170, 255, 0.025)');
+  glass.addColorStop(1, 'rgba(170, 120, 255, 0.09)');
+  ctx.fillStyle = glass;
+  ctx.strokeStyle = `rgba(185, 246, 255, ${0.58 + pulse * 0.22})`;
+  ctx.lineWidth = Math.max(1, 1.25 * camera.zoom);
   ctx.beginPath();
-  ctx.moveTo(r * 1.45, 0);
-  ctx.lineTo(r * 0.2, -r * 0.42);
-  ctx.lineTo(-r * 0.9, -r * 0.9);
-  ctx.lineTo(-r * 0.56, -r * 0.18);
-  ctx.lineTo(-r * 1.12, 0);
-  ctx.lineTo(-r * 0.56, r * 0.18);
-  ctx.lineTo(-r * 0.9, r * 0.9);
-  ctx.lineTo(r * 0.2, r * 0.42);
+  ctx.moveTo(r * 1.38, 0);
+  ctx.quadraticCurveTo(r * 0.48, -r * 0.68, -r * 0.9, -r * 0.72);
+  ctx.lineTo(-r * 0.52, 0);
+  ctx.lineTo(-r * 0.9, r * 0.72);
+  ctx.quadraticCurveTo(r * 0.48, r * 0.68, r * 1.38, 0);
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
 
-  ctx.strokeStyle = colorToCSS(TextColors.normal, 0.26 + pulse * 0.18);
-  ctx.lineWidth = Math.max(1, 0.9 * camera.zoom);
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.strokeStyle = `rgba(220, 252, 255, ${0.22 + shimmer * 0.18})`;
+  ctx.lineWidth = Math.max(0.7, 0.75 * camera.zoom);
   ctx.beginPath();
-  ctx.moveTo(r * 1.0, 0);
-  ctx.lineTo(-r * 0.18, 0);
-  ctx.moveTo(-r * 0.18, 0);
-  ctx.lineTo(-r * 0.72, -r * 0.62);
-  ctx.moveTo(-r * 0.18, 0);
-  ctx.lineTo(-r * 0.72, r * 0.62);
-  ctx.moveTo(r * 0.16, -r * 0.33);
-  ctx.lineTo(r * 0.36, 0);
-  ctx.lineTo(r * 0.16, r * 0.33);
+  ctx.moveTo(r * 1.08, 0);
+  ctx.quadraticCurveTo(r * 0.15, -r * 0.16, -r * 0.62, -r * 0.54);
+  ctx.moveTo(r * 1.08, 0);
+  ctx.quadraticCurveTo(r * 0.15, r * 0.16, -r * 0.62, r * 0.54);
+  ctx.moveTo(-r * 0.48, -r * 0.08);
+  ctx.quadraticCurveTo(r * 0.12, -r * 0.4, r * 0.7, -r * 0.08);
   ctx.stroke();
 
-  ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.30 + pulse * 0.22);
+  const core = ctx.createRadialGradient(r * 0.16, -r * 0.08, 0, r * 0.08, 0, r * 0.42);
+  core.addColorStop(0, `rgba(255, 255, 255, ${0.72 + shimmer * 0.2})`);
+  core.addColorStop(0.25, 'rgba(145, 240, 255, 0.28)');
+  core.addColorStop(1, 'rgba(100, 150, 255, 0)');
+  ctx.fillStyle = core;
   ctx.beginPath();
-  ctx.ellipse(r * 0.06, 0, r * 0.24, r * 0.18, 0, 0, Math.PI * 2);
+  ctx.ellipse(r * 0.08, 0, r * 0.38, r * 0.25, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.strokeStyle = colorToCSS(Colors.particles_spark, 0.22 + pulse * 0.2);
-  ctx.lineWidth = Math.max(1, 1.2 * camera.zoom);
-  for (let i = -1; i <= 1; i++) {
-    const y = (i * 0.42 + drift * 0.05) * r;
+  // Fine chromatic edge separation sells the glass/refraction without making
+  // the silhouette noisy.
+  ctx.lineWidth = Math.max(0.8, camera.zoom);
+  for (const [offset, color] of [[-1.8, 'rgba(80,220,255,0.24)'], [1.8, 'rgba(205,120,255,0.18)']] as const) {
+    ctx.strokeStyle = color;
     ctx.beginPath();
-    ctx.moveTo(-r * 1.24, y);
-    ctx.lineTo(-r * 1.72, y + i * r * 0.16);
+    ctx.moveTo(-r * 0.75, offset * camera.zoom);
+    ctx.quadraticCurveTo(r * 0.38, -r * 0.66 + offset * camera.zoom, r * 1.32, offset * camera.zoom);
     ctx.stroke();
   }
 
-  ctx.rotate(-facing);
-  ctx.beginPath();
-  ctx.arc(0, 0, r * (1.08 + pulse * 0.14), 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.strokeStyle = colorToCSS(TextColors.normal, 0.55);
-  ctx.lineWidth = Math.max(1, camera.zoom);
-  ctx.beginPath();
-  ctx.moveTo(-r * 1.45, 0);
-  ctx.lineTo(-r * 0.72, 0);
-  ctx.moveTo(r * 0.72, 0);
-  ctx.lineTo(r * 1.45, 0);
-  ctx.moveTo(0, -r * 1.45);
-  ctx.lineTo(0, -r * 0.72);
-  ctx.moveTo(0, r * 0.72);
-  ctx.lineTo(0, r * 1.45);
-  ctx.stroke();
   ctx.restore();
 }
 

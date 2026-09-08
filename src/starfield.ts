@@ -13,6 +13,7 @@ import { Vec2, randomRange } from './math.js';
 import { Camera } from './camera.js';
 import { Colors, colorToCSS, Color } from './colors.js';
 import { WORLD_WIDTH, WORLD_HEIGHT } from './constants.js';
+import { getCinematicLevel } from './cinematic.js';
 
 // ---------------------------------------------------------------------------
 // Star data
@@ -214,8 +215,10 @@ export class Starfield {
   // --------------------------------------------------------------------------
 
   draw(ctx: CanvasRenderingContext2D, camera: Camera, screenW: number, screenH: number): void {
+    const cinematicLevel = getCinematicLevel();
+    if (cinematicLevel <= -3) return;
     this.drawStars(ctx, camera, screenW, screenH);
-    if (this._shootingStarsEnabled) {
+    if (this._shootingStarsEnabled && cinematicLevel > -2) {
       this.drawShootingStar(ctx, camera, screenW, screenH);
     }
   }
@@ -228,7 +231,10 @@ export class Starfield {
   ): void {
     const t = this.time;
 
-    for (const star of this.stars) {
+    const sparse = getCinematicLevel() === -2;
+    for (let index = 0; index < this.stars.length; index++) {
+      if (sparse && index % 12 !== 0) continue;
+      const star = this.stars[index]!;
       // Parallax: deeper stars move slower relative to camera.
       const parallax = 0.2 + star.depth * 0.6;
       const sx =

@@ -455,7 +455,7 @@ export class Game {
     if (this.mainMenu.cinematicLevel !== this.cinematicLevel) {
       this.applyCinematicLevel(this.mainMenu.cinematicLevel);
       this.hud.showMessage(
-        this.cinematicLevel === 0 ? 'Cinematic effects: OFF' : `Cinematic effects: ${this.cinematicLevel}`,
+        `Cinematic effects: ${this.cinematicLevel}`,
         Colors.general_building,
         2,
       );
@@ -2154,7 +2154,7 @@ export class Game {
 
     // Clear with solid very-dark-blue, then overlay a cinematic blue→purple gradient
     // so the space background has subtle depth without washing out gameplay objects.
-    ctx.fillStyle = colorToCSS(Colors.friendly_background);
+    ctx.fillStyle = this.cinematicLevel <= -2 ? '#000000' : colorToCSS(Colors.friendly_background);
     ctx.fillRect(0, 0, w, h);
 
     // Rebuild the background gradient when the canvas size changes.
@@ -2168,13 +2168,17 @@ export class Game {
       grad.addColorStop(1.00, 'rgba(1, 0, 5, 0.88)');    // near-black periphery
       this.bgGradient = grad;
     }
-    ctx.fillStyle = this.bgGradient;
-    ctx.fillRect(0, 0, w, h);
+    if (this.cinematicLevel > -2) {
+      ctx.fillStyle = this.bgGradient;
+      ctx.fillRect(0, 0, w, h);
+    }
 
     // Star Nest volumetric background — rendered to an offscreen WebGL canvas
     // and composited here, before all other scene layers.
-    this.starNest.update(this.lastFrameMs / 1000, this.camera);
-    this.starNest.drawTo(ctx, w, h);
+    if (this.cinematicLevel > -2) {
+      this.starNest.update(this.lastFrameMs / 1000, this.camera);
+      this.starNest.drawTo(ctx, w, h);
+    }
 
     if (this.phase === 'menu') {
       this.drawScaledUi(() => this.mainMenu.draw(ctx, w / this.uiZoom, h / this.uiZoom));
@@ -2186,15 +2190,15 @@ export class Game {
     // Draw game world
     // Layer 1: distant suns / solar glow (deepest parallax background)
     this.distantSuns.draw(ctx, this.camera, w, h);
-    this.nebula.draw(ctx, this.camera, w, h);
+    if (this.cinematicLevel > -2) this.nebula.draw(ctx, this.camera, w, h);
     // Base territory glow — faint team-coloured halos that grow with the base.
     // Drawn before the starfield so the stars appear on top of the tinted space.
     drawBaseTerritoryGlow(ctx, this.camera, this.state, w, h);
     this.starfield.draw(ctx, this.camera, w, h);
     // Layer 2: asteroid field (disabled via asteroidFieldLayers:0; kept for code stability)
-    this.asteroidField.draw(ctx, this.camera, w, h);
+    if (this.cinematicLevel > -2) this.asteroidField.draw(ctx, this.camera, w, h);
     // Crystal nebula clouds — behind gameplay entities, in front of starfield.
-    this.crystalNebula.draw(ctx, this.camera, this.glowLayer, this.visualPreset);
+    if (this.cinematicLevel > -2) this.crystalNebula.draw(ctx, this.camera, this.glowLayer, this.visualPreset);
     // Advance the fluid simulation by the frame delta and draw it under the game world.
     this.spaceFluid.step(this.lastFrameMs);
     this.spaceFluid.render(ctx);

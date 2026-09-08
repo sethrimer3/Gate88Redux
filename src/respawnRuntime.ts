@@ -60,8 +60,18 @@ export function updatePlayerRespawn(
   dt: number,
   respawnDelay: number,
 ): void {
-  if (!findRespawnCommandPost(state, localTeam)) {
-    runtime.loss = true;
+  const respawnCp = findRespawnCommandPost(state, localTeam);
+
+  // A ship without a Command Post has already lost its physical foothold in
+  // the match. Enter spectator form immediately instead of leaving an armed,
+  // targetable player ship flying around until something eventually kills it.
+  if (!respawnCp && state.player.alive) {
+    runtime.ghostPos = state.player.position.clone();
+    runtime.ghostVel = state.player.velocity.clone();
+    state.player.alive = false;
+    runtime.deathHandled = true;
+    runtime.respawnTimer = 0;
+    hud.showMessage('Command Post destroyed - ghost ship engaged.', Colors.alert1, 5);
   }
 
   if (state.player.alive) {
@@ -77,11 +87,7 @@ export function updatePlayerRespawn(
     runtime.ghostVel = new Vec2(0, 0);
   }
 
-  const respawnCp = findRespawnCommandPost(state, localTeam);
   if (!respawnCp) {
-    if (!runtime.loss) {
-      hud.showMessage('Loss. No Command Post remains.', Colors.alert1, 10);
-    }
     runtime.loss = true;
     runtime.respawnTimer = 0;
     return;

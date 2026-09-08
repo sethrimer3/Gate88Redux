@@ -1469,11 +1469,11 @@ export class MainMenu {
       h,
       'Cinematic Slider',
       value,
-      0,
+      -3,
       9,
       1,
       (v) => onChange(clampCinematicLevel(v)),
-      (v) => (v <= 0 ? 'off' : String(Math.round(v))),
+      (v) => String(Math.round(v)),
       true,
     );
   }
