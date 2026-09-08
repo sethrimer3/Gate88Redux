@@ -14,17 +14,19 @@ const SOUND_NAMES = [
 
 export type SoundName = typeof SOUND_NAMES[number];
 
-const MUSIC_TRACKS = [
-  'queasy - disco past the floating clouds',
-  'queasy - jam session',
-  'queasy - late night driving music',
-  'queasy - old spark fizzes',
-  'queasy - overdub theory',
-  'queasy - rux9',
-  'queasy - somewhere east',
+const IN_GAME_MUSIC_TRACKS = [
+  'absolutesound-guitar-music-guitar-528969.mp3',
+  'apalonbeats-guitar-guitar-music-549446.mp3',
+  'arpmedia-fast-dynamic-rhythmic-music-588478.mp3',
+  'arpmedia-guitar-guitar-music-561480.mp3',
+  'mondamusic-guitar-guitar-music-529564.mp3',
+  'monume-guitar-solo-guitar-music-556477.mp3',
+  'oceanframemusic-space-background-guitar-524596.mp3',
+  'soulprodmusic-spaceship-145869.mp3',
 ] as const;
 
-export type MusicTrack = typeof MUSIC_TRACKS[number];
+const MENU_MUSIC_TRACK = 'absolutesound-acoustic-guitar-chill-516783.mp3';
+const MUSIC_CROSSFADE_SECONDS = 8;
 
 const ASSET_BASE_URL = import.meta.env.BASE_URL;
 const MUSIC_DECIBEL_OFFSET = -20;
@@ -41,15 +43,18 @@ class AudioManager {
   private ctx: AudioContext | null = null;
   private soundBuffers = new Map<string, AudioBuffer>();
   private musicElement: HTMLAudioElement | null = null;
+  private fadingMusicElements = new Set<HTMLAudioElement>();
+  private crossfadeTimer: ReturnType<typeof setTimeout> | null = null;
+  private crossfadeFrame: number | null = null;
+  private musicGeneration = 0;
   private musicGain: GainNode | null = null;
   private sfxGain: GainNode | null = null;
   private activeSoundCounts = new Map<SoundName, number>();
 
-  private currentTrackIndex = -1;
   private musicVolume = 0.5;
   private sfxVolume = 0.5;
-  private musicPlaylist: string[] = [];
   private isMenuMusic = false;
+  private recentInGameTracks: string[] = [];
 
   /** Lazily initialise the AudioContext (must happen after a user gesture). */
   private ensureContext(): AudioContext {
@@ -138,60 +143,122 @@ class AudioManager {
     }
   }
 
-  /** Start playing the in-game music playlist (shuffled order). */
+  /** Start the randomized in-game music rotation. */
   startPlaylist(): void {
     this.isMenuMusic = false;
-    this.musicPlaylist = [...MUSIC_TRACKS].sort(() => Math.random() - 0.5);
-    this.currentTrackIndex = -1;
-    this.skipSong();
+    this.recentInGameTracks = [];
+    this.stopMusicElements();
+    this.playNextInGameTrack(false);
   }
 
   /** Play the menu music track. */
   playMenuMusic(): void {
     this.isMenuMusic = true;
-    this.playMusicFile(assetUrl('music/non-ingame/menu.ogg'));
+    this.recentInGameTracks = [];
+    this.stopMusicElements();
+    this.playMusicFile(assetUrl(`music/Music-Menu/${MENU_MUSIC_TRACK}`), true);
   }
 
   /** Skip to the next song in the playlist. */
   skipSong(): void {
     if (this.isMenuMusic) return;
-    this.currentTrackIndex =
-      (this.currentTrackIndex + 1) % this.musicPlaylist.length;
-    const track = this.musicPlaylist[this.currentTrackIndex];
-    this.playMusicFile(assetUrl(`music/${track}.ogg`));
+    this.playNextInGameTrack(this.musicElement !== null);
   }
 
-  private playMusicFile(path: string): void {
-    this.ensureContext();
-    if (this.musicElement) {
-      this.musicElement.pause();
-      this.musicElement.removeAttribute('src');
-      this.musicElement.load();
-    }
+  private pickNextInGameTrack(): string {
+    // With 3+ songs, excluding the last two guarantees two different songs
+    // between repeats. Smaller libraries necessarily relax that constraint.
+    const excluded = IN_GAME_MUSIC_TRACKS.length >= 3
+      ? new Set(this.recentInGameTracks.slice(-2))
+      : new Set<string>();
+    const choices = IN_GAME_MUSIC_TRACKS.filter((track) => !excluded.has(track));
+    return choices[Math.floor(Math.random() * choices.length)];
+  }
 
+  private playNextInGameTrack(crossfade: boolean): void {
+    if (this.isMenuMusic) return;
+    const track = this.pickNextInGameTrack();
+    this.recentInGameTracks.push(track);
+    if (this.recentInGameTracks.length > 2) this.recentInGameTracks.shift();
+    this.playMusicFile(assetUrl(`music/Music-InGame/${track}`), false, crossfade);
+  }
+
+  private playMusicFile(path: string, loop = false, crossfade = false): void {
+    this.ensureContext();
+    this.cancelCrossfadeSchedule();
+    for (const staleFade of this.fadingMusicElements) this.disposeMusicElement(staleFade);
+    this.fadingMusicElements.clear();
+    const outgoing = this.musicElement;
     const el = new globalThis.Audio(path);
     this.musicElement = el;
-    el.volume = this.effectiveMusicVolume();
+    const generation = ++this.musicGeneration;
+    el.loop = loop;
+    el.preload = 'auto';
+    el.volume = crossfade && outgoing ? 0 : this.effectiveMusicVolume();
+    const scheduleCrossfade = (): void => {
+      if (loop || this.musicElement !== el || generation !== this.musicGeneration) return;
+      const delayMs = Math.max(0, (el.duration - el.currentTime - MUSIC_CROSSFADE_SECONDS) * 1000);
+      if (!Number.isFinite(delayMs)) return;
+      this.crossfadeTimer = setTimeout(() => {
+        if (this.musicElement === el && !this.isMenuMusic) this.playNextInGameTrack(true);
+      }, delayMs);
+    };
+    el.addEventListener('loadedmetadata', scheduleCrossfade, { once: true });
     el.addEventListener('ended', () => {
-      if (this.isMenuMusic) {
-        this.musicElement?.play();
-      } else {
-        this.skipSong();
-      }
+      if (this.musicElement === el && !this.isMenuMusic) this.playNextInGameTrack(false);
     });
     el.play().catch(() => {
       // Autoplay blocked – will retry on user interaction
     });
+
+    if (crossfade && outgoing) this.fadeBetween(outgoing, el);
+    else if (outgoing) this.disposeMusicElement(outgoing);
+  }
+
+  private fadeBetween(outgoing: HTMLAudioElement, incoming: HTMLAudioElement): void {
+    this.fadingMusicElements.add(outgoing);
+    const startedAt = performance.now();
+    const outgoingStartVolume = outgoing.volume;
+    const step = (now: number): void => {
+      const progress = Math.min(1, (now - startedAt) / (MUSIC_CROSSFADE_SECONDS * 1000));
+      outgoing.volume = outgoingStartVolume * (1 - progress);
+      incoming.volume = this.effectiveMusicVolume() * progress;
+      if (progress < 1 && this.musicElement === incoming) {
+        this.crossfadeFrame = requestAnimationFrame(step);
+      } else {
+        this.crossfadeFrame = null;
+        this.fadingMusicElements.delete(outgoing);
+        this.disposeMusicElement(outgoing);
+      }
+    };
+    this.crossfadeFrame = requestAnimationFrame(step);
+  }
+
+  private cancelCrossfadeSchedule(): void {
+    if (this.crossfadeTimer !== null) clearTimeout(this.crossfadeTimer);
+    this.crossfadeTimer = null;
+    if (this.crossfadeFrame !== null) cancelAnimationFrame(this.crossfadeFrame);
+    this.crossfadeFrame = null;
+  }
+
+  private disposeMusicElement(el: HTMLAudioElement): void {
+    el.pause();
+    el.removeAttribute('src');
+    el.load();
+  }
+
+  private stopMusicElements(): void {
+    this.cancelCrossfadeSchedule();
+    this.musicGeneration++;
+    if (this.musicElement) this.disposeMusicElement(this.musicElement);
+    for (const el of this.fadingMusicElements) this.disposeMusicElement(el);
+    this.fadingMusicElements.clear();
+    this.musicElement = null;
   }
 
   /** Stop all music. */
   stopMusic(): void {
-    if (this.musicElement) {
-      this.musicElement.pause();
-      this.musicElement.removeAttribute('src');
-      this.musicElement.load();
-      this.musicElement = null;
-    }
+    this.stopMusicElements();
   }
 
   setSfxVolume(v: number): void {
@@ -204,6 +271,9 @@ class AudioManager {
     const effectiveVolume = this.effectiveMusicVolume();
     if (this.musicGain) this.musicGain.gain.value = effectiveVolume;
     if (this.musicElement) this.musicElement.volume = effectiveVolume;
+    for (const el of this.fadingMusicElements) {
+      el.volume = Math.min(el.volume, effectiveVolume);
+    }
   }
 
   getSfxVolume(): number {

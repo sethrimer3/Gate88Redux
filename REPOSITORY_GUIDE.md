@@ -34,14 +34,8 @@ This document maps the repository structure and gives a concise, broad summary o
 | `ASSETS/fonts/BJ_Cree_guidelines.txt` | Source asset file (audio/font/license) used to populate public assets. | Human-readable text such as licenses/readme/guidelines. |
 | `ASSETS/fonts/Poiret_One/OFL.txt` | Source asset file (audio/font/license) used to populate public assets. | Human-readable text such as licenses/readme/guidelines. |
 | `ASSETS/fonts/Poiret_One/PoiretOne-Regular.ttf` | Source asset file (audio/font/license) used to populate public assets. | Binary font glyph and metrics data. |
-| `ASSETS/music/menu.ogg` | Source asset file (audio/font/license) used to populate public assets. | Encoded audio waveform data; no source code. |
-| `ASSETS/music/queasy - disco past the floating clouds.ogg` | Source asset file (audio/font/license) used to populate public assets. | Encoded audio waveform data; no source code. |
-| `ASSETS/music/queasy - jam session.ogg` | Source asset file (audio/font/license) used to populate public assets. | Encoded audio waveform data; no source code. |
-| `ASSETS/music/queasy - late night driving music.ogg` | Source asset file (audio/font/license) used to populate public assets. | Encoded audio waveform data; no source code. |
-| `ASSETS/music/queasy - old spark fizzes.ogg` | Source asset file (audio/font/license) used to populate public assets. | Encoded audio waveform data; no source code. |
-| `ASSETS/music/queasy - overdub theory.ogg` | Source asset file (audio/font/license) used to populate public assets. | Encoded audio waveform data; no source code. |
-| `ASSETS/music/queasy - rux9.ogg` | Source asset file (audio/font/license) used to populate public assets. | Encoded audio waveform data; no source code. |
-| `ASSETS/music/queasy - somewhere east.ogg` | Source asset file (audio/font/license) used to populate public assets. | Encoded audio waveform data; no source code. |
+| `ASSETS/music/Music-InGame/*.mp3` | Source in-game soundtrack files used to populate public assets. | Encoded audio waveform data; no source code. |
+| `ASSETS/music/Music-Menu/*.mp3` | Source menu soundtrack files used to populate public assets. | Encoded audio waveform data; no source code. |
 | `ASSETS/sound/bhit0.wav` | Source asset file (audio/font/license) used to populate public assets. | Encoded audio waveform data; no source code. |
 | `ASSETS/sound/bigfire.wav` | Source asset file (audio/font/license) used to populate public assets. | Encoded audio waveform data; no source code. |
 | `ASSETS/sound/bigmissile.wav` | Source asset file (audio/font/license) used to populate public assets. | Encoded audio waveform data; no source code. |
@@ -104,14 +98,8 @@ This document maps the repository structure and gives a concise, broad summary o
 | `package-lock.json` | JSON configuration/metadata file. | Structured key/value settings consumed by npm, TypeScript, or tooling. |
 | `package.json` | JSON configuration/metadata file. | Structured key/value settings consumed by npm, TypeScript, or tooling. |
 | `public/favicon.svg` | Runtime-served static asset for web build. | XML vector path data for icon rendering. |
-| `public/music/non-ingame/menu.ogg` | Runtime-served static asset for web build. | Encoded audio waveform data; no source code. |
-| `public/music/queasy - disco past the floating clouds.ogg` | Runtime-served static asset for web build. | Encoded audio waveform data; no source code. |
-| `public/music/queasy - jam session.ogg` | Runtime-served static asset for web build. | Encoded audio waveform data; no source code. |
-| `public/music/queasy - late night driving music.ogg` | Runtime-served static asset for web build. | Encoded audio waveform data; no source code. |
-| `public/music/queasy - old spark fizzes.ogg` | Runtime-served static asset for web build. | Encoded audio waveform data; no source code. |
-| `public/music/queasy - overdub theory.ogg` | Runtime-served static asset for web build. | Encoded audio waveform data; no source code. |
-| `public/music/queasy - rux9.ogg` | Runtime-served static asset for web build. | Encoded audio waveform data; no source code. |
-| `public/music/queasy - somewhere east.ogg` | Runtime-served static asset for web build. | Encoded audio waveform data; no source code. |
+| `public/music/Music-InGame/*.mp3` | Runtime-served in-game soundtrack files for web and Electron builds. | Encoded audio waveform data; no source code. |
+| `public/music/Music-Menu/*.mp3` | Runtime-served menu soundtrack files for web and Electron builds. | Encoded audio waveform data; no source code. |
 | `public/sound/bhit0.wav` | Runtime-served static asset for web build. | Encoded audio waveform data; no source code. |
 | `public/sound/bigfire.wav` | Runtime-served static asset for web build. | Encoded audio waveform data; no source code. |
 | `public/sound/bigmissile.wav` | Runtime-served static asset for web build. | Encoded audio waveform data; no source code. |
