@@ -755,7 +755,6 @@ export class GameState {
         // Larger targets add screen shake
         this.pendingShakeMagnitude = Math.min(Camera.MAX_SHAKE, this.pendingShakeMagnitude + Math.min(4, target.radius * 0.12));
         // Explosion sound — size depends on entity type
-        const playerDist = this.player.position.distanceTo(target.position);
         if (
           target.type === EntityType.CommandPost ||
           target.type === EntityType.PowerGenerator ||
@@ -765,7 +764,7 @@ export class GameState {
           target.type === EntityType.ResearchLab ||
           target.type === EntityType.Factory
         ) {
-          Audio.playSoundAt('explode2', playerDist);
+          Audio.playSoundAt('explode2', target.position);
         } else if (
           target.type === EntityType.GatlingTurret ||
           target.type === EntityType.MissileTurret ||
@@ -776,17 +775,16 @@ export class GameState {
           target.type === EntityType.RegenTurret ||
           target.type === EntityType.PlayerShip
         ) {
-          Audio.playSoundAt('explode1', playerDist);
+          Audio.playSoundAt('explode1', target.position);
         } else {
-          Audio.playSoundAt('explode0', playerDist);
+          Audio.playSoundAt('explode0', target.position);
         }
       } else {
         // Non-fatal hit — play hit sound, emit directional impact sparks
         const hitAngle = Math.atan2(proj.velocity.y, proj.velocity.x);
         this.emitBuildingDamageSparks(target, proj.position);
         this.particles.emitImpact(target.position, hitAngle);
-        const playerDist = this.player.position.distanceTo(target.position);
-        Audio.playSoundAt('bhit0', playerDist);
+        Audio.playSoundAt('bhit0', target.position);
       }
       proj.destroy();
       return true;
@@ -1164,7 +1162,7 @@ export class GameState {
       this.emitBuildingDamageSparks(target, proj.position);
       this.particles.emitImpact(target.position, hitAngle);
       const playerDist = this.player.position.distanceTo(target.position);
-      Audio.playSoundAt('bhit0', playerDist);
+      Audio.playSoundAt('bhit0', target.position);
     }
   }
 
@@ -1228,7 +1226,6 @@ export class GameState {
   }
 
   private playEntityExplosionSound(target: Entity): void {
-    const playerDist = this.player.position.distanceTo(target.position);
     if (
       target.type === EntityType.CommandPost ||
       target.type === EntityType.PowerGenerator ||
@@ -1238,7 +1235,7 @@ export class GameState {
       target.type === EntityType.ResearchLab ||
       target.type === EntityType.Factory
     ) {
-      Audio.playSoundAt('explode2', playerDist);
+      Audio.playSoundAt('explode2', target.position);
     } else if (
       target.type === EntityType.GatlingTurret ||
       target.type === EntityType.MissileTurret ||
@@ -1249,9 +1246,9 @@ export class GameState {
       target.type === EntityType.RegenTurret ||
       target.type === EntityType.PlayerShip
     ) {
-      Audio.playSoundAt('explode1', playerDist);
+      Audio.playSoundAt('explode1', target.position);
     } else {
-      Audio.playSoundAt('explode0', playerDist);
+      Audio.playSoundAt('explode0', target.position);
     }
   }
 

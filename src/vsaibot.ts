@@ -864,12 +864,9 @@ export class VsAIDirector {
         this.ship.wantsFire = false;
       } else {
       this.ship.consumePrimaryFire(PRIMARY_FIRE_COOLDOWN);
-      const playerDist = state.player.alive
-        ? state.player.position.distanceTo(this.ship.position)
-        : 9999;
       state.addEntity(new Bullet(this.ship.team, this.ship.position.clone(),
         fireAngle, this.ship, liveGoalEntity ?? (state.player.alive ? state.player : null)));
-      Audio.playSoundAt('fire', playerDist);
+      Audio.playSoundAt('fire', this.ship.position);
       if (liveGoalEntity && aim) {
         recordCombatAimSample({
           shooterId: this.ship.id,
@@ -931,7 +928,7 @@ export class VsAIDirector {
     state.addEntity(new CrossLaserMine(this.ship.team, spawn, angle, speed, this.ship, state));
     this.ship.specialFireTimer = MINE_COOLDOWN_SECS;
     this.ship.battery -= MINE_BATTERY_COST;
-    Audio.playSoundAt('missile', state.player.alive ? state.player.position.distanceTo(this.ship.position) : 9999);
+    Audio.playSoundAt('missile', this.ship.position);
   }
 
   /** Set ship's desired move vector. `scale` 0..1 reduces effective magnitude. */

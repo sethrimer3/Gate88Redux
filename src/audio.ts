@@ -34,6 +34,26 @@ const MUSIC_OUTPUT_GAIN = Math.pow(10, MUSIC_DECIBEL_OFFSET / 20);
 const SFX_DECIBEL_OFFSET = -20;
 const SFX_OUTPUT_GAIN = Math.pow(10, SFX_DECIBEL_OFFSET / 20);
 
+// --- Spatialisation ------------------------------------------------------
+/** Within this radius of the player the sound plays at full volume / centre. */
+const SOUND_NEAR_DISTANCE = 120;
+/** Horizontal offset (world units) at which panning reaches a full ear. */
+const SOUND_PAN_REFERENCE = 540;
+
+export interface SoundPosition {
+  x: number;
+  y: number;
+}
+
+interface SpatialParams {
+  /** Stereo pan, -1 (left ear) .. +1 (right ear). */
+  pan: number;
+  /** Distance-dampening multiplier, 0 .. 1. */
+  gain: number;
+  /** Distance from the listener to the action, world units. */
+  dist: number;
+}
+
 function assetUrl(path: string): string {
   const base = ASSET_BASE_URL.endsWith('/') ? ASSET_BASE_URL : `${ASSET_BASE_URL}/`;
   return `${base}${path.replace(/^\/+/, '')}`;
@@ -55,6 +75,84 @@ class AudioManager {
   private sfxVolume = 0.5;
   private isMenuMusic = false;
   private recentInGameTracks: string[] = [];
+
+  // Listener (player) location for spatial sound effects.
+  private listenerX = 0;
+  private listenerY = 0;
+  private hasListener = false;
+
+  /**
+   * Update the location the player hears the world from. Call once per frame
+   * with the player's (or spectator camera's) world position. Sounds played
+   * via {@link playSoundAt} / {@link playLimitedSoundAt} are then panned to
+   * the ear the action is on and dampened with distance.
+   */
+  setListener(x: number, y: number): void {
+    this.listenerX = x;
+    this.listenerY = y;
+    this.hasListener = true;
+  }
+
+  /** Compute pan + distance dampening for an action at `pos`. */
+  private spatialFor(pos: SoundPosition | undefined, maxDist: number): SpatialParams {
+    if (!pos || !this.hasListener) return { pan: 0, gain: 1, dist: 0 };
+    const dx = pos.x - this.listenerX;
+    const dy = pos.y - this.listenerY;
+    const dist = Math.hypot(dx, dy);
+
+    let gain: number;
+    if (dist <= SOUND_NEAR_DISTANCE) {
+      gain = 1;
+    } else {
+      const span = Math.max(1, maxDist - SOUND_NEAR_DISTANCE);
+      const t = Math.max(0, 1 - (dist - SOUND_NEAR_DISTANCE) / span);
+      gain = t * t; // quadratic falloff – noticeably quieter further away
+    }
+
+    // Pan toward the ear the action is on. Ease panning back to centre when the
+    // action is almost on top of the player so nearby events don't hard-pan.
+    const proximity = Math.min(1, dist / SOUND_NEAR_DISTANCE);
+    const pan = Math.max(-1, Math.min(1, dx / SOUND_PAN_REFERENCE)) * proximity;
+    return { pan, gain, dist };
+  }
+
+  /** Build source -> [gain] -> [panner] -> sfxGain and start it. */
+  private playBuffer(
+    buffer: AudioBuffer,
+    volumeScale: number,
+    spatial: SpatialParams | null,
+    onEnded?: () => void,
+  ): boolean {
+    const ctx = this.ensureContext();
+    if (!this.sfxGain) return false;
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    if (onEnded) source.addEventListener('ended', onEnded, { once: true });
+
+    let node: AudioNode = source;
+    const effectiveVolume = Math.max(0, volumeScale) * (spatial ? spatial.gain : 1);
+    if (effectiveVolume !== 1) {
+      const gain = ctx.createGain();
+      gain.gain.value = effectiveVolume;
+      node.connect(gain);
+      node = gain;
+    }
+    if (spatial && spatial.pan !== 0 && typeof ctx.createStereoPanner === 'function') {
+      const panner = ctx.createStereoPanner();
+      panner.pan.value = spatial.pan;
+      node.connect(panner);
+      node = panner;
+    }
+    node.connect(this.sfxGain);
+
+    try {
+      source.start(0);
+      return true;
+    } catch {
+      onEnded?.();
+      return false;
+    }
+  }
 
   /** Lazily initialise the AudioContext (must happen after a user gesture). */
   private ensureContext(): AudioContext {
@@ -92,55 +190,33 @@ class AudioManager {
   }
 
   /** Play a sound effect by name. */
-  playSound(name: SoundName, volumeScale: number = 1): void {
-    const ctx = this.ensureContext();
+  playSound(name: SoundName, volumeScale: number = 1, spatial: SpatialParams | null = null): void {
     const buffer = this.soundBuffers.get(name);
-    if (!buffer || !this.sfxGain) return;
-
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    if (volumeScale === 1) {
-      source.connect(this.sfxGain);
-    } else {
-      const gain = ctx.createGain();
-      gain.gain.value = Math.max(0, volumeScale);
-      source.connect(gain);
-      gain.connect(this.sfxGain);
-    }
-    source.start(0);
+    if (!buffer) return;
+    this.playBuffer(buffer, volumeScale, spatial);
   }
 
-  playLimitedSound(name: SoundName, maxConcurrent: number, volumeScale: number = 1): void {
+  playLimitedSound(
+    name: SoundName,
+    maxConcurrent: number,
+    volumeScale: number = 1,
+    spatial: SpatialParams | null = null,
+  ): void {
     if (maxConcurrent <= 0) return;
     const active = this.activeSoundCounts.get(name) ?? 0;
     if (active >= maxConcurrent) return;
 
-    const ctx = this.ensureContext();
     const buffer = this.soundBuffers.get(name);
-    if (!buffer || !this.sfxGain) return;
+    if (!buffer) return;
 
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
     const finish = (): void => {
       const next = Math.max(0, (this.activeSoundCounts.get(name) ?? 1) - 1);
       if (next === 0) this.activeSoundCounts.delete(name);
       else this.activeSoundCounts.set(name, next);
     };
-    source.addEventListener('ended', finish, { once: true });
-    if (volumeScale === 1) {
-      source.connect(this.sfxGain);
-    } else {
-      const gain = ctx.createGain();
-      gain.gain.value = Math.max(0, volumeScale);
-      source.connect(gain);
-      gain.connect(this.sfxGain);
-    }
+
     this.activeSoundCounts.set(name, active + 1);
-    try {
-      source.start(0);
-    } catch {
-      finish();
-    }
+    this.playBuffer(buffer, volumeScale, spatial, finish);
   }
 
   /** Start the randomized in-game music rotation. */
@@ -324,21 +400,40 @@ class AudioManager {
   // -----------------------------------------------------------------------
 
   /**
-   * Play a sound only if it occurs within hearing range of the player.
-   * @param name - Sound to play.
-   * @param dist - Distance from the player to the event (world units).
+   * Play a sound positioned at the location of an in-world action (a shot
+   * fired, a hit landing, …). The sound is culled beyond `maxDist`, panned to
+   * the ear the action is on, and dampened the further it is from the player.
+   *
+   * @param name  - Sound to play.
+   * @param at    - World position of the action, or a plain distance number
+   *                for legacy callers (distance-only culling, no panning).
    * @param maxDist - Maximum audible distance (default 800).
    */
-  playSoundAt(name: SoundName, dist: number, maxDist: number = 800): void {
-    if (dist <= maxDist) {
-      this.playSound(name);
-    }
+  playSoundAt(name: SoundName, at: SoundPosition | number, maxDist: number = 800): void {
+    const spatial = this.resolveSpatial(at, maxDist);
+    if (!spatial) return;
+    this.playSound(name, 1, spatial);
   }
 
-  playLimitedSoundAt(name: SoundName, dist: number, maxConcurrent: number, maxDist: number = 800): void {
-    if (dist <= maxDist) {
-      this.playLimitedSound(name, maxConcurrent);
+  playLimitedSoundAt(
+    name: SoundName,
+    at: SoundPosition | number,
+    maxConcurrent: number,
+    maxDist: number = 800,
+  ): void {
+    const spatial = this.resolveSpatial(at, maxDist);
+    if (!spatial) return;
+    this.playLimitedSound(name, maxConcurrent, 1, spatial);
+  }
+
+  /** Returns spatial params, or null when the action is out of hearing range. */
+  private resolveSpatial(at: SoundPosition | number, maxDist: number): SpatialParams | null {
+    if (typeof at === 'number') {
+      return at <= maxDist ? { pan: 0, gain: 1, dist: at } : null;
     }
+    const spatial = this.spatialFor(at, maxDist);
+    if (this.hasListener && spatial.dist > maxDist) return null;
+    return spatial;
   }
 }
 

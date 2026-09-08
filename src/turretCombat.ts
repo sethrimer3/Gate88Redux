@@ -38,24 +38,23 @@ export function fireTurretShots(state: GameState, localTeam: Team): void {
     const angle = aimAngle(aim);
     if (b.type !== EntityType.ExciterTurret && angle === null) continue;
     if (angle !== null) b.turretAngle = angle;
-    const playerDist = state.player.position.distanceTo(b.position);
     if (b.type === EntityType.RegenTurret) {
       b.consumeShot();
       target.takeDamage(-10, b);
       state.particles.emitHealing(target.position);
       b.showBeam(target.position);
-      Audio.playSoundAt('regenbullet', playerDist);
+      Audio.playSoundAt('regenbullet', b.position);
     } else if (b.type === EntityType.MissileTurret) {
       b.consumeShot();
       state.addEntity(new Missile(b.team, b.position.clone(), angle ?? b.turretAngle, b, target));
-      Audio.playSoundAt('missile', playerDist);
+      Audio.playSoundAt('missile', b.position);
     } else if (b.type === EntityType.GatlingTurret) {
       b.consumeShot();
       const spread = (Math.random() - 0.5) * WEAPON_STATS.gatlingturret.spread;
       const fireAngle = (angle ?? b.turretAngle) + spread;
       state.addEntity(new GatlingTurretBullet(b.team, b.position.clone(), fireAngle, b));
       if (Math.random() < 0.25) state.particles.emitMuzzleFlash(b.position, fireAngle);
-      Audio.playLimitedSoundAt('shortbullet', playerDist, MAX_AUDIBLE_GATLING_TURRETS);
+      Audio.playLimitedSoundAt('shortbullet', b.position, MAX_AUDIBLE_GATLING_TURRETS);
     } else if (b.type === EntityType.ExciterTurret) {
       const targetPos = target.position.clone();
       const fireAngle = b.position.angleTo(targetPos);
@@ -64,17 +63,17 @@ export function fireTurretShots(state: GameState, localTeam: Team): void {
       b.consumeShot();
       state.addEntity(new ExciterBeam(b.team, b.position.clone(), end, b));
       damageLaserLine(state, null, b, b.position, end, WEAPON_STATS.exciterbeam.damage, 4);
-      Audio.playSoundAt('exciterbeam', playerDist);
+      Audio.playSoundAt('exciterbeam', b.position);
     } else if (b.type === EntityType.MassDriverTurret) {
       b.consumeShot();
       state.addEntity(new MassDriverBullet(b.team, b.position.clone(), angle ?? b.turretAngle, b));
-      Audio.playSoundAt('massdriverbullet', playerDist);
+      Audio.playSoundAt('massdriverbullet', b.position);
     } else {
       b.consumeShot();
       const fireAngle = angle ?? b.turretAngle;
       state.addEntity(new Bullet(b.team, b.position.clone(), fireAngle, b));
       state.particles.emitMuzzleFlash(b.position, fireAngle);
-      Audio.playSoundAt('fire', playerDist);
+      Audio.playSoundAt('fire', b.position);
     }
     recordCombatAimSample({
       shooterId: b.id,

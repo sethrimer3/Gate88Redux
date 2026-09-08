@@ -5,6 +5,16 @@ const { spawn } = require('node:child_process');
 const net = require('node:net');
 const http = require('node:http');
 
+const steamBridge = require('./steam/steamworksBridge.cjs');
+
+// Enable the Steam overlay for Electron (appends GPU command-line switches, so
+// must run before app is ready). Safe no-op if the native addon is missing.
+try {
+  require('steamworks.js').electronEnableSteamOverlay();
+} catch (e) {
+  console.warn('[Steam] overlay not enabled:', e && e.message ? e.message : e);
+}
+
 const REPO_ROOT = path.join(__dirname, '..');
 const DIST_INDEX = path.join(REPO_ROOT, 'dist', 'index.html');
 const USER_DATA_DIR = path.join(REPO_ROOT, '.electron-user-data');
@@ -263,10 +273,33 @@ function createWindow() {
   void win.loadFile(DIST_INDEX);
 }
 
+// Single-instance lock so a "Join Game" launch while the game is already
+// running is delivered to the existing instance via `second-instance` argv
+// instead of starting a duplicate process.
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
+
+app.on('second-instance', (_event, argv) => {
+  steamBridge.ingestLaunchArgs(argv);
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
+});
+
 app.whenReady().then(() => {
   installElectronCsp();
   void ensureLanHelperRunning();
   createWindow();
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win) {
+    // Lazy init: the bridge only calls steamworks.init() when the renderer first
+    // asks (Multiplayer menu). Pass { eager: true } to init at boot instead.
+    steamBridge.attach(win, { eager: process.env.SIGN99_STEAM_EAGER === '1' });
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -277,6 +310,7 @@ app.whenReady().then(() => {
 
 app.on('before-quit', () => {
   stopLanHelper();
+  steamBridge.dispose();
 });
 
 app.on('window-all-closed', () => {

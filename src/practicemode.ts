@@ -560,8 +560,6 @@ export class PracticeMode {
       if (!b.alive) continue;
       if (!b.canFire()) continue;
 
-      const playerDist = state.player.position.distanceTo(b.position);
-
       const target = b.targetEntity;
       if (!target) continue;
       const aim = b.computeAim(target);
@@ -574,7 +572,7 @@ export class PracticeMode {
         state.particles.emitHealing(target.position);
         const beamTarget = target.position;
         b.showBeam(beamTarget);
-        Audio.playSoundAt('regenbullet', playerDist);
+        Audio.playSoundAt('regenbullet', b.position);
       } else if (b.type === EntityType.MissileTurret) {
         b.consumeShot();
         if (isSynonymousFaction(state.factionByTeam, b.team)) {
@@ -582,16 +580,16 @@ export class PracticeMode {
           beam.damage = 1;
           beam.lifetime = 0.055;
           state.addEntity(beam);
-          Audio.playSoundAt('laser', playerDist);
+          Audio.playSoundAt('laser', b.position);
         } else {
           state.addEntity(new Missile(b.team, b.position.clone(), angle ?? b.turretAngle, b, target));
-          Audio.playSoundAt('missile', playerDist);
+          Audio.playSoundAt('missile', b.position);
         }
       } else if (b.type === EntityType.GatlingTurret) {
         b.consumeShot();
         const spread = (Math.random() - 0.5) * WEAPON_STATS.gatlingturret.spread;
         state.addEntity(new GatlingTurretBullet(b.team, b.position.clone(), (angle ?? b.turretAngle) + spread, b));
-        Audio.playLimitedSoundAt('shortbullet', playerDist, MAX_AUDIBLE_GATLING_TURRETS);
+        Audio.playLimitedSoundAt('shortbullet', b.position, MAX_AUDIBLE_GATLING_TURRETS);
       } else if (b.type === EntityType.ExciterTurret) {
         const fireAngle = b.position.angleTo(target.position);
         b.turretAngle = fireAngle;
@@ -599,15 +597,15 @@ export class PracticeMode {
         b.consumeShot();
         state.addEntity(new ExciterBeam(b.team, b.position.clone(), end, b));
         damageLaserLine(state, null, b, b.position, end, WEAPON_STATS.exciterbeam.damage, 4);
-        Audio.playSoundAt('exciterbeam', playerDist);
+        Audio.playSoundAt('exciterbeam', b.position);
       } else if (b.type === EntityType.MassDriverTurret) {
         b.consumeShot();
         state.addEntity(new MassDriverBullet(b.team, b.position.clone(), angle ?? b.turretAngle, b));
-        Audio.playSoundAt('massdriverbullet', playerDist);
+        Audio.playSoundAt('massdriverbullet', b.position);
       } else {
         b.consumeShot();
         state.addEntity(new Bullet(b.team, b.position.clone(), angle ?? b.turretAngle, b));
-        Audio.playSoundAt('fire', playerDist);
+        Audio.playSoundAt('fire', b.position);
       }
       recordCombatAimSample({
         shooterId: b.id,
