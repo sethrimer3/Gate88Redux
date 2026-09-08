@@ -52,6 +52,7 @@ import type { LobbyState, LobbySlot, AIDifficulty, MsgMatchStart, LanDiscoveredL
 import { factionLabel, RACE_SELECTIONS, type RaceSelection } from './confluence.js';
 import { WebRtcTransport, type WebRtcPeerConnectionState } from './online/webrtcTransport.js';
 import type { MultiplayerTransport } from './net/transport.js';
+import { SteamMultiplayerController } from './steam/SteamMultiplayerController.js';
 import type { OnlineLobbyRow } from './online/onlineLobby.js';
 import {
   createSupabaseClient,
@@ -83,6 +84,7 @@ export type MenuState =
   | 'online_multiplayer'
   | 'online_host_lobby'
   | 'online_join'
+  | 'steam_lobby'
   | 'none';
 
 export type MenuAction =
@@ -260,6 +262,29 @@ export class MainMenu {
   /** Online root/host status message for Supabase setup and lobby errors. */
   private _onlineStatus: string = '';
 
+  // -------------------------------------------------------------------------
+  // Steam multiplayer (desktop build only)
+  // -------------------------------------------------------------------------
+
+  /** Lazily created — only when the Steam bridge is present. */
+  private _steam: SteamMultiplayerController | null = null;
+  /** Seed for the Steam match, chosen when the host clicks Start. */
+  private _steamSeed = 0;
+
+  /** Get (creating on first use) the Steam controller, or null on non-Steam builds. */
+  private steam(): SteamMultiplayerController | null {
+    if (!SteamMultiplayerController.isAvailable()) return null;
+    if (!this._steam) {
+      this._steam = new SteamMultiplayerController();
+      this._steam.onChange = () => { /* redrawn every frame anyway */ };
+    }
+    return this._steam;
+  }
+
+  private leaveSteam(): void {
+    void this._steam?.leave();
+  }
+
   /** Hit rectangles registered during draw, consumed during update. */
   private hits: Array<{ rect: HitRect; key: string }> = [];
 
@@ -340,6 +365,16 @@ export class MainMenu {
     if (this.clickPulse) {
       this.clickPulse.t -= dt;
       if (this.clickPulse.t <= 0) this.clickPulse = null;
+    }
+
+    // Steam: pull a ready match-start bundle (host or client) into the shared
+    // online pending slot so game.ts consumes it exactly like the WebRTC path.
+    if (this._steam) {
+      const pending = this._steam.takePendingMatchStart();
+      if (pending) {
+        this._pendingOnlineMatchStart = pending;
+        this.pendingAction = pending.matchStart.mySlot === 0 ? 'start_online_host' : 'start_online_client';
+      }
     }
 
     // Resolve any pendingAction triggered last frame by setup-screen buttons.
@@ -512,6 +547,7 @@ export class MainMenu {
       case 'online_multiplayer':  this.drawOnlineMultiplayer(ctx, screenW, screenH); break;
       case 'online_host_lobby':   this.drawOnlineHostLobby(ctx, screenW, screenH); break;
       case 'online_join':         this.drawOnlineJoin(ctx, screenW, screenH); break;
+      case 'steam_lobby':         this.drawSteamLobby(ctx, screenW, screenH); break;
     }
 
     // Click-pulse overlay
@@ -2412,10 +2448,86 @@ export class MainMenu {
       }
     }
 
+    if (SteamMultiplayerController.isAvailable()) {
+      ctx.font = gameFont(11);
+      ctx.fillStyle = colorToCSS(Colors.radar_friendly_status, 0.85);
+      ctx.fillText('Steam detected — Steam-native lobbies & networking available.', cx, h * 0.5 + 40);
+      this.drawButtonRow(ctx, [
+        { label: 'Host via Steam', action: () => { this.setState('steam_lobby'); void this.steam()?.host({ maxMembers: 8, visibility: 'friends' }); } },
+        { label: 'Browse Steam', action: () => { this.setState('steam_lobby'); void this.steam()?.browse(); } },
+      ], cx, h * 0.5 + 76);
+    }
+
     this.drawButtonRow(ctx, [
       { label: 'LAN Multiplayer Instead', action: () => this.setState('lan_type') },
       { label: tr('common.back'), action: () => this.setState('play') },
     ], cx, h - 56);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Steam lobby screen (desktop build)
+  // ---------------------------------------------------------------------------
+
+  private drawSteamLobby(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    this.drawBackground(ctx, w, h);
+    this.drawBuildBadge(ctx, w);
+    const cx = w * 0.5;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.font = gameFont(26);
+    ctx.fillStyle = colorToCSS(TextColors.title);
+    ctx.fillText('STEAM MULTIPLAYER', cx, 62);
+
+    const ctrl = this.steam();
+    const st = ctrl?.state;
+
+    ctx.font = gameFont(12);
+    ctx.fillStyle = colorToCSS(
+      st?.phase === 'error' ? Colors.alert1 : Colors.radar_friendly_status, 0.9,
+    );
+    ctx.fillText(st?.status || 'Steam is not available in this build.', cx, 100);
+
+    if (st && st.members.length) {
+      ctx.font = gameFont(13);
+      let y = 150;
+      for (const m of st.members) {
+        ctx.fillStyle = colorToCSS(m.isLocal ? Colors.radar_friendly_status : Colors.radar_gridlines, 0.95);
+        ctx.fillText(
+          `Slot ${m.slot + 1}: ${m.name}${m.isOwner ? '  (host)' : ''}${m.isLocal ? '  — you' : ''}`,
+          cx, y,
+        );
+        y += 22;
+      }
+    }
+
+    if (st && st.phase === 'browsing' && st.browseResults.length) {
+      let y = 150;
+      for (const lb of st.browseResults.slice(0, 8)) {
+        this.drawButtonRow(ctx, [{
+          label: `${lb.hostName}  (${lb.memberCount}/${lb.maxMembers})`,
+          action: () => { void ctrl?.join(lb.id); },
+        }], cx, y);
+        y += 44;
+      }
+    }
+
+    const buttons: Array<{ label: string; action: () => void; emphasis?: boolean }> = [];
+    if (st && (st.phase === 'lobby_host' || st.phase === 'lobby_client')) {
+      buttons.push({ label: 'Invite Friend', action: () => { void ctrl?.invite(); } });
+    }
+    if (st && st.phase === 'lobby_host') {
+      buttons.push({
+        label: 'Start Match',
+        emphasis: true,
+        action: () => { this._steamSeed = Math.floor(Math.random() * 1e9); void ctrl?.startMatch(this._steamSeed); },
+      });
+    }
+    if (st && st.phase === 'browsing') {
+      buttons.push({ label: 'Refresh', action: () => { void ctrl?.browse(); } });
+    }
+    buttons.push({ label: tr('common.back'), action: () => { this.leaveSteam(); this.setState('online_multiplayer'); } });
+    this.drawButtonRow(ctx, buttons, cx, h - 56);
   }
 
   // ---------------------------------------------------------------------------
