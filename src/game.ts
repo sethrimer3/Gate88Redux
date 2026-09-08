@@ -26,6 +26,7 @@ import { TutorialMode } from './tutorial.js';
 import { AIShip, VsAIDirector } from './vsaibot.js';
 import { PlayerShip } from './ship.js';
 import { teamForSlot } from './teamutils.js';
+import { createMultiplayerSpawns } from './multiplayerSpawns.js';
 import { worldToCell, footprintCenter, GRID_CELL_SIZE } from './grid.js';
 import { footprintForBuildingType } from './buildingfootprint.js';
 import { gameFont } from './fonts.js';
@@ -1351,16 +1352,10 @@ export class Game {
       return teamForSlot(teamId);
     };
     const myTeam = teamForLobbySlot(this.lanMySlot);
-    const myFaction = resolveRaceSelection(myLobbySlot?.race ?? 'terran', matchStart.seed + this.lanMySlot * 0.37);
-    const playerStart = new Vec2(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
-    const startForSlot = (slotIndex: number): Vec2 => {
-      const radius = 180;
-      const angle = -Math.PI / 2 + slotIndex * (Math.PI * 2 / 8);
-      return new Vec2(
-        playerStart.x + Math.cos(angle) * radius,
-        playerStart.y + Math.sin(angle) * radius,
-      );
-    };
+    const spawns = createMultiplayerSpawns(matchStart.lobby.slots);
+    const startForSlot = (slotIndex: number): Vec2 =>
+      spawns.find((spawn) => spawn.slotIndex === slotIndex)?.position.clone()
+        ?? new Vec2(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
     const localStart = startForSlot(this.lanMySlot);
 
     // Build fresh game state for host slot 0.
@@ -1427,24 +1422,30 @@ export class Game {
       }
     }
 
-    // Command post for the local player.
-    const rawCpPos = new Vec2(localStart.x, localStart.y + 80);
-    const cpCell = worldToCell(rawCpPos);
-    const cpPos = footprintCenter(cpCell.cx, cpCell.cy, 6);
-    const cp = new CommandPost(cpPos, myTeam);
-    if (myFaction === 'synonymous') cp.synonymousVisualKind = 'base';
-    this.state.addEntity(cp);
-    this.state.setFaction(myTeam, myFaction);
-    this.state.ensureConfluenceSeedCircle(myTeam, cpPos);
-    this.state.ensureSynonymousSeedSwarm(myTeam, cpPos);
+    // Every occupied player/AI slot owns a separate starting base. Only the
+    // authoritative host needs to simulate all bases; clients create their
+    // local one immediately while waiting for the first snapshot.
+    const baseSpawns = isHost ? spawns : spawns.filter((spawn) => spawn.slotIndex === this.lanMySlot);
+    for (const spawn of baseSpawns) {
+      const slot = matchStart.lobby.slots.find((candidate) => candidate.slotIndex === spawn.slotIndex);
+      if (!slot) continue;
+      const team = teamForLobbySlot(spawn.slotIndex);
+      const faction = resolveRaceSelection(slot.race ?? 'terran', matchStart.seed + spawn.slotIndex * 0.37);
+      const cpCell = worldToCell(new Vec2(spawn.position.x, spawn.position.y + 80));
+      const cpPos = footprintCenter(cpCell.cx, cpCell.cy, 6);
+      const cp = new CommandPost(cpPos, team);
+      if (faction === 'synonymous') cp.synonymousVisualKind = 'base';
+      this.state.addEntity(cp);
+      this.state.ensureConfluenceSeedCircle(team, cpPos);
+      this.state.ensureSynonymousSeedSwarm(team, cpPos);
 
-    if (!isConfluenceFaction(this.state.factionByTeam, myTeam) && !isSynonymousFaction(this.state.factionByTeam, myTeam)) {
+      if (isConfluenceFaction(this.state.factionByTeam, team) || isSynonymousFaction(this.state.factionByTeam, team)) continue;
       const startCx = Math.floor(cpPos.x / GRID_CELL_SIZE);
       const startCy = Math.floor(cpPos.y / GRID_CELL_SIZE);
       for (let dx = -2; dx <= 2; dx++) {
         for (let dy = -2; dy <= 2; dy++) {
           if (Math.abs(dx) + Math.abs(dy) <= 2) {
-            this.state.grid.addConduit(startCx + dx, startCy + dy, myTeam);
+            this.state.grid.addConduit(startCx + dx, startCy + dy, team);
           }
         }
       }
@@ -1533,8 +1534,16 @@ export class Game {
     this.lanUnacknowledgedInputs = [];
     this.lanLastProcessedSeqPerSlot.clear();
 
-    const myTeam = teamForSlot(this.lanMySlot);
-    const playerStart = new Vec2(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
+    const teamForLobbySlot = (slotIndex: number): Team => {
+      const slot = matchStart.lobby.slots.find((candidate) => candidate.slotIndex === slotIndex);
+      return teamForSlot(Math.max(0, Math.min(7, slot?.teamId ?? slotIndex)));
+    };
+    const spawns = createMultiplayerSpawns(matchStart.lobby.slots);
+    const startForSlot = (slotIndex: number): Vec2 =>
+      spawns.find((spawn) => spawn.slotIndex === slotIndex)?.position.clone()
+        ?? new Vec2(WORLD_WIDTH * 0.5, WORLD_HEIGHT * 0.5);
+    const myTeam = teamForLobbySlot(this.lanMySlot);
+    const playerStart = startForSlot(this.lanMySlot);
 
     this.state = new GameState(playerStart);
     this.state.gameMode = isHost ? 'online_host' : 'online_client';
@@ -1542,7 +1551,7 @@ export class Game {
     for (const slot of matchStart.lobby.slots) {
       if (slot.type === 'open' || slot.type === 'closed') continue;
       this.state.setFaction(
-        teamForSlot(slot.slotIndex),
+        teamForLobbySlot(slot.slotIndex),
         resolveRaceSelection(slot.race ?? 'terran', matchStart.seed + slot.slotIndex * 0.37),
       );
     }
@@ -1566,11 +1575,6 @@ export class Game {
     this.spaceFluid.resize(this.screenW, this.screenH);
 
     // Local player ship.
-    const myFaction = resolveRaceSelection(
-      matchStart.lobby.slots.find((s) => s.slotIndex === this.lanMySlot)?.race ?? 'terran',
-      matchStart.seed + this.lanMySlot * 0.37,
-    );
-    void myFaction; // set via setFaction above
     this.state.playerShips.set(this.lanMySlot, new PlayerShip(playerStart, myTeam));
     if (this.lanMySlot !== 0) {
       this.state.playerShips.set(0, this.state.playerShips.get(this.lanMySlot)!);
@@ -1581,10 +1585,40 @@ export class Game {
       if (slot.type === 'human' && slot.slotIndex !== this.lanMySlot) {
         this.state.playerShips.set(
           slot.slotIndex,
-          new PlayerShip(playerStart.clone(), teamForSlot(slot.slotIndex)),
+          new PlayerShip(startForSlot(slot.slotIndex), teamForLobbySlot(slot.slotIndex)),
         );
       }
     }
+
+    // As with LAN, the host owns every starting base while a client creates
+    // its own immediately so the opening view is correct before sync arrives.
+    const baseSpawns = isHost ? spawns : spawns.filter((spawn) => spawn.slotIndex === this.lanMySlot);
+    for (const spawn of baseSpawns) {
+      const slot = matchStart.lobby.slots.find((candidate) => candidate.slotIndex === spawn.slotIndex);
+      if (!slot) continue;
+      const team = teamForLobbySlot(spawn.slotIndex);
+      const faction = resolveRaceSelection(slot.race ?? 'terran', matchStart.seed + spawn.slotIndex * 0.37);
+      const cpCell = worldToCell(new Vec2(spawn.position.x, spawn.position.y + 80));
+      const cpPos = footprintCenter(cpCell.cx, cpCell.cy, 6);
+      const cp = new CommandPost(cpPos, team);
+      if (faction === 'synonymous') cp.synonymousVisualKind = 'base';
+      this.state.addEntity(cp);
+      this.state.ensureConfluenceSeedCircle(team, cpPos);
+      this.state.ensureSynonymousSeedSwarm(team, cpPos);
+
+      if (isConfluenceFaction(this.state.factionByTeam, team) || isSynonymousFaction(this.state.factionByTeam, team)) continue;
+      const startCx = Math.floor(cpPos.x / GRID_CELL_SIZE);
+      const startCy = Math.floor(cpPos.y / GRID_CELL_SIZE);
+      for (let dx = -2; dx <= 2; dx++) {
+        for (let dy = -2; dy <= 2; dy++) {
+          if (Math.abs(dx) + Math.abs(dy) <= 2) {
+            this.state.grid.addConduit(startCx + dx, startCy + dy, team);
+          }
+        }
+      }
+    }
+    this.state.power.markDirty();
+    this.state.resources = 500;
 
     // Wire transport callbacks.
     if (isHost) {
